@@ -1,0 +1,301 @@
+"""
+mount.py — INDIGO Mount device.
+
+Handles:
+  - MOUNT_EQUATORIAL_COORDINATES (RA/DEC)
+  - MOUNT_HORIZONTAL_COORDINATES (AZ/ALT)
+  - MOUNT_TRACKING (ON/OFF)
+  - MOUNT_PARK (PARKED/UNPARKED)
+  - MOUNT_MOTION_DEC/RA (NORTH/SOUTH/WEST/EAST)
+  - MOUNT_ABORT_MOTION
+  - MOUNT_ON_COORDINATES_SET (TRACK/SLEW)
+  - MOUNT_SLEW_RATE (GUIDE/CENTERING/FIND/MAX)
+  - EQUATORIAL_EOD_COORD (INDI legacy)
+"""
+
+from __future__ import annotations
+
+import logging
+
+from .base import BaseDevice
+from ..protocol import PropertyVector, parse_sexagesimal
+
+log = logging.getLogger("indigo.mount")
+
+# Property names that identify a mount (INDIGO v2.0 + INDI v1.7 legacy)
+MOUNT_PROPERTIES = {
+    # INDIGO v2.0
+    "MOUNT_EQUATORIAL_COORDINATES",
+    "MOUNT_TRACKING",
+    "MOUNT_PARK",
+    "MOUNT_HORIZONTAL_COORDINATES",
+    "MOUNT_MOTION_DEC",
+    "MOUNT_MOTION_RA",
+    "MOUNT_ABORT_MOTION",
+    "MOUNT_ON_COORDINATES_SET",
+    "MOUNT_SLEW_RATE",
+    "MOUNT_SET_HOST_TIME",
+    "MOUNT_GEOGRAPHIC_COORDINATES",
+    "MOUNT_HOME",
+    "MOUNT_HOME_SET",
+    "MOUNT_PARK_SET",
+    # INDI legacy
+    "EQUATORIAL_EOD_COORD",
+    "HORIZONTAL_COORD",
+    "TELESCOPE_TRACK_STATE",
+    "TELESCOPE_PARK",
+    "TELESCOPE_ABORT_MOTION",
+    "TELESCOPE_SLEW_RATE",
+}
+
+
+class Mount(BaseDevice):
+    DEVICE_TYPE = "mount"
+
+    # Mapping: INDIGO v2.0 → INDI legacy alternatives
+    # When the server uses INDI legacy names, these maps tell us which
+    # property names and item names to use for commands.
+    PROP_ALIASES = {
+        "MOUNT_EQUATORIAL_COORDINATES": ["EQUATORIAL_EOD_COORD"],
+        "MOUNT_ON_COORDINATES_SET": [],  # not needed for INDI (slew is implicit)
+        "MOUNT_ABORT_MOTION": ["TELESCOPE_ABORT_MOTION"],
+        "MOUNT_PARK": ["TELESCOPE_PARK"],
+        "MOUNT_TRACKING": ["TELESCOPE_TRACK_STATE"],
+        "MOUNT_MOTION_DEC": ["TELESCOPE_MOTION_NS"],
+        "MOUNT_MOTION_RA": ["TELESCOPE_MOTION_WE"],
+        "MOUNT_SLEW_RATE": ["TELESCOPE_SLEW_RATE"],
+        "MOUNT_HOME": ["TELESCOPE_HOME"],
+        "MOUNT_HORIZONTAL_COORDINATES": ["HORIZONTAL_COORD"],
+    }
+
+    def __init__(self, name: str, client):
+        super().__init__(name, client)
+        # Coordinates
+        self.ra_hours: float = 0.0   # RA in hours
+        self.dec_deg: float = 0.0    # Dec in degrees
+        self.az_deg: float = 0.0
+        self.alt_deg: float = 0.0
+        # State
+        self.tracking: bool = False
+        self.slewing: bool = False
+        self.parked: bool = False
+        self.park_state: str = ""  # "PARKED", "UNPARKED", "PARKING", "UNPARKING"
+
+    # ── Name resolution ──────────────────────────────────────────
+
+    def _resolve_prop_name(self, primary: str) -> str:
+        """Return the property name that actually exists on the server.
+
+        Checks `self._properties` for the INDIGO v2.0 name first,
+        then tries each alias.  Returns whichever one is found, or
+        the primary name as a last resort (will fail server-side).
+        """
+        if primary in self._properties:
+            return primary
+        for alias in self.PROP_ALIASES.get(primary, []):
+            if alias in self._properties:
+                return alias
+        return primary  # not found — will produce an error on the server
+
+    def _resolve_item_name(self, prop_name: str, primary_item: str,
+                           alias_items: dict[str, str] | None = None) -> str:
+        """Return the item name that exists in the given property.
+
+        For properties where INDIGO and INDI use different item names
+        (e.g. CONNECT vs CONNECTED, PARKED vs PARK), this maps accordingly.
+        """
+        pv = self._properties.get(prop_name)
+        if pv is None:
+            return primary_item
+        # Direct match
+        if pv.get_item(primary_item):
+            return primary_item
+        # Try alias map
+        if alias_items:
+            for indigo_name, indi_name in alias_items.items():
+                if primary_item == indigo_name and pv.get_item(indi_name):
+                    return indi_name
+        return primary_item
+
+    def matches_property(self, prop_name: str) -> bool:
+        return prop_name.upper() in MOUNT_PROPERTIES
+
+    def _apply_def(self, pv: PropertyVector) -> None:
+        name = pv.name.upper()
+        log.debug("[%s] def %s", self.name, pv.name)
+
+        if name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
+            self._parse_coordinates(pv)
+        elif name in ("MOUNT_TRACKING", "TELESCOPE_TRACK_STATE"):
+            self._parse_tracking(pv)
+        elif name in ("MOUNT_PARK", "TELESCOPE_PARK"):
+            self._parse_park(pv)
+        elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
+            self._parse_horizontal(pv)
+
+    def _apply_set(self, pv: PropertyVector) -> None:
+        name = pv.name.upper()
+
+        if name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
+            self._parse_coordinates(pv)
+            log.debug("[%s] coords RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+        elif name in ("MOUNT_TRACKING", "TELESCOPE_TRACK_STATE"):
+            self._parse_tracking(pv)
+            log.debug("[%s] tracking=%s", self.name, self.tracking)
+        elif name in ("MOUNT_PARK", "TELESCOPE_PARK"):
+            self._parse_park(pv)
+            log.info("[%s] park=%s", self.name, self.parked)
+        elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
+            self._parse_horizontal(pv)
+
+    def _parse_coordinates(self, pv: PropertyVector) -> None:
+        ra_item = pv.get_item("RA")
+        dec_item = pv.get_item("DEC")
+        if ra_item and ra_item.value is not None:
+            v = parse_sexagesimal(str(ra_item.value))
+            if v is not None:
+                self.ra_hours = v
+        if dec_item and dec_item.value is not None:
+            v = parse_sexagesimal(str(dec_item.value))
+            if v is not None:
+                self.dec_deg = v
+
+    def _parse_tracking(self, pv: PropertyVector) -> None:
+        for name in ("ON", "TRACK_ON", "TRACK"):
+            item = pv.get_item(name)
+            if item is not None:
+                val = str(item.value).lower()
+                self.tracking = val in ("on", "true", "1", "enabled")
+                return
+
+    def _parse_park(self, pv: PropertyVector) -> None:
+        # INDI legacy: "PARK" switch, INDIGO v2.0: "PARKED"
+        for name in ("PARKED", "PARK"):
+            item = pv.get_item(name)
+            if item is not None:
+                val = str(item.value).lower()
+                self.parked = val in ("on", "true", "1", "enabled")
+                return
+
+    def _parse_horizontal(self, pv: PropertyVector) -> None:
+        az_item = pv.get_item("AZ")
+        alt_item = pv.get_item("ALT")
+        if az_item and az_item.value is not None:
+            v = parse_sexagesimal(str(az_item.value))
+            if v is not None:
+                self.az_deg = v
+        if alt_item and alt_item.value is not None:
+            v = parse_sexagesimal(str(alt_item.value))
+            if v is not None:
+                self.alt_deg = v
+
+    # ── Commands ─────────────────────────────────────────────────
+
+    async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
+        """GOTO: set coordinates and trigger slew."""
+        coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
+        items = [
+            {"name": "RA", "value": ra_hours},
+            {"name": "DEC", "value": dec_deg},
+        ]
+        await self.send_number(coords_prop, items)
+
+        # On INDIGO v2.0: explicit SLEW trigger needed
+        # On INDI legacy (OnStep): slew is implicit when EQUATORIAL_EOD_COORD is set
+        slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
+        if slew_prop in self._properties:
+            await self.send_switch(slew_prop, [{"name": "SLEW", "value": True}])
+
+    async def abort(self) -> None:
+        abort_prop = self._resolve_prop_name("MOUNT_ABORT_MOTION")
+        item = self._resolve_item_name(abort_prop, "ABORT_MOTION", {
+            "ABORT_MOTION": "ABORT",
+        })
+        await self.send_switch(abort_prop, [{ "name": item, "value": True }])
+        self.slewing = False
+
+    async def park(self) -> None:
+        park_prop = self._resolve_prop_name("MOUNT_PARK")
+        item = self._resolve_item_name(park_prop, "PARKED", {
+            "PARKED": "PARK",
+        })
+        await self.send_switch(park_prop, [{"name": item, "value": True}])
+
+    async def unpark(self) -> None:
+        park_prop = self._resolve_prop_name("MOUNT_PARK")
+        item = self._resolve_item_name(park_prop, "UNPARKED", {
+            "UNPARKED": "UNPARK",
+        })
+        await self.send_switch(park_prop, [{"name": item, "value": True}])
+
+    async def set_tracking(self, on: bool) -> None:
+        track_prop = self._resolve_prop_name("MOUNT_TRACKING")
+        # Determine correct item names for the server's naming scheme
+        pv = self._properties.get(track_prop)
+        if pv:
+            # INDI legacy: TRACK_ON / TRACK_OFF
+            # INDIGO v2.0: ON / OFF
+            if pv.get_item("TRACK_ON"):
+                on_item, off_item = "TRACK_ON", "TRACK_OFF"
+            elif pv.get_item("ON"):
+                on_item, off_item = "ON", "OFF"
+            else:
+                on_item, off_item = "ON", "OFF"
+        else:
+            on_item, off_item = "ON", "OFF"
+        items = [
+            {"name": on_item, "value": on},
+            {"name": off_item, "value": not on},
+        ]
+        await self.send_switch(track_prop, items)
+
+    async def move(self, direction: str, rate: str = "CENTERING") -> None:
+        """Start a manual move. direction: N/S/E/W"""
+        d = direction.upper()
+        if d in ("N", "S"):
+            motion_prop = self._resolve_prop_name("MOUNT_MOTION_DEC")
+            # Map: INDIGO NORTH/SOUTH → INDI MOTION_NORTH/MOTION_SOUTH
+            pv = self._properties.get(motion_prop)
+            if pv and pv.get_item("MOTION_NORTH"):
+                item = "MOTION_NORTH" if d == "N" else "MOTION_SOUTH"
+            else:
+                item = "NORTH" if d == "N" else "SOUTH"
+            await self.send_switch(motion_prop, [{"name": item, "value": True}])
+        elif d in ("E", "W"):
+            motion_prop = self._resolve_prop_name("MOUNT_MOTION_RA")
+            pv = self._properties.get(motion_prop)
+            if pv and pv.get_item("MOTION_EAST"):
+                item = "MOTION_EAST" if d == "E" else "MOTION_WEST"
+            else:
+                item = "EAST" if d == "E" else "WEST"
+            await self.send_switch(motion_prop, [{"name": item, "value": True}])
+
+    async def halt_move(self) -> None:
+        await self.abort()
+
+    async def set_slew_rate(self, rate_name: str) -> None:
+        """Set slew rate by item name (e.g. 'Guide', 'Centering', 'Find', 'Max')."""
+        slew_prop = self._resolve_prop_name("MOUNT_SLEW_RATE")
+        if slew_prop in self._properties:
+            pv = self._properties[slew_prop]
+            # Set the desired rate ON, all others OFF
+            items = [{"name": it.name, "value": it.name == rate_name} for it in pv.items]
+            await self.send_switch(slew_prop, items)
+
+    # ── State ────────────────────────────────────────────────────
+
+    def state_dict(self) -> dict:
+        return {
+            "type": "mount",
+            "name": self.name,
+            "connected": self.connected,
+            "ra_hours": self.ra_hours,
+            "dec_deg": self.dec_deg,
+            "az_deg": self.az_deg,
+            "alt_deg": self.alt_deg,
+            "tracking": self.tracking,
+            "slewing": self.slewing,
+            "parked": self.parked,
+            "properties": list(self._properties.keys()),
+            "props": self._serialize_properties(),
+        }

@@ -1,0 +1,9 @@
+# INDIGO server connection
+indigo:
+  host: "192.168.1.25"
+  port: 7624
+
+# Web server
+web:
+  host: "0.0.0.0"
+  port: 8080

@@ -1,0 +1,2175 @@
+{
+  "meta": {
+    "epoch": "J2000",
+    "source": "ofrohn Messier",
+    "version": "1.0",
+    "description": "110 objects"
+  },
+  "objects": [
+    {
+      "id": "M1",
+      "names": [
+        "Crab Nebula",
+        "NGC 1952"
+      ],
+      "type": "supernova_remnant_nebula",
+      "ra_deg": 83.625,
+      "dec_deg": 22.0167,
+      "mag": 8.4,
+      "size_arcmin": [
+        6.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M2",
+      "names": [
+        "NGC 7089"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 323.375,
+      "dec_deg": -0.8167,
+      "mag": 6.5,
+      "size_arcmin": [
+        13.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M3",
+      "names": [
+        "NGC 5272"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 205.55,
+      "dec_deg": 28.3833,
+      "mag": 6.4,
+      "size_arcmin": [
+        16.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M4",
+      "names": [
+        "NGC 6121"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 245.9,
+      "dec_deg": -26.5333,
+      "mag": 5.9,
+      "size_arcmin": [
+        26.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M5",
+      "names": [
+        "NGC 5904"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 229.65,
+      "dec_deg": 2.0833,
+      "mag": 5.8,
+      "size_arcmin": [
+        17.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M6",
+      "names": [
+        "Butterfly Cluster",
+        "NGC 6405"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 265.0249,
+      "dec_deg": -32.2167,
+      "mag": 4.2,
+      "size_arcmin": [
+        15.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M7",
+      "names": [
+        "Ptolemy´s Cluster",
+        "NGC 6475"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 268.475,
+      "dec_deg": -34.8167,
+      "mag": 3.3,
+      "size_arcmin": [
+        80.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M8",
+      "names": [
+        "Lagoon Nebula",
+        "NGC 6523"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 270.95,
+      "dec_deg": -24.3833,
+      "mag": 5.8,
+      "size_arcmin": [
+        90.0,
+        40.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M9",
+      "names": [
+        "NGC 6333"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 259.8,
+      "dec_deg": -18.5167,
+      "mag": 7.9,
+      "size_arcmin": [
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M10",
+      "names": [
+        "NGC 6254"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 254.2751,
+      "dec_deg": -4.1,
+      "mag": 6.6,
+      "size_arcmin": [
+        15.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M11",
+      "names": [
+        "Wild Duck Cluster",
+        "NGC 6705"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 282.775,
+      "dec_deg": -6.2667,
+      "mag": 5.8,
+      "size_arcmin": [
+        14.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M12",
+      "names": [
+        "NGC 6218"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 251.8001,
+      "dec_deg": -1.95,
+      "mag": 6.6,
+      "size_arcmin": [
+        14.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M13",
+      "names": [
+        "Great Hercules Cluster",
+        "NGC 6205"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 250.425,
+      "dec_deg": 36.4667,
+      "mag": 5.9,
+      "size_arcmin": [
+        17.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M14",
+      "names": [
+        "NGC 6402"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 264.4001,
+      "dec_deg": -3.25,
+      "mag": 7.6,
+      "size_arcmin": [
+        12.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M15",
+      "names": [
+        "NGC 7078"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 322.5,
+      "dec_deg": 12.1667,
+      "mag": 6.4,
+      "size_arcmin": [
+        12.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M16",
+      "names": [
+        "Eagle Nebula",
+        "NGC 6611"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 274.7,
+      "dec_deg": -13.7833,
+      "mag": 6.0,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M17",
+      "names": [
+        "Omega Nebula",
+        "NGC 6618"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 275.2,
+      "dec_deg": -16.1833,
+      "mag": 7.0,
+      "size_arcmin": [
+        46.0,
+        37.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M18",
+      "names": [
+        "NGC 6613"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 274.9751,
+      "dec_deg": -17.1333,
+      "mag": 6.9,
+      "size_arcmin": [
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M19",
+      "names": [
+        "NGC 6273"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 255.65,
+      "dec_deg": -26.2667,
+      "mag": 7.2,
+      "size_arcmin": [
+        14.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M20",
+      "names": [
+        "Trifid Nebula",
+        "NGC 6514"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 270.6499,
+      "dec_deg": -23.0333,
+      "mag": 8.5,
+      "size_arcmin": [
+        29.0,
+        27.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M21",
+      "names": [
+        "NGC 6531"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 271.1501,
+      "dec_deg": -22.5,
+      "mag": 5.9,
+      "size_arcmin": [
+        13.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M22",
+      "names": [
+        "NGC 6656"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 279.1001,
+      "dec_deg": -23.9,
+      "mag": 5.1,
+      "size_arcmin": [
+        24.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M23",
+      "names": [
+        "NGC 6494"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 269.2001,
+      "dec_deg": -19.0167,
+      "mag": 5.5,
+      "size_arcmin": [
+        27.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M24",
+      "names": [
+        "Milky Way patch"
+      ],
+      "type": "unknown",
+      "ra_deg": 274.225,
+      "dec_deg": -18.4833,
+      "mag": 4.5,
+      "size_arcmin": [
+        90.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "M25",
+      "names": [
+        "IC 4725"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 277.9,
+      "dec_deg": -19.25,
+      "mag": 4.6,
+      "size_arcmin": [
+        32.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "M26",
+      "names": [
+        "NGC 6694"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 281.2999,
+      "dec_deg": -9.4,
+      "mag": 8.0,
+      "size_arcmin": [
+        15.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M27",
+      "names": [
+        "Dumbbell Nebula",
+        "NGC 6853"
+      ],
+      "type": "planetary_nebula",
+      "ra_deg": 299.8999,
+      "dec_deg": 22.7167,
+      "mag": 8.1,
+      "size_arcmin": [
+        8.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M28",
+      "names": [
+        "NGC 6626"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 276.125,
+      "dec_deg": -24.8667,
+      "mag": 6.9,
+      "size_arcmin": [
+        11.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M29",
+      "names": [
+        "NGC 6913"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 305.975,
+      "dec_deg": 38.5333,
+      "mag": 6.6,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M30",
+      "names": [
+        "NGC 7099"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 325.0999,
+      "dec_deg": -23.1833,
+      "mag": 7.5,
+      "size_arcmin": [
+        11.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M31",
+      "names": [
+        "Andromeda",
+        "NGC 224"
+      ],
+      "type": "galaxy",
+      "ra_deg": 10.6751,
+      "dec_deg": 41.2667,
+      "mag": 3.4,
+      "size_arcmin": [
+        190.0,
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M32",
+      "names": [
+        "NGC 221"
+      ],
+      "type": "galaxy",
+      "ra_deg": 10.6751,
+      "dec_deg": 40.8667,
+      "mag": 8.2,
+      "size_arcmin": [
+        9.0,
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M33",
+      "names": [
+        "Triangulum",
+        "NGC 598"
+      ],
+      "type": "galaxy",
+      "ra_deg": 23.475,
+      "dec_deg": 30.65,
+      "mag": 5.7,
+      "size_arcmin": [
+        71.0,
+        42.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M34",
+      "names": [
+        "NGC 1039"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 40.5,
+      "dec_deg": 42.7833,
+      "mag": 5.2,
+      "size_arcmin": [
+        35.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M35",
+      "names": [
+        "NGC 2168"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 92.2249,
+      "dec_deg": 24.3333,
+      "mag": 5.1,
+      "size_arcmin": [
+        28.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M36",
+      "names": [
+        "NGC 1960"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 84.0251,
+      "dec_deg": 34.1333,
+      "mag": 6.0,
+      "size_arcmin": [
+        12.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M37",
+      "names": [
+        "NGC 2099"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 88.1,
+      "dec_deg": 32.55,
+      "mag": 5.6,
+      "size_arcmin": [
+        24.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M38",
+      "names": [
+        "NGC 1912"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 82.175,
+      "dec_deg": 35.8333,
+      "mag": 6.4,
+      "size_arcmin": [
+        21.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M39",
+      "names": [
+        "NGC 7092"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 323.0501,
+      "dec_deg": 48.4333,
+      "mag": 4.6,
+      "size_arcmin": [
+        32.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M40",
+      "names": [
+        "WN 4"
+      ],
+      "type": "unknown",
+      "ra_deg": 185.5999,
+      "dec_deg": 58.0833,
+      "mag": 8.0,
+      "size_arcmin": [
+        1
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "M41",
+      "names": [
+        "NGC 2287"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 101.75,
+      "dec_deg": -20.7333,
+      "mag": 4.5,
+      "size_arcmin": [
+        38.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M42",
+      "names": [
+        "Orion Nebula",
+        "NGC 1976"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 83.85,
+      "dec_deg": -5.45,
+      "mag": 4.0,
+      "size_arcmin": [
+        66.0,
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M43",
+      "names": [
+        "NGC 1982"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 83.9,
+      "dec_deg": -5.2667,
+      "mag": 9.0,
+      "size_arcmin": [
+        20.0,
+        15.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M44",
+      "names": [
+        "Praesepe",
+        "NGC 2632"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 130.025,
+      "dec_deg": 19.9833,
+      "mag": 3.1,
+      "size_arcmin": [
+        95.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M45",
+      "names": [
+        "Pleiades"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 56.75,
+      "dec_deg": 24.1167,
+      "mag": 1.2,
+      "size_arcmin": [
+        110.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "M46",
+      "names": [
+        "NGC 2437"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 115.4501,
+      "dec_deg": -14.8167,
+      "mag": 6.1,
+      "size_arcmin": [
+        27.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M47",
+      "names": [
+        "NGC 2422"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 114.15,
+      "dec_deg": -14.5,
+      "mag": 4.4,
+      "size_arcmin": [
+        30.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M48",
+      "names": [
+        "NGC 2548"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 123.45,
+      "dec_deg": -5.8,
+      "mag": 5.8,
+      "size_arcmin": [
+        54.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M49",
+      "names": [
+        "NGC 4472"
+      ],
+      "type": "galaxy",
+      "ra_deg": 187.4501,
+      "dec_deg": 8.0,
+      "mag": 8.4,
+      "size_arcmin": [
+        10.0,
+        8.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M50",
+      "names": [
+        "NGC 2323"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 105.8,
+      "dec_deg": -8.3333,
+      "mag": 5.9,
+      "size_arcmin": [
+        16.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M51",
+      "names": [
+        "Whirlpool",
+        "NGC 5194/5"
+      ],
+      "type": "galaxy",
+      "ra_deg": 202.4749,
+      "dec_deg": 47.2,
+      "mag": 8.1,
+      "size_arcmin": [
+        11.0,
+        8.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M52",
+      "names": [
+        "NGC 7654"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 351.05,
+      "dec_deg": 61.5833,
+      "mag": 6.9,
+      "size_arcmin": [
+        13.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M53",
+      "names": [
+        "NGC 5024"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 198.225,
+      "dec_deg": 18.1667,
+      "mag": 7.7,
+      "size_arcmin": [
+        13.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M54",
+      "names": [
+        "NGC 6715"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 283.7749,
+      "dec_deg": -30.4833,
+      "mag": 7.7,
+      "size_arcmin": [
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M55",
+      "names": [
+        "NGC 6809"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 295.0,
+      "dec_deg": -30.9667,
+      "mag": 7.0,
+      "size_arcmin": [
+        19.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M56",
+      "names": [
+        "NGC 6779"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 289.15,
+      "dec_deg": 30.1833,
+      "mag": 8.2,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M57",
+      "names": [
+        "Ring Nebula",
+        "NGC 6720"
+      ],
+      "type": "planetary_nebula",
+      "ra_deg": 283.3999,
+      "dec_deg": 33.0333,
+      "mag": 9.0,
+      "size_arcmin": [
+        1.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M58",
+      "names": [
+        "NGC 4579"
+      ],
+      "type": "galaxy",
+      "ra_deg": 189.425,
+      "dec_deg": 11.8167,
+      "mag": 9.8,
+      "size_arcmin": [
+        6.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M59",
+      "names": [
+        "NGC 4621"
+      ],
+      "type": "galaxy",
+      "ra_deg": 190.5,
+      "dec_deg": 11.65,
+      "mag": 9.8,
+      "size_arcmin": [
+        5.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M60",
+      "names": [
+        "NGC 4649"
+      ],
+      "type": "galaxy",
+      "ra_deg": 190.925,
+      "dec_deg": 11.55,
+      "mag": 8.8,
+      "size_arcmin": [
+        7.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M61",
+      "names": [
+        "NGC 4303"
+      ],
+      "type": "galaxy",
+      "ra_deg": 185.475,
+      "dec_deg": 4.4667,
+      "mag": 9.7,
+      "size_arcmin": [
+        7.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M62",
+      "names": [
+        "NGC 6266"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 255.3,
+      "dec_deg": -30.1167,
+      "mag": 6.6,
+      "size_arcmin": [
+        14.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M63",
+      "names": [
+        "Sunflower Galaxy",
+        "NGC 5055"
+      ],
+      "type": "galaxy",
+      "ra_deg": 198.95,
+      "dec_deg": 42.0333,
+      "mag": 8.6,
+      "size_arcmin": [
+        13.0,
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M64",
+      "names": [
+        "Blackeye Galaxy",
+        "NGC 4826"
+      ],
+      "type": "galaxy",
+      "ra_deg": 194.175,
+      "dec_deg": 21.6833,
+      "mag": 8.5,
+      "size_arcmin": [
+        10.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M65",
+      "names": [
+        "NGC 3623"
+      ],
+      "type": "galaxy",
+      "ra_deg": 169.725,
+      "dec_deg": 13.0833,
+      "mag": 9.3,
+      "size_arcmin": [
+        10.0,
+        3.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M66",
+      "names": [
+        "NGC 3627"
+      ],
+      "type": "galaxy",
+      "ra_deg": 170.0501,
+      "dec_deg": 12.9833,
+      "mag": 9.0,
+      "size_arcmin": [
+        9.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M67",
+      "names": [
+        "NGC 2682"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 132.6,
+      "dec_deg": 11.8167,
+      "mag": 6.9,
+      "size_arcmin": [
+        30.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M68",
+      "names": [
+        "NGC 4590"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 189.8749,
+      "dec_deg": -26.75,
+      "mag": 8.2,
+      "size_arcmin": [
+        12.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M69",
+      "names": [
+        "NGC 6637"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 277.85,
+      "dec_deg": -32.35,
+      "mag": 7.7,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M70",
+      "names": [
+        "NGC 6681"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 280.8,
+      "dec_deg": -32.3,
+      "mag": 8.1,
+      "size_arcmin": [
+        8.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M71",
+      "names": [
+        "NGC 6838"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 298.4501,
+      "dec_deg": 18.7833,
+      "mag": 8.3,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M72",
+      "names": [
+        "NGC 6981"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 313.3751,
+      "dec_deg": -12.5333,
+      "mag": 9.4,
+      "size_arcmin": [
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M73",
+      "names": [
+        "4 Star asterism",
+        "NGC 6994"
+      ],
+      "type": "unknown",
+      "ra_deg": 314.7251,
+      "dec_deg": -12.6333,
+      "mag": 10.0,
+      "size_arcmin": [
+        1
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M74",
+      "names": [
+        "NGC 628"
+      ],
+      "type": "galaxy",
+      "ra_deg": 24.1751,
+      "dec_deg": 15.7833,
+      "mag": 9.2,
+      "size_arcmin": [
+        11.0,
+        10.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M75",
+      "names": [
+        "NGC 6864"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 301.525,
+      "dec_deg": -21.9167,
+      "mag": 8.6,
+      "size_arcmin": [
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M76",
+      "names": [
+        "Little Dumbbell Nebula",
+        "NGC 650/1"
+      ],
+      "type": "planetary_nebula",
+      "ra_deg": 25.6001,
+      "dec_deg": 51.5667,
+      "mag": 11.5,
+      "size_arcmin": [
+        2.0,
+        1.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M77",
+      "names": [
+        "Cetus A",
+        "NGC 1068"
+      ],
+      "type": "galaxy",
+      "ra_deg": 40.6751,
+      "dec_deg": -0.0167,
+      "mag": 8.8,
+      "size_arcmin": [
+        7.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M78",
+      "names": [
+        "NGC 2068"
+      ],
+      "type": "reflection_nebula",
+      "ra_deg": 86.675,
+      "dec_deg": 0.05,
+      "mag": 8.0,
+      "size_arcmin": [
+        8.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M79",
+      "names": [
+        "NGC 1904"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 81.125,
+      "dec_deg": -24.55,
+      "mag": 8.0,
+      "size_arcmin": [
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M80",
+      "names": [
+        "NGC 6093"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 244.2499,
+      "dec_deg": -22.9833,
+      "mag": 7.2,
+      "size_arcmin": [
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M81",
+      "names": [
+        "Bode´s Galaxy",
+        "NGC 3031"
+      ],
+      "type": "galaxy",
+      "ra_deg": 148.8996,
+      "dec_deg": 69.0667,
+      "mag": 6.8,
+      "size_arcmin": [
+        27.0,
+        14.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M82",
+      "names": [
+        "Cigar Galaxy",
+        "NGC 3034"
+      ],
+      "type": "galaxy",
+      "ra_deg": 148.9496,
+      "dec_deg": 69.6833,
+      "mag": 8.4,
+      "size_arcmin": [
+        11.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M83",
+      "names": [
+        "Southern Pinwheel",
+        "NGC 5236"
+      ],
+      "type": "galaxy",
+      "ra_deg": 204.25,
+      "dec_deg": -29.8667,
+      "mag": 7.6,
+      "size_arcmin": [
+        13.0,
+        12.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M84",
+      "names": [
+        "NGC 4374"
+      ],
+      "type": "galaxy",
+      "ra_deg": 186.275,
+      "dec_deg": 12.8833,
+      "mag": 9.3,
+      "size_arcmin": [
+        7.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M85",
+      "names": [
+        "NGC 4382"
+      ],
+      "type": "galaxy",
+      "ra_deg": 186.35,
+      "dec_deg": 18.1833,
+      "mag": 9.2,
+      "size_arcmin": [
+        7.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M86",
+      "names": [
+        "NGC 4406"
+      ],
+      "type": "galaxy",
+      "ra_deg": 186.5501,
+      "dec_deg": 12.95,
+      "mag": 9.2,
+      "size_arcmin": [
+        9.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M87",
+      "names": [
+        "Virgo A",
+        "NGC 4486"
+      ],
+      "type": "galaxy",
+      "ra_deg": 187.7,
+      "dec_deg": 12.4,
+      "mag": 8.6,
+      "size_arcmin": [
+        8.0,
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M88",
+      "names": [
+        "NGC 4501"
+      ],
+      "type": "galaxy",
+      "ra_deg": 187.9999,
+      "dec_deg": 14.4167,
+      "mag": 9.5,
+      "size_arcmin": [
+        7.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M89",
+      "names": [
+        "NGC 4552"
+      ],
+      "type": "galaxy",
+      "ra_deg": 188.925,
+      "dec_deg": 12.55,
+      "mag": 9.8,
+      "size_arcmin": [
+        5.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M90",
+      "names": [
+        "NGC 4569"
+      ],
+      "type": "galaxy",
+      "ra_deg": 189.2,
+      "dec_deg": 13.1667,
+      "mag": 9.5,
+      "size_arcmin": [
+        10.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M91",
+      "names": [
+        "NGC 4548"
+      ],
+      "type": "galaxy",
+      "ra_deg": 188.85,
+      "dec_deg": 14.5,
+      "mag": 10.2,
+      "size_arcmin": [
+        5.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M92",
+      "names": [
+        "NGC 6341"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 259.275,
+      "dec_deg": 43.1333,
+      "mag": 6.5,
+      "size_arcmin": [
+        11.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M93",
+      "names": [
+        "NGC 2447"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 116.15,
+      "dec_deg": -23.8667,
+      "mag": 6.2,
+      "size_arcmin": [
+        22.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M94",
+      "names": [
+        "Cat’s Eye Galaxy",
+        "NGC 4736"
+      ],
+      "type": "galaxy",
+      "ra_deg": 192.725,
+      "dec_deg": 41.1167,
+      "mag": 8.1,
+      "size_arcmin": [
+        11.0,
+        9.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M95",
+      "names": [
+        "NGC 3351"
+      ],
+      "type": "galaxy",
+      "ra_deg": 161.0,
+      "dec_deg": 11.7,
+      "mag": 9.7,
+      "size_arcmin": [
+        3.0,
+        3.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M96",
+      "names": [
+        "NGC 3368"
+      ],
+      "type": "galaxy",
+      "ra_deg": 161.7,
+      "dec_deg": 11.8167,
+      "mag": 9.2,
+      "size_arcmin": [
+        8.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M97",
+      "names": [
+        "Owl Nebula",
+        "NGC 3587"
+      ],
+      "type": "planetary_nebula",
+      "ra_deg": 168.7001,
+      "dec_deg": 55.0167,
+      "mag": 11.2,
+      "size_arcmin": [
+        3.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M98",
+      "names": [
+        "NGC 4192"
+      ],
+      "type": "galaxy",
+      "ra_deg": 183.45,
+      "dec_deg": 14.9,
+      "mag": 10.1,
+      "size_arcmin": [
+        10.0,
+        3.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M99",
+      "names": [
+        "NGC 4254"
+      ],
+      "type": "galaxy",
+      "ra_deg": 184.7,
+      "dec_deg": 14.4167,
+      "mag": 9.8,
+      "size_arcmin": [
+        5.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M100",
+      "names": [
+        "NGC 4321"
+      ],
+      "type": "galaxy",
+      "ra_deg": 185.7251,
+      "dec_deg": 15.8167,
+      "mag": 9.4,
+      "size_arcmin": [
+        7.0,
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M101",
+      "names": [
+        "Pinwheel",
+        "NGC 5457"
+      ],
+      "type": "galaxy",
+      "ra_deg": 210.8,
+      "dec_deg": 54.35,
+      "mag": 7.7,
+      "size_arcmin": [
+        29.0,
+        27.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M102",
+      "names": [
+        "Spindle",
+        "NGC 5866"
+      ],
+      "type": "galaxy",
+      "ra_deg": 226.6226,
+      "dec_deg": 55.76,
+      "mag": 9.9,
+      "size_arcmin": [
+        5.0,
+        2.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M103",
+      "names": [
+        "NGC 581"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 23.3,
+      "dec_deg": 60.7,
+      "mag": 7.4,
+      "size_arcmin": [
+        6.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M104",
+      "names": [
+        "Sombrero",
+        "NGC 4594"
+      ],
+      "type": "galaxy",
+      "ra_deg": 190.0,
+      "dec_deg": -11.6167,
+      "mag": 8.3,
+      "size_arcmin": [
+        9.0,
+        4.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M105",
+      "names": [
+        "NGC 3379"
+      ],
+      "type": "galaxy",
+      "ra_deg": 161.9501,
+      "dec_deg": 12.5833,
+      "mag": 9.3,
+      "size_arcmin": [
+        5.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M106",
+      "names": [
+        "NGC 4258"
+      ],
+      "type": "galaxy",
+      "ra_deg": 184.7501,
+      "dec_deg": 47.3,
+      "mag": 8.3,
+      "size_arcmin": [
+        19.0,
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M107",
+      "names": [
+        "NGC 6171"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 248.125,
+      "dec_deg": -13.05,
+      "mag": 8.1,
+      "size_arcmin": [
+        10.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M108",
+      "names": [
+        "NGC 3556"
+      ],
+      "type": "galaxy",
+      "ra_deg": 167.8751,
+      "dec_deg": 55.6667,
+      "mag": 10.0,
+      "size_arcmin": [
+        9.0,
+        2.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M109",
+      "names": [
+        "NGC 3992"
+      ],
+      "type": "galaxy",
+      "ra_deg": 179.4,
+      "dec_deg": 53.3833,
+      "mag": 9.8,
+      "size_arcmin": [
+        8.0,
+        5.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    },
+    {
+      "id": "M110",
+      "names": [
+        "NGC 205"
+      ],
+      "type": "galaxy",
+      "ra_deg": 10.1,
+      "dec_deg": 41.6833,
+      "mag": 8.0,
+      "size_arcmin": [
+        22.0,
+        11.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc",
+        "messier"
+      ]
+    }
+  ]
+}

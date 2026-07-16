@@ -1,0 +1,69 @@
+{
+  "meta": {
+    "epoch": "J2000",
+    "source": "Sharpless Catalog (Sample)",
+    "version": "1.0"
+  },
+  "objects": [
+    {
+      "id": "Sh2-43",
+      "names": ["North America Nebula", "NGC 7000"],
+      "type": "nebula",
+      "ra_deg": 196.58,
+      "dec_deg": 41.55,
+      "mag": 4.0,
+      "size_arcmin": [110.0, 70.0],
+      "position_angle_deg": 25.0,
+      "constellation": "Cygnus",
+      "catalogs": ["sharpless", "ngc"]
+    },
+    {
+      "id": "Sh2-182",
+      "names": ["Omega Nebula", "NGC 6357"],
+      "type": "nebula",
+      "ra_deg": 294.08,
+      "dec_deg": -17.33,
+      "mag": 6.5,
+      "size_arcmin": [60.0, 40.0],
+      "position_angle_deg": 120.0,
+      "constellation": "Scorpius",
+      "catalogs": ["sharpless", "ngc"]
+    },
+    {
+      "id": "Sh2-150",
+      "names": ["Pelican Nebula", "NGC 3372"],
+      "type": "nebula",
+      "ra_deg": 84.96,
+      "dec_deg": -21.05,
+      "mag": 7.0,
+      "size_arcmin": [60.0, 35.0],
+      "position_angle_deg": 135.0,
+      "constellation": "Scorpius",
+      "catalogs": ["sharpless", "ngc"]
+    },
+    {
+      "id": "Sh2-87",
+      "names": ["Flame Nebula", "IC 410"],
+      "type": "nebula",
+      "ra_deg": 59.63,
+      "dec_deg": 28.17,
+      "mag": 6.0,
+      "size_arcmin": [45.0, 30.0],
+      "position_angle_deg": 60.0,
+      "constellation": "Monoceros",
+      "catalogs": ["sharpless", "ic"]
+    },
+    {
+      "id": "Sh2-146",
+      "names": ["Helix Nebula", "NGC 7293"],
+      "type": "nebula",
+      "ra_deg": 350.86,
+      "dec_deg": 18.22,
+      "mag": 7.0,
+      "size_arcmin": [90.0, 40.0],
+      "position_angle_deg": 170.0,
+      "constellation": "Aquarius",
+      "catalogs": ["sharpless", "ngc"]
+    }
+  ]
+}

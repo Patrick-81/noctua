@@ -1,0 +1,57 @@
+{
+  "meta": { "epoch": "J2000", "source": "IAU asterisms", "version": "1.0", "note": "Traditional constellation stick figures. 'from'/'to' reference star ids in stars.json" },
+  "lines": [
+    { "from": "Dubhe",      "to": "Merak",      "constellation": "Ursa Major" },
+    { "from": "Merak",      "to": "Phecda",     "constellation": "Ursa Major" },
+    { "from": "Phecda",     "to": "Megrez",     "constellation": "Ursa Major" },
+    { "from": "Megrez",     "to": "Dubhe",      "constellation": "Ursa Major" },
+    { "from": "Megrez",     "to": "Alioth",     "constellation": "Ursa Major" },
+    { "from": "Alioth",     "to": "Mizar",      "constellation": "Ursa Major" },
+    { "from": "Mizar",      "to": "Alkaid",     "constellation": "Ursa Major" },
+
+    { "from": "Schedar",    "to": "Caph",       "constellation": "Cassiopeia" },
+    { "from": "Caph",       "to": "GammaCas",   "constellation": "Cassiopeia" },
+    { "from": "GammaCas",   "to": "Ruchbah",    "constellation": "Cassiopeia" },
+    { "from": "Ruchbah",    "to": "Schedar",    "constellation": "Cassiopeia" },
+
+    { "from": "Alpheratz",  "to": "Mirach",     "constellation": "Andromeda" },
+    { "from": "Mirach",     "to": "Almak",      "constellation": "Andromeda" },
+    { "from": "Mirach",     "to": "Schedar",    "constellation": "Andromeda-Cassiopeia link" },
+
+    { "from": "Alpheratz",  "to": "Scheat",     "constellation": "Pegasus" },
+    { "from": "Scheat",     "to": "Markab",     "constellation": "Pegasus" },
+    { "from": "Markab",     "to": "Algenib",    "constellation": "Pegasus" },
+    { "from": "Algenib",    "to": "Alpheratz",  "constellation": "Pegasus" },
+    { "from": "Markab",     "to": "Enif",       "constellation": "Pegasus" },
+
+    { "from": "Deneb",      "to": "Sadr",       "constellation": "Cygnus" },
+    { "from": "Sadr",       "to": "Albireo",    "constellation": "Cygnus" },
+    { "from": "Deneb",      "to": "Albireo",    "constellation": "Cygnus" },
+
+    { "from": "Vega",       "to": "Deneb",      "constellation": "Summer Triangle" },
+    { "from": "Deneb",      "to": "Altair",     "constellation": "Summer Triangle" },
+    { "from": "Altair",     "to": "Vega",       "constellation": "Summer Triangle" },
+
+    { "from": "Betelgeuse", "to": "Bellatrix",  "constellation": "Orion" },
+    { "from": "Bellatrix",  "to": "Mintaka",    "constellation": "Orion" },
+    { "from": "Mintaka",    "to": "Alnilam",    "constellation": "Orion" },
+    { "from": "Alnilam",    "to": "Alnitak",    "constellation": "Orion" },
+    { "from": "Alnitak",    "to": "Saiph",      "constellation": "Orion" },
+    { "from": "Saiph",      "to": "Rigel",      "constellation": "Orion" },
+    { "from": "Rigel",      "to": "Mintaka",    "constellation": "Orion" },
+    { "from": "Betelgeuse", "to": "Alnitak",    "constellation": "Orion" },
+
+    { "from": "Capella",    "to": "Menkalinan", "constellation": "Auriga" },
+
+    { "from": "Castor",     "to": "Pollux",     "constellation": "Gemini" },
+
+    { "from": "Aldebaran",  "to": "Elnath",     "constellation": "Taurus" },
+
+    { "from": "Regulus",    "to": "Algieba",    "constellation": "Leo" },
+    { "from": "Algieba",    "to": "Denebola",   "constellation": "Leo" },
+    { "from": "Regulus",    "to": "Denebola",   "constellation": "Leo" },
+
+    { "from": "Dubhe",      "to": "Polaris",    "constellation": "Pointer to Polaris" },
+    { "from": "Merak",      "to": "Polaris",    "constellation": "Pointer to Polaris" }
+  ]
+}

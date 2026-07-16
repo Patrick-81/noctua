@@ -1,0 +1,567 @@
+{
+  "meta": {
+    "epoch": "J2000",
+    "source": "ofrohn bright DSOs",
+    "version": "1.0",
+    "description": "32 objects"
+  },
+  "objects": [
+    {
+      "id": "Cr 140",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 111.12,
+      "dec_deg": -31.85,
+      "mag": 3.5,
+      "size_arcmin": [
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "caldwell"
+      ]
+    },
+    {
+      "id": "Cr 399",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 291.555,
+      "dec_deg": 20.1,
+      "mag": 3.6,
+      "size_arcmin": [
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "caldwell"
+      ]
+    },
+    {
+      "id": "IC 2602",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 160.725,
+      "dec_deg": -64.4,
+      "mag": 1.9,
+      "size_arcmin": [
+        100.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ic"
+      ]
+    },
+    {
+      "id": "PGC 17223",
+      "names": [
+        "LMC"
+      ],
+      "type": "galaxy",
+      "ra_deg": 80.895,
+      "dec_deg": -69.75,
+      "mag": 0.4,
+      "size_arcmin": [
+        550.0,
+        170.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 6121",
+      "names": [
+        "M 4"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 83.82,
+      "dec_deg": -26.533,
+      "mag": 5.4,
+      "size_arcmin": [
+        26.3
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 6405",
+      "names": [
+        "M 6"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 265.08,
+      "dec_deg": -32.25,
+      "mag": 4.2,
+      "size_arcmin": [
+        20.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 6475",
+      "names": [
+        "M 7"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 268.47,
+      "dec_deg": -34.8,
+      "mag": 3.3,
+      "size_arcmin": [
+        80.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "M 8",
+      "names": [],
+      "type": "emission_nebula",
+      "ra_deg": 270.93,
+      "dec_deg": -24.383,
+      "mag": 5.0,
+      "size_arcmin": [
+        45.0,
+        30.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "NGC 6611",
+      "names": [
+        "M 16"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 274.695,
+      "dec_deg": -13.783,
+      "mag": 6.0,
+      "size_arcmin": [
+        7.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 224",
+      "names": [
+        "M 31"
+      ],
+      "type": "galaxy",
+      "ra_deg": 10.68,
+      "dec_deg": 41.267,
+      "mag": 3.4,
+      "size_arcmin": [
+        189.0,
+        61.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 598",
+      "names": [
+        "M 33"
+      ],
+      "type": "galaxy",
+      "ra_deg": 23.475,
+      "dec_deg": 30.65,
+      "mag": 5.7,
+      "size_arcmin": [
+        68.7,
+        41.6
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 1976",
+      "names": [
+        "M 42"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 83.82,
+      "dec_deg": -5.383,
+      "mag": 4.0,
+      "size_arcmin": [
+        90.0,
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2632",
+      "names": [
+        "M 44"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 130.005,
+      "dec_deg": 19.667,
+      "mag": 3.1,
+      "size_arcmin": [
+        95.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "M 45",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 56.745,
+      "dec_deg": 24.117,
+      "mag": 1.2,
+      "size_arcmin": [
+        100.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "messier"
+      ]
+    },
+    {
+      "id": "Cr 39",
+      "names": [
+        "Mel 20"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 51.075,
+      "dec_deg": 48.167,
+      "mag": 1.2,
+      "size_arcmin": [
+        185.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "caldwell"
+      ]
+    },
+    {
+      "id": "C 41",
+      "names": [
+        "Mel 25"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 66.75,
+      "dec_deg": 16.0,
+      "mag": 0.5,
+      "size_arcmin": [
+        330.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "caldwell"
+      ]
+    },
+    {
+      "id": "Cr 256",
+      "names": [
+        "Mel 111"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 186.27,
+      "dec_deg": 26.117,
+      "mag": 1.8,
+      "size_arcmin": [
+        275.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "caldwell"
+      ]
+    },
+    {
+      "id": "NGC 104",
+      "names": [
+        "47 Tuc"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 6.03,
+      "dec_deg": -72.08,
+      "mag": 4.0,
+      "size_arcmin": [
+        30.9
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 869",
+      "names": [
+        "h Per"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 34.75,
+      "dec_deg": 57.128,
+      "mag": 3.8,
+      "size_arcmin": [
+        30.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 884",
+      "names": [
+        "χ Per"
+      ],
+      "type": "open_cluster",
+      "ra_deg": 35.13,
+      "dec_deg": 57.13,
+      "mag": 3.8,
+      "size_arcmin": [
+        30.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2244",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 97.98,
+      "dec_deg": 4.95,
+      "mag": 4.8,
+      "size_arcmin": [
+        24.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2264",
+      "names": [],
+      "type": "emission_nebula",
+      "ra_deg": 100.245,
+      "dec_deg": 9.9,
+      "mag": 3.9,
+      "size_arcmin": [
+        20.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2362",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 109.68,
+      "dec_deg": -24.95,
+      "mag": 4.1,
+      "size_arcmin": [
+        8.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2451",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 116.325,
+      "dec_deg": -37.967,
+      "mag": 2.8,
+      "size_arcmin": [
+        50.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 2516",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 119.52,
+      "dec_deg": -60.75,
+      "mag": 3.8,
+      "size_arcmin": [
+        21.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 3372",
+      "names": [
+        "η Car"
+      ],
+      "type": "emission_nebula",
+      "ra_deg": 161.28,
+      "dec_deg": -59.867,
+      "mag": 1.0,
+      "size_arcmin": [
+        120.0,
+        120.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 3532",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 166.413,
+      "dec_deg": -58.753,
+      "mag": 3.0,
+      "size_arcmin": [
+        50.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 5139",
+      "names": [
+        "ω Cen"
+      ],
+      "type": "globular_cluster",
+      "ra_deg": 201.705,
+      "dec_deg": -47.483,
+      "mag": 3.9,
+      "size_arcmin": [
+        36.3
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 6231",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 253.545,
+      "dec_deg": -41.817,
+      "mag": 2.6,
+      "size_arcmin": [
+        15.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "NGC 292",
+      "names": [
+        "SMC"
+      ],
+      "type": "galaxy",
+      "ra_deg": 13.155,
+      "dec_deg": -72.8,
+      "mag": 2.3,
+      "size_arcmin": [
+        319.0,
+        205.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    },
+    {
+      "id": "IC 2391",
+      "names": [],
+      "type": "open_cluster",
+      "ra_deg": 130.133,
+      "dec_deg": -53.033,
+      "mag": 2.5,
+      "size_arcmin": [
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ic"
+      ]
+    },
+    {
+      "id": "GC",
+      "names": [
+        "GalCtr"
+      ],
+      "type": "unknown",
+      "ra_deg": 266.4041,
+      "dec_deg": -28.9362,
+      "mag": 1.0,
+      "size_arcmin": [
+        60.0
+      ],
+      "position_angle_deg": 0,
+      "constellation": "",
+      "catalogs": [
+        "ngc"
+      ]
+    }
+  ]
+}

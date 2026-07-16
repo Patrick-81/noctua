@@ -1,0 +1,10 @@
+venv/
+**/__pycache__/
+*.pyc
+*.pyo
+.git/
+/tmp/
+*.log
+*.parquet
+*.bsp
+duckdb-extensions/
