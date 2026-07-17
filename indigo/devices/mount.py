@@ -84,6 +84,8 @@ class Mount(BaseDevice):
         # GOTO target (to detect slew completion)
         self._target_ra: float | None = None
         self._target_dec: float | None = None
+        self._prev_ra: float = 0.0
+        self._prev_dec: float = 0.0
         # Manual move polling
         self._move_poll_task: asyncio.Task | None = None
 
@@ -212,6 +214,8 @@ class Mount(BaseDevice):
         self.slewing = True
         self._target_ra = ra_hours
         self._target_dec = dec_deg
+        self._prev_ra = self.ra_hours
+        self._prev_dec = self.dec_deg
         coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
         items = [
             {"name": "RA", "value": ra_hours},
@@ -224,6 +228,9 @@ class Mount(BaseDevice):
         slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
         if slew_prop in self._properties:
             await self.send_switch(slew_prop, [{"name": "SLEW", "value": True}])
+
+        # Start polling to detect slew completion
+        self._start_move_poll()
 
     async def abort(self) -> None:
         abort_prop = self._resolve_prop_name("MOUNT_ABORT_MOTION")
@@ -307,8 +314,26 @@ class Mount(BaseDevice):
 
     async def _move_poll_loop(self) -> None:
         try:
+            stable_count = 0
             while True:
                 await self._poll_coords()
+                # During GOTO: detect slew completion by coordinate stabilization
+                if self.slewing and self._target_ra is not None:
+                    ra_diff = abs(self.ra_hours - self._prev_ra) * 15
+                    dec_diff = abs(self.dec_deg - self._prev_dec)
+                    if ra_diff < 0.01 and dec_diff < 0.01:
+                        stable_count += 1
+                    else:
+                        stable_count = 0
+                    self._prev_ra = self.ra_hours
+                    self._prev_dec = self.dec_deg
+                    if stable_count >= 3:
+                        self.slewing = False
+                        self._target_ra = None
+                        self._target_dec = None
+                        log.info("[%s] slew complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        self._stop_move_poll()
+                        return
                 await asyncio.sleep(0.5)
         except asyncio.CancelledError:
             pass
