@@ -15,6 +15,7 @@ Handles:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from .base import BaseDevice
@@ -80,6 +81,8 @@ class Mount(BaseDevice):
         self.slewing: bool = False
         self.parked: bool = False
         self.park_state: str = ""  # "PARKED", "UNPARKED", "PARKING", "UNPARKING"
+        # Manual move polling
+        self._move_poll_task: asyncio.Task | None = None
 
     # ── Name resolution ──────────────────────────────────────────
 
@@ -193,6 +196,7 @@ class Mount(BaseDevice):
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: set coordinates and trigger slew."""
+        self.slewing = True
         coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
         items = [
             {"name": "RA", "value": ra_hours},
@@ -213,6 +217,7 @@ class Mount(BaseDevice):
         })
         await self.send_switch(abort_prop, [{ "name": item, "value": True }])
         self.slewing = False
+        await self._poll_coords()
 
     async def park(self) -> None:
         park_prop = self._resolve_prop_name("MOUNT_PARK")
@@ -269,9 +274,38 @@ class Mount(BaseDevice):
             else:
                 item = "EAST" if d == "E" else "WEST"
             await self.send_switch(motion_prop, [{"name": item, "value": True}])
+        # Poll coordinates during the move
+        self._start_move_poll()
+
+    def _start_move_poll(self) -> None:
+        """Start a background task that polls coordinates every 500ms."""
+        self._stop_move_poll()
+        self._move_poll_task = asyncio.get_running_loop().create_task(
+            self._move_poll_loop())
+
+    def _stop_move_poll(self) -> None:
+        if self._move_poll_task and not self._move_poll_task.done():
+            self._move_poll_task.cancel()
+        self._move_poll_task = None
+
+    async def _move_poll_loop(self) -> None:
+        try:
+            while True:
+                await self._poll_coords()
+                await asyncio.sleep(0.5)
+        except asyncio.CancelledError:
+            pass
 
     async def halt_move(self) -> None:
+        self._stop_move_poll()
         await self.abort()
+
+    async def _poll_coords(self) -> None:
+        """Request fresh coordinates from INDIGO after a move."""
+        try:
+            await self.client.send_get_properties(self.name, "EQUATORIAL_EOD_COORD")
+        except Exception:
+            pass
 
     async def set_slew_rate(self, rate_name: str) -> None:
         """Set slew rate by item name (e.g. 'Guide', 'Centering', 'Find', 'Max')."""

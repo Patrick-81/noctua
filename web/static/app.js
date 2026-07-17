@@ -40,7 +40,7 @@ function connectWS() {
             } else if (selectedDevice && devices[selectedDevice] && devices[selectedDevice].type === 'mount') {
                 renderMountPanel();
             } else if (selectedDevice) {
-                renderProps(selectedDevice);
+                try { renderProps(selectedDevice); } catch (e) { console.error('renderProps:', e); }
             }
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
@@ -93,8 +93,8 @@ function renderMountPanel() {
 
     const d = m.dev;
 
-    const raH = d.ra_hours || 0;
-    const decD = d.dec_deg || 0;
+    const raH = d.ra_hours != null ? d.ra_hours : 0;
+    const decD = d.dec_deg != null ? d.dec_deg : 0;
     document.getElementById('mount-ra-sexa').textContent = decToSexa(raH, true);
     document.getElementById('mount-ra-dec').textContent = raH.toFixed(4) + ' h';
     document.getElementById('mount-dec-sexa').textContent = decToSexa(decD, false);
@@ -147,9 +147,10 @@ function renderMountPanel() {
 
     // Update sky canvas crosshair
     if (skyCanvas) {
-        skyCanvas.telRa = d.ra_hours ? d.ra_hours * 15 : null;
-        skyCanvas.telDec = d.dec_deg || null;
-        skyCanvas.render();
+        skyCanvas.slewing = !!d.slewing;
+        const raDeg = d.ra_hours != null ? d.ra_hours * 15 : null;
+        const decDeg = d.dec_deg != null ? d.dec_deg : null;
+        skyCanvas.setTelPosition(raDeg, decDeg);
     }
 }
 
@@ -201,12 +202,14 @@ function mountGoto() {
 
 function mountMove(dir) {
     const m = findMount();
-    if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
+    if (!m) { addLog('error', 'mount', 'Pas de monture detectee — devices: ' + JSON.stringify(Object.keys(devices))); return; }
     const speed = document.getElementById('slew-speed').value;
+    addLog('debug', 'mount', `move ${dir} rate=${speed}`);
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });
 }
 
 function mountHaltMove() {
+    addLog('debug', 'mount', 'halt move');
     apiPost('/api/mount/halt');
 }
 
@@ -339,11 +342,14 @@ function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').r
 
 function addLog(level, logger, msg) {
     const el = document.getElementById('log');
+    if (!el) return;
     const time = new Date().toLocaleTimeString();
     const entry = document.createElement('div');
     entry.className = `log-entry ${level}`;
-    entry.dataset.level = level;
-    entry.innerHTML = `<span class="ts">${time}</span> <span class="logger">[${escapeHTML(logger)}]</span> <span class="msg">${escapeHTML(msg)}</span>`;
+    entry.dataset.level = level || 'info';
+    entry.dataset.logger = logger || '';
+    entry.dataset.msg = msg || '';
+    entry.innerHTML = `<span class="ts">${time}</span> <span class="logger">[${escapeHTML(logger || '')}]</span> <span class="msg">${escapeHTML(msg || '')}</span>`;
     el.appendChild(entry);
     logEntries.push(entry);
     while (logEntries.length > MAX_LOG) { const old = logEntries.shift(); old.remove(); }
@@ -352,6 +358,14 @@ function addLog(level, logger, msg) {
 }
 
 function clearLog() { document.getElementById('log').innerHTML = ''; logEntries = []; }
+
+function copyLog() {
+    const text = logEntries.map(e => `[${e.dataset.level}] [${e.dataset.logger}] ${e.dataset.msg}`).join('\n');
+    navigator.clipboard.writeText(text).then(
+        () => addLog('info', 'log', 'Log copié dans le presse-papier'),
+        () => addLog('warning', 'log', 'Échec copie')
+    );
+}
 
 function applyLogFilters() {
     const activeLevels = new Set();
@@ -401,36 +415,268 @@ async function initSkyCanvas() {
     const canvas = document.getElementById('sky-canvas');
     if (!canvas) return;
 
-    skyCanvas = new SkyCanvas(canvas, { centerRa: 0, centerDec: 20, fov: 42 });
+    // Fetch site config for horizon computation
+    let siteLat = 48.8566, siteLng = 2.3522, siteElev = 0;
+    try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        if (cfg.site) {
+            siteLat = cfg.site.latitude ?? siteLat;
+            siteLng = cfg.site.longitude ?? siteLng;
+            siteElev = cfg.site.elevation ?? siteElev;
+        }
+    } catch (e) {
+        addLog('warning', 'sky', 'Config site non disponible, défaut Paris');
+    }
+
+    skyCanvas = new SkyCanvas(canvas, {
+        centerRa: 0, centerDec: 20, fov: 42,
+        siteLat, siteLng, siteElev,
+    });
 
     try {
         await skyCanvas.loadCatalogs();
-        document.getElementById('sky-chart-wait').style.display = 'none';
-        document.getElementById('sky-chart-status').textContent = 'Carte prete';
     } catch (e) {
         addLog('error', 'sky', 'Erreur chargement catalogues: ' + e.message);
     }
+    document.getElementById('sky-chart-wait').style.display = 'none';
+    document.getElementById('sky-chart-status').textContent = skyCanvas.stars?.length ? 'Carte prête' : 'Erreur catalogues';
 }
+
+// ── D-pad (mouse + touch) ─────────────────────────────────────
+
+function initDpad() {
+    const dpad = document.querySelector('.dpad');
+    if (!dpad) return;
+
+    let activeDir = null;
+    let activeBtn = null;
+
+    function startMove(dir, btn) {
+        if (activeDir === dir) return;
+        if (activeDir) stopMove();
+        activeDir = dir;
+        activeBtn = btn;
+        if (btn) btn.classList.add('active');
+        mountMove(dir);
+    }
+
+    function stopMove() {
+        if (!activeDir) return;
+        if (activeBtn) activeBtn.classList.remove('active');
+        activeDir = null;
+        activeBtn = null;
+        mountHaltMove();
+    }
+
+    dpad.querySelectorAll('[data-direction]').forEach(btn => {
+        const dir = btn.dataset.direction;
+
+        btn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            btn.setPointerCapture(e.pointerId);
+            startMove(dir, btn);
+        });
+
+        btn.addEventListener('pointerup', (e) => {
+            e.preventDefault();
+            stopMove();
+        });
+
+        btn.addEventListener('pointercancel', () => stopMove());
+    });
+
+    document.addEventListener('pointerup', () => stopMove());
+
+    const stopBtn = document.getElementById('btn-dpad-stop');
+    if (stopBtn) stopBtn.addEventListener('click', () => { stopMove(); mountAbort(); });
+}
+
+// ── Action buttons ─────────────────────────────────────────────
+
+function initButtons() {
+    const bind = (id, fn) => {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('click', fn);
+    };
+
+    bind('btn-goto', mountGoto);
+    bind('btn-tracking', mountToggleTracking);
+    bind('btn-park', mountPark);
+    bind('btn-unpark', mountUnpark);
+    bind('btn-home', mountHome);
+    bind('btn-abort', mountAbort);
+    bind('log-clear', clearLog);
+    bind('log-copy', copyLog);
+
+    // Sky chart follow toggle
+    const followBtn = document.getElementById('sky-follow-btn');
+    if (followBtn) {
+        followBtn.addEventListener('click', () => {
+            if (skyCanvas) {
+                skyCanvas.followMode = !skyCanvas.followMode;
+                followBtn.className = 'set-btn ' + (skyCanvas.followMode ? 'sky-follow-on' : 'sky-follow-off');
+                followBtn.textContent = skyCanvas.followMode ? '\u25CE Suivre' : '\u25CE Libre';
+                addLog('info', 'sky', skyCanvas.followMode ? 'Suivi télescope activé' : 'Suivi télescope désactivé');
+            }
+        });
+    }
+
+    // Sky chart center on telescope
+    const centerBtn = document.getElementById('sky-center-btn');
+    if (centerBtn) {
+        centerBtn.addEventListener('click', () => {
+            if (skyCanvas) {
+                skyCanvas.centerOnTel();
+                addLog('info', 'sky', 'Carte centrée sur le télescope');
+            }
+        });
+    }
+
+    // ── Site config popup ─────────────────────────────────────
+    const siteOverlay = document.getElementById('site-popup-overlay');
+    const siteBtn = document.getElementById('sky-site-btn');
+    const siteClose = document.getElementById('site-popup-close');
+    const siteCancel = document.getElementById('site-cancel-btn');
+    const siteSave = document.getElementById('site-save-btn');
+    const siteGps = document.getElementById('site-gps-btn');
+    const siteName = document.getElementById('site-name');
+    const siteLat = document.getElementById('site-lat');
+    const siteLng = document.getElementById('site-lng');
+    const siteElev = document.getElementById('site-elev');
+    const siteTz = document.getElementById('site-tz');
+    const citySearch = document.getElementById('site-city-search');
+    const cityResults = document.getElementById('site-city-results');
+
+    function openSitePanel() {
+        // Pre-fill from current config
+        fetch('/api/site').then(r => r.json()).then(site => {
+            siteName.value = site.name || '';
+            siteLat.value = site.latitude ?? '';
+            siteLng.value = site.longitude ?? '';
+            siteElev.value = site.elevation ?? '';
+            // Match timezone option
+            const opt = siteTz.querySelector(`option[value="${site.timezone}"]`);
+            if (opt) siteTz.value = site.timezone;
+        }).catch(() => {});
+        siteOverlay.style.display = 'flex';
+        cityResults.style.display = 'none';
+        citySearch.value = '';
+    }
+
+    function closeSitePanel() {
+        siteOverlay.style.display = 'none';
+    }
+
+    if (siteBtn) siteBtn.addEventListener('click', openSitePanel);
+    if (siteClose) siteClose.addEventListener('click', closeSitePanel);
+    if (siteCancel) siteCancel.addEventListener('click', closeSitePanel);
+    if (siteOverlay) siteOverlay.addEventListener('click', (e) => {
+        if (e.target === siteOverlay) closeSitePanel();
+    });
+
+    // City search
+    if (citySearch) {
+        let searchTimeout = null;
+        citySearch.addEventListener('input', () => {
+            clearTimeout(searchTimeout);
+            const q = citySearch.value.trim();
+            if (q.length < 2) { cityResults.style.display = 'none'; return; }
+            searchTimeout = setTimeout(() => {
+                fetch(`/api/site/cities?q=${encodeURIComponent(q)}`).then(r => r.json()).then(cities => {
+                    if (!cities.length) { cityResults.style.display = 'none'; return; }
+                    cityResults.innerHTML = '';
+                    cities.forEach(c => {
+                        const div = document.createElement('div');
+                        div.className = 'city-item';
+                        div.innerHTML = `<span>${c.name}</span><span class="city-meta">${c.lat.toFixed(2)}°N ${c.lng.toFixed(2)}°E ${c.elev}m</span>`;
+                        div.addEventListener('click', () => {
+                            siteLat.value = c.lat;
+                            siteLng.value = c.lng;
+                            siteElev.value = c.elev;
+                            cityResults.style.display = 'none';
+                            citySearch.value = c.name;
+                        });
+                        cityResults.appendChild(div);
+                    });
+                    cityResults.style.display = 'block';
+                }).catch(() => { cityResults.style.display = 'none'; });
+            }, 300);
+        });
+        // Close city results on outside click
+        document.addEventListener('click', (e) => {
+            if (!e.target.closest('.site-city-row')) cityResults.style.display = 'none';
+        });
+    }
+
+    // GPS
+    if (siteGps) {
+        siteGps.addEventListener('click', () => {
+            if (!navigator.geolocation) { addLog('warning', 'site', 'Géolocalisation non supportée'); return; }
+            siteGps.textContent = '⏳ Localisation...';
+            siteGps.disabled = true;
+            navigator.geolocation.getCurrentPosition(
+                pos => {
+                    siteLat.value = pos.coords.latitude.toFixed(4);
+                    siteLng.value = pos.coords.longitude.toFixed(4);
+                    siteElev.value = Math.round(pos.coords.altitude || 0);
+                    siteGps.textContent = '📍 Géolocaliser (GPS)';
+                    siteGps.disabled = false;
+                    addLog('info', 'site', `GPS: ${pos.coords.latitude.toFixed(4)}°N ${pos.coords.longitude.toFixed(4)}°E ${Math.round(pos.coords.altitude || 0)}m`);
+                },
+                err => {
+                    addLog('warning', 'site', `GPS échoué: ${err.message}`);
+                    siteGps.textContent = '📍 Géolocaliser (GPS)';
+                    siteGps.disabled = false;
+                },
+                { enableHighAccuracy: true, timeout: 15000 }
+            );
+        });
+    }
+
+    // Save
+    if (siteSave) {
+        siteSave.addEventListener('click', async () => {
+            const body = {
+                name: siteName.value.trim(),
+                latitude: parseFloat(siteLat.value) || 0,
+                longitude: parseFloat(siteLng.value) || 0,
+                elevation: parseFloat(siteElev.value) || 0,
+                timezone: siteTz.value,
+            };
+            try {
+                await fetch('/api/site', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body),
+                });
+                addLog('info', 'site', `Lieu sauvegardé: ${body.name || '(sans nom)'} ${body.latitude.toFixed(4)}°N ${body.longitude.toFixed(4)}°E ${body.elevation}m`);
+                // Update sky chart horizon
+                if (skyCanvas) {
+                    skyCanvas.siteLat = body.latitude;
+                    skyCanvas.siteLng = body.longitude;
+                    skyCanvas.siteElev = body.elevation;
+                }
+                closeSitePanel();
+            } catch (e) {
+                addLog('error', 'site', `Erreur sauvegarde: ${e.message}`);
+            }
+        });
+    }
+}
+
+// Keep property panel globals for dynamically generated inline handlers
+window.setSwitchItem = setSwitchItem;
+window.setNumberItem = setNumberItem;
+window.setTextItem = setTextItem;
+window.mountGoto = mountGoto;
 
 // ── Init ───────────────────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('#log-filters input[type="checkbox"]').forEach(cb => cb.addEventListener('change', applyLogFilters));
     initResizer();
+    initDpad();
+    initButtons();
     initSkyCanvas();
     connectWS();
 });
-
-// Make mount functions globally accessible for inline handlers
-window.mountGoto = mountGoto;
-window.mountMove = mountMove;
-window.mountHaltMove = mountHaltMove;
-window.mountAbort = mountAbort;
-window.mountToggleTracking = mountToggleTracking;
-window.mountPark = mountPark;
-window.mountUnpark = mountUnpark;
-window.mountHome = mountHome;
-window.clearLog = clearLog;
-window.setSwitchItem = setSwitchItem;
-window.setNumberItem = setNumberItem;
-window.setTextItem = setTextItem;

@@ -1,4 +1,4 @@
-# CHECKPOINT — 16 juillet 2026
+# CHECKPOINT — 17 juillet 2026
 
 ## État actuel
 Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
@@ -33,26 +33,44 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [x] 9096 étoiles (BSC5), 743 segments constellation
 - [x] 110 Messier + 32 NGC/Caldwell
 - [x] Grille RA/Dec avec labels
-- [x] Crosshair télescope (rouge, mis à jour via WS)
+- [x] Crosshair télescope (rouge, glow, centre dot, label RA/Dec)
 - [x] Zoom molette (2°–120°)
 - [x] Pan drag (projection inverse stéréographique)
 - [x] Instantané — zéro clignotement, zéro round-trip serveur
+- [x] Suivi: centre la carte pendant les slews, désactivé au drag manuel
+- [x] Bouton « Suivre / Libre » dans la barre d'info
+- [x] Bouton « Centrer » pour recentrage manuel
+- [x] Ligne d'horizon + labels cardinaux (N/S/E/W + intercardinaux)
+- [x] Barre compass (azimut, ticks, labels N/NE/E/SE/S/SW/W/NW)
+
+### D-pad (corrigé)
+- [x] Remplacement mouse/touch events → Pointer Events (setPointerCapture)
+- [x] Suppression du `mouseleave` qui stoppait le move prématurément
+- [x] `pointerup` global document comme garde-fou
+- [x] Visuel : `.dpad-btn.active` avec glow bleu pendant le move
+- [x] Debug logging dans `mountMove()` et `mountHaltMove()`
+- [x] Bouton STOP : `stopMove()` + `mountAbort()`
+
+### Site d'observation (popup config)
+- [x] Backend: `/api/site` GET/POST (lit/écrit config.yaml)
+- [x] Backend: `/api/site/cities` (recherche fuzzy sur 122 villes)
+- [x] Base de données 122 villes mondiales (`web/cities.py`)
+- [x] Popup HTML: nom, ville (autocomplete), lat/lng, altitude, timezone, GPS
+- [x] CSS: overlay + panel + résultats autocomplete
+- [x] JS: open/close, city search debounced, GPS geolocation, save → POST
+- [x] Save met à jour le sky chart en temps réel (siteLat/siteLng/siteElev)
+- [x] config.yaml: schema complet (name/lat/lng/elevation/timezone)
 
 ## Ce qui ne marche pas / incomplet
 
 ### Bugs connus
-- [ ] D-pad : les boutons n'envoient pas de requête POST au serveur
-  - Hypothèse : `findMount()` retourne null ou erreur silencieuse JS
-  - Le serveur ne voit aucune requête POST quand on clique les boutons
-  - Le panneau monture s'affiche bien → le WS reçoit le state
-  - Les boutons utilisent `onmousedown`/`onmouseup` inline
+- [ ] D-pad : à tester avec le serveur réel (debug logging ajouté)
 
 ### Fonctionnalités manquantes
 - [ ] Caméra : pas de panneau dédié (juste les propriétés interactives)
 - [ ] Focuser : pas de panneau dédié
 - [ ] Search/sélecteur d'objets sur la carte
 - [ ] Indicateur FOV caméra sur la carte
-- [ ] Calibration site (lat/lng pour calcul altitude étoiles)
 - [ ] Gestion erreurs connexion INDIGO dans l'UI
 
 ### Architecture
@@ -61,23 +79,12 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [ ] Aucun test unitaire
 - [ ] Pas de CI/CD
 
-## Fichiers modifiés ce jour
-- `web/static/sky-canvas.js` — **nouveau** : renderer stéréographique client-side
-- `web/static/app.js` — réécrit : import ES module, sky-canvas, boutons dédiés
-- `web/static/index.html` — canvas unique remplace img+overlay
-- `web/static/style.css` — canvas styling
-- `web/server.py` — supprimé sky_chart/worker, ajouté mount endpoints, /catalogs
-- `requirements.txt` — starplot supprimé
-- `public/catalogs/` — copiés depuis indigo_xtens
-
-## Données serveur (dernière capture)
-```
-Monture: LX200 OnStep
-  RA:  15.0525 h (10h02m06.0s)
-  DEC:  90.0° (+90:00:00.0)
-  Tracking: OFF
-  Parked: false
-
-Caméra: SVBONY CCD SV305PRO
-  128 properties registered
-```
+## Fichiers modifiés ce jour (17 juillet)
+- `web/static/app.js` — D-pad (Pointer Events), debug, sky follow/center buttons, site popup logic
+- `web/static/sky-canvas.js` — crosshair, setTelPosition(), follow, horizon+compass, siteElev
+- `web/static/index.html` — sky-chart-info buttons, site popup overlay HTML
+- `web/static/style.css` — `.dpad-btn.active`, `.sky-follow-on/off`, popup styles
+- `web/server.py` — `/api/config`, `/api/site` GET/POST, `/api/site/cities`, config_path
+- `web/cities.py` — 122 villes + search_cities()
+- `run.py` — passes config_path to WebServer
+- `config.yaml` — schema site complet (name/lat/lng/elevation/timezone)

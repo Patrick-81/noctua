@@ -16,10 +16,12 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
+from .cities import search_cities
 from .weblog import handler as weblog_handler
 
 if TYPE_CHECKING:
@@ -49,8 +51,11 @@ class SanitizedJSONResponse(JSONResponse):
 
 
 class WebServer:
-    def __init__(self, registry: DeviceRegistry):
+    def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
+                 config_path: Path | None = None):
         self.registry = registry
+        self.site = site_config or {}
+        self.config_path = config_path
         self.app = FastAPI(title="INDIGO Devices")
         self._ws_clients: list[WebSocket] = []
 
@@ -83,6 +88,42 @@ class WebServer:
         @app.get("/api/drivers")
         async def get_drivers():
             return self.registry.drivers_list()
+
+        @app.get("/api/config")
+        async def get_config():
+            return {"site": self.site}
+
+        @app.get("/api/site")
+        async def get_site():
+            return {
+                "name": self.site.get("name", ""),
+                "latitude": self.site.get("latitude", 0.0),
+                "longitude": self.site.get("longitude", 0.0),
+                "elevation": self.site.get("elevation", 0.0),
+                "timezone": self.site.get("timezone", "UTC"),
+            }
+
+        @app.post("/api/site")
+        async def set_site(body: dict):
+            self.site = {
+                "name": body.get("name", ""),
+                "latitude": body.get("latitude", 0.0),
+                "longitude": body.get("longitude", 0.0),
+                "elevation": body.get("elevation", 0.0),
+                "timezone": body.get("timezone", "UTC"),
+            }
+            if self.config_path and self.config_path.exists():
+                with open(self.config_path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                cfg["site"] = self.site
+                with open(self.config_path, "w") as f:
+                    yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+                log.info("Site config saved to %s", self.config_path)
+            return {"ok": True, "site": self.site}
+
+        @app.get("/api/site/cities")
+        async def get_cities(q: str = ""):
+            return search_cities(q)
 
         @app.get("/api/mount")
         async def get_mount():
@@ -302,8 +343,19 @@ class WebServer:
         if not self._ws_clients:
             return
         payload = json.dumps(_sanitize({"type": "state", "devices": state}))
-        for ws in self._ws_clients[:]:
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
             try:
-                asyncio.get_event_loop().create_task(ws.send_text(payload))
+                await ws.send_text(payload)
             except Exception:
-                self._ws_clients.remove(ws)
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))
+
+    def _safe_remove_client(self, ws) -> None:
+        try:
+            self._ws_clients.remove(ws)
+        except ValueError:
+            pass

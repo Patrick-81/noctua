@@ -48,7 +48,7 @@
                             <div class="goto-row">
                                 <label>RA <input type="text" id="goto-ra" class="prop-input" placeholder="hh:mm:ss" value=""></label>
                                 <label>DEC <input type="text" id="goto-dec" class="prop-input" placeholder="dd:mm:ss" value=""></label>
-                                <button class="set-btn" onclick="mountGoto()">Slew</button>
+                                <button class="set-btn" id="btn-goto">Slew</button>
                             </div>
                         </div>
 
@@ -63,11 +63,11 @@
                                     <option value="Max">Max</option>
                                 </select>
                                 <div class="dpad">
-                                    <button class="dpad-btn dpad-n" onmousedown="mountMove('N')" onmouseup="mountHaltMove()">N</button>
-                                    <button class="dpad-btn dpad-w" onmousedown="mountMove('W')" onmouseup="mountHaltMove()">W</button>
-                                    <button class="dpad-btn dpad-stop" onclick="mountAbort()">STOP</button>
-                                    <button class="dpad-btn dpad-e" onmousedown="mountMove('E')" onmouseup="mountHaltMove()">E</button>
-                                    <button class="dpad-btn dpad-s" onmousedown="mountMove('S')" onmouseup="mountHaltMove()">S</button>
+                                    <button class="dpad-btn dpad-n" data-direction="N">N</button>
+                                    <button class="dpad-btn dpad-w" data-direction="W">W</button>
+                                    <button class="dpad-btn dpad-stop" id="btn-dpad-stop">STOP</button>
+                                    <button class="dpad-btn dpad-e" data-direction="E">E</button>
+                                    <button class="dpad-btn dpad-s" data-direction="S">S</button>
                                 </div>
                             </div>
                         </div>
@@ -76,11 +76,11 @@
                         <div class="mount-section">
                             <h3>Actions</h3>
                             <div class="controls">
-                                <button class="set-btn" onclick="mountToggleTracking()">Tracking</button>
-                                <button class="set-btn" onclick="mountPark()">Park</button>
-                                <button class="set-btn" onclick="mountUnpark()">Unpark</button>
-                                <button class="set-btn btn-home" onclick="mountHome()">Home</button>
-                                <button class="set-btn btn-abort" onclick="mountAbort()">Abort</button>
+                                <button class="set-btn" id="btn-tracking">Tracking</button>
+                                <button class="set-btn" id="btn-park">Park</button>
+                                <button class="set-btn" id="btn-unpark">Unpark</button>
+                                <button class="set-btn btn-home" id="btn-home">Home</button>
+                                <button class="set-btn btn-abort" id="btn-abort">Abort</button>
                             </div>
                         </div>
 
@@ -106,7 +106,101 @@
                 <div id="sky-chart-wait">Chargement des catalogues...</div>
             </div>
             <div id="sky-chart-info">
+                <button id="sky-site-btn" class="set-btn" title="Configurer le lieu d'observation">⊙ Lieu</button>
+                <button id="sky-center-btn" class="set-btn" title="Centrer sur le télescope">⊕ Centrer</button>
+                <button id="sky-follow-btn" class="set-btn sky-follow-on" title="Suivre le télescope pendant les slews">◎ Suivre</button>
                 <span id="sky-chart-status"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context menu for sky objects -->
+    <div id="obj-context-menu" class="obj-menu" style="display:none"></div>
+
+    <!-- Site config popup -->
+    <div id="site-popup-overlay" class="popup-overlay" style="display:none">
+        <div class="popup-panel">
+            <div class="popup-header">
+                <h2>Lieu d'observation</h2>
+                <button id="site-popup-close" class="popup-close">&times;</button>
+            </div>
+            <div class="popup-body">
+                <div class="site-field">
+                    <label>Nom du site</label>
+                    <input type="text" id="site-name" class="prop-input" placeholder="Ex: Jardin maison" style="width:100%">
+                </div>
+                <div class="site-field">
+                    <label>Ville</label>
+                    <div class="site-city-row">
+                        <input type="text" id="site-city-search" class="prop-input" placeholder="Rechercher une ville..." style="width:100%">
+                        <div id="site-city-results" class="city-results" style="display:none"></div>
+                    </div>
+                </div>
+                <div class="site-coords">
+                    <div class="site-field">
+                        <label>Latitude (°N)</label>
+                        <input type="number" id="site-lat" class="prop-input" step="0.0001" placeholder="48.8566">
+                    </div>
+                    <div class="site-field">
+                        <label>Longitude (°E)</label>
+                        <input type="number" id="site-lng" class="prop-input" step="0.0001" placeholder="2.3522">
+                    </div>
+                </div>
+                <div class="site-coords">
+                    <div class="site-field">
+                        <label>Altitude (m)</label>
+                        <input type="number" id="site-elev" class="prop-input" step="1" placeholder="0">
+                    </div>
+                    <div class="site-field">
+                        <label>Timezone</label>
+                        <select id="site-tz" class="prop-input" style="width:100%">
+                            <option value="UTC">UTC</option>
+                            <option value="Europe/Paris">Europe/Paris</option>
+                            <option value="Europe/London">Europe/London</option>
+                            <option value="Europe/Berlin">Europe/Berlin</option>
+                            <option value="Europe/Madrid">Europe/Madrid</option>
+                            <option value="Europe/Rome">Europe/Rome</option>
+                            <option value="Europe/Amsterdam">Europe/Amsterdam</option>
+                            <option value="Europe/Brussels">Europe/Brussels</option>
+                            <option value="Europe/Zurich">Europe/Zurich</option>
+                            <option value="Europe/Vienna">Europe/Vienna</option>
+                            <option value="Europe/Prague">Europe/Prague</option>
+                            <option value="Europe/Warsaw">Europe/Warsaw</option>
+                            <option value="Europe/Budapest">Europe/Budapest</option>
+                            <option value="Europe/Bucharest">Europe/Bucharest</option>
+                            <option value="Europe/Athens">Europe/Athens</option>
+                            <option value="Europe/Istanbul">Europe/Istanbul</option>
+                            <option value="Europe/Moscow">Europe/Moscow</option>
+                            <option value="America/New_York">America/New_York</option>
+                            <option value="America/Chicago">America/Chicago</option>
+                            <option value="America/Denver">America/Denver</option>
+                            <option value="America/Los_Angeles">America/Los_Angeles</option>
+                            <option value="America/Sao_Paulo">America/Sao_Paulo</option>
+                            <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
+                            <option value="America/Mexico_City">America/Mexico_City</option>
+                            <option value="America/Toronto">America/Toronto</option>
+                            <option value="Asia/Tokyo">Asia/Tokyo</option>
+                            <option value="Asia/Shanghai">Asia/Shanghai</option>
+                            <option value="Asia/Kolkata">Asia/Kolkata</option>
+                            <option value="Asia/Dubai">Asia/Dubai</option>
+                            <option value="Asia/Seoul">Asia/Seoul</option>
+                            <option value="Asia/Singapore">Asia/Singapore</option>
+                            <option value="Asia/Hong_Kong">Asia/Hong_Kong</option>
+                            <option value="Asia/Taipei">Asia/Taipei</option>
+                            <option value="Australia/Sydney">Australia/Sydney</option>
+                            <option value="Australia/Melbourne">Australia/Melbourne</option>
+                            <option value="Pacific/Auckland">Pacific/Auckland</option>
+                            <option value="Africa/Cairo">Africa/Cairo</option>
+                            <option value="Africa/Johannesburg">Africa/Johannesburg</option>
+                            <option value="Africa/Nairobi">Africa/Nairobi</option>
+                        </select>
+                    </div>
+                </div>
+                <button id="site-gps-btn" class="set-btn" style="width:100%;margin-top:0.3rem">📍 Géolocaliser (GPS)</button>
+            </div>
+            <div class="popup-footer">
+                <button id="site-save-btn" class="set-btn btn-save">Sauvegarder</button>
+                <button id="site-cancel-btn" class="set-btn">Annuler</button>
             </div>
         </div>
     </div>
@@ -120,7 +214,8 @@
                 <label><input type="checkbox" checked data-level="error"> error</label>
                 <label><input type="checkbox" data-level="debug"> debug</label>
             </div>
-            <button id="log-clear" onclick="clearLog()">Clear</button>
+            <button id="log-copy">Copier</button>
+            <button id="log-clear">Clear</button>
         </div>
         <div id="log"></div>
     </footer>

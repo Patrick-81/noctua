@@ -103,6 +103,9 @@ class IndigoClient:
                 recv_thread = threading.Thread(target=self._recv_thread, daemon=True)
                 recv_thread.start()
 
+                # Log raw messages for debugging
+                self.on_message = lambda msg: log.debug("RAW: %s", msg[:300])
+
                 # Start probe loop
                 probe_task = asyncio.create_task(self._probe_loop())
 
@@ -262,6 +265,10 @@ class IndigoClient:
             if self.on_message:
                 self._dispatch(self.on_message, msg)
             self._handle_xml(msg)
+
+        # Log raw buffer remainder for debugging
+        if complete_messages:
+            log.debug("Processed %d XML messages", len(complete_messages))
 
     def _handle_xml(self, xml_str: str) -> None:
         """Parse and dispatch a single XML message."""

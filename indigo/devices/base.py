@@ -91,6 +91,8 @@ class BaseDevice:
 
     def on_del(self, prop_name: str) -> None:
         self._properties.pop(prop_name, None)
+        if prop_name.upper() == "CONNECTION":
+            self.connected = False
 
     def _apply_def(self, pv: PropertyVector) -> None:
         log.debug("[%s] def %s (%d items)", self.name, pv.name, len(pv.items))

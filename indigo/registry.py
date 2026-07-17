@@ -87,6 +87,7 @@ class DeviceRegistry:
             self._devices.clear()
             self._auto_connecting.clear()
             log.info("All devices cleared (disconnected)")
+            self._emit_state()
 
     def _on_def(self, tag: str, pv: PropertyVector) -> None:
         """Handle a def*Vector — discover or update device."""
@@ -136,6 +137,11 @@ class DeviceRegistry:
         if not device_name:
             return
 
+        if pv.name.upper() == "CONNECTION":
+            log.info("[%s] CONNECTION set received: %s",
+                     device_name,
+                     [(it.name, it.value) for it in pv.items])
+
         dev = self._ensure_device(device_name)
         if dev:
             # Upgrade generic GenericDevice to specific type if needed
@@ -158,6 +164,8 @@ class DeviceRegistry:
 
     def _on_del(self, device_name: str, prop_name: str) -> None:
         """Handle delProperty."""
+        if prop_name:
+            log.info("[%s] delProperty: %s", device_name, prop_name)
         if not prop_name:
             # Entire device removed
             if device_name in self._devices:

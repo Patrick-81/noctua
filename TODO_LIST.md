@@ -3,11 +3,11 @@
 ## Priorité haute
 
 ### Bug D-pad
-- [ ] Diagnostiquer pourquoi les boutons D-pad n'envoient pas de POST au serveur
-- [ ] Vérifier que `findMount()` retourne un résultat dans le contexte du navigateur
-- [ ] Tester en ajoutant `console.log` dans `mountMove()`
-- [ ] Vérifier que les handlers `onmousedown`/`onmouseup` sont bien appelés
-- [ ] Alternative : passer les handlers en addEventListener dans `initSkyCanvas()`
+- [x] Diagnostiquer pourquoi les boutons D-pad n'envoient pas de POST au serveur
+- [x] Vérifier que `findMount()` retourne un résultat dans le contexte du navigateur
+- [x] Tester en ajoutant `console.log` dans `mountMove()`
+- [x] Vérifier que les handlers `onmousedown`/`onmouseup` sont bien appelés
+- [x] Alternative : passer les handlers en Pointer Events avec setPointerCapture
 
 ### Caméra (Phase A — contrôles)
 - [ ] Panneau caméra dédié (sélection device, exposition, température, binning)
@@ -21,6 +21,15 @@
 - [ ] Canvas image viewer avec auto-stretch (arcsinh)
 - [ ] Stretch manuel (power-law slider)
 - [ ] Réception BLOB frames (base64 + binary WS)
+
+### Site d'observation
+- [x] Backend: `/api/site` GET/POST (lit/écrit config.yaml)
+- [x] Backend: `/api/site/cities` (recherche fuzzy sur 122 villes)
+- [x] Base de données 122 villes mondiales (`web/cities.py`)
+- [x] Popup HTML: nom, ville (autocomplete), lat/lng, altitude, timezone, GPS
+- [x] CSS: overlay + panel + résultats autocomplete
+- [x] JS: open/close, city search debounced, GPS geolocation, save → POST
+- [x] Save met à jour le sky chart en temps réel
 
 ## Priorité moyenne
 
@@ -36,11 +45,19 @@
 - [ ] Indicateur FOV caméra sur la carte
 - [ ] Labels DSO plus lisibles (fond semi-transparent)
 - [ ] Performance : culling hors-écran pour les étoiles
+- [x] Crosshair amélioré (glow, centre dot, label RA/Dec)
+- [x] Auto-centrage sur position télescope
+- [x] Mode suivi pendant les slews
+- [x] Bouton Suivre/Libre + désactivation au pan manuel
+- [x] Ligne d'horizon + labels cardinaux (N/S/E/W + intercardinaux)
+- [x] Barre compass (azimut, ticks, labels N/NE/E/SE/S/SW/W/NW)
 
 ### UI
 - [ ] Indicateur état connexion INDIGO dans header
 - [ ] Notification toast pour erreurs API
 - [ ] Responsive mobile (pour tablette à lalescope)
+- [x] D-pad: Pointer Events avec setPointerCapture (robuste touch+mouse)
+- [x] D-pad: visuel actif (glow bleu) pendant le move
 
 ## Priorité basse
 
