@@ -15,6 +15,7 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [x] Résolution noms INDIGO v2.0 ↔ INDI legacy (PROP_ALIASES)
 - [x] Assainissement NaN/Inf pour JSON
 - [x] WebLogHandler — logs Python → WebSocket
+- [x] `_safe_send()` — wrapper WS send anti-flood (évite erreurs ConnectionClosedOK)
 
 ### Frontend JS
 - [x] WebSocket état temps réel + logs
@@ -27,12 +28,13 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [x] Badges tracking/park/slewing
 - [x] Panneau propriétés interactives (switch/number/text, groupes pliables)
 - [x] Canvas carte stéréographique client-side (sky-canvas.js)
+- [x] Bouton « Copier » dans le header du log (copyLog)
 
 ### Carte céleste (sky-canvas.js)
-- [x] Projection stéréographique en JS pur
+- [x] Projection stéréographique en JS pur (centre = chartH/2)
 - [x] 9096 étoiles (BSC5), 743 segments constellation
 - [x] 110 Messier + 32 NGC/Caldwell
-- [x] Grille RA/Dec avec labels
+- [x] Grille RA/Dec (sans labels — causait des artefacts)
 - [x] Crosshair télescope (rouge, glow, centre dot, label RA/Dec)
 - [x] Zoom molette (2°–120°)
 - [x] Pan drag (projection inverse stéréographique)
@@ -41,7 +43,15 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [x] Bouton « Suivre / Libre » dans la barre d'info
 - [x] Bouton « Centrer » pour recentrage manuel
 - [x] Ligne d'horizon + labels cardinaux (N/S/E/W + intercardinaux)
-- [x] Barre compass (azimut, ticks, labels N/NE/E/SE/S/SW/W/NW)
+- [x] Barre compass (azimut projeté via _altAzToRaDec + _project, ticks, labels)
+- [x] Voile sud — overlay semi-transparent sous l'horizon (polygon trié par x)
+- [x] Context menu clic droit — hit test étoiles/Messier/NGC, popup coords + GOTO
+- [x] GOTO direct depuis context menu (bypass sexaToDec, envoie ra_hours/dec_deg)
+- [x] Canvas clip region pour séparer chart de compass bar
+- [x] try/finally dans render() pour ctx.restore() garanti
+- [x] try/catch dans render() — erreurs jamais propagées aux callers
+- [x] try/catch séparé pour compass bar — erreurs compass n'arrêtent pas le chart
+- [x] Render errors loggées en console.error pour debug
 
 ### D-pad (corrigé)
 - [x] Remplacement mouse/touch events → Pointer Events (setPointerCapture)
@@ -80,11 +90,11 @@ Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
 - [ ] Pas de CI/CD
 
 ## Fichiers modifiés ce jour (17 juillet)
-- `web/static/app.js` — D-pad (Pointer Events), debug, sky follow/center buttons, site popup logic
-- `web/static/sky-canvas.js` — crosshair, setTelPosition(), follow, horizon+compass, siteElev
-- `web/static/index.html` — sky-chart-info buttons, site popup overlay HTML
-- `web/static/style.css` — `.dpad-btn.active`, `.sky-follow-on/off`, popup styles
-- `web/server.py` — `/api/config`, `/api/site` GET/POST, `/api/site/cities`, config_path
+- `web/static/app.js` — D-pad (Pointer Events), debug, sky follow/center buttons, site popup logic, wait overlay fix
+- `web/static/sky-canvas.js` — crosshair, setTelPosition(), follow, horizon+compass+veil, context menu, render try/catch
+- `web/static/index.html` — sky-chart-info buttons, site popup overlay HTML, context menu div
+- `web/static/style.css` — `.dpad-btn.active`, `.sky-follow-on/off`, popup styles, `#sky-chart-wait pointer-events: none`
+- `web/server.py` — `/api/config`, `/api/site` GET/POST, `/api/site/cities`, `/api/mount/slew`, `_safe_send()`
 - `web/cities.py` — 122 villes + search_cities()
 - `run.py` — passes config_path to WebServer
 - `config.yaml` — schema site complet (name/lat/lng/elevation/timezone)

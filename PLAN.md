@@ -29,18 +29,19 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser) via une interf
 | `indigo/devices/mount.py` | Monture — résolution noms INDIGO↔INDI, commands |
 | `indigo/devices/camera.py` | Caméra CCD |
 | `indigo/devices/focuser.py` | Focuser |
-| `web/server.py` | FastAPI REST/WS, static files, endpoints monture |
+| `web/server.py` | FastAPI REST/WS, static files, endpoints monture/site |
 | `web/weblog.py` | Handler Python → WebSocket (logs temps réel) |
-| `web/sky_chart.py]` | **Obsolète** — gardé comme archive (ancien renderer starplot) |
+| `web/cities.py` | 122 villes mondiales + recherche fuzzy |
+| `web/sky_chart.py` | **Obsolète** — gardé comme archive (ancien renderer starplot) |
 
 ## Modules Frontend
 
 | Fichier | Rôle |
 |---|---|
-| `web/static/index.html` | Layout split (gauche contrôles / droite carte) |
-| `web/static/app.js` | WS client, panneau monture, propriétés interactives |
-| `web/static/sky-canvas.js` | Canvas stéréographique pur client-side |
-| `web/static/style.css` | Dark theme, split layout, monture, carte |
+| `web/static/index.html` | Layout split (gauche contrôles / droite carte), site popup, context menu |
+| `web/static/app.js` | WS client, panneau monture, propriétés interactives, site config |
+| `web/static/sky-canvas.js` | Canvas stéréographique pur client-side (horizon, compass, context menu) |
+| `web/static/style.css` | Dark theme, split layout, monture, carte, popups |
 
 ## Endpoints API
 
@@ -56,6 +57,10 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser) via une interf
 | POST | `/api/mount/park` | Park |
 | POST | `/api/mount/unpark` | Unpark |
 | POST | `/api/property` | Setter générique (switch/number/text) |
+| GET | `/api/site` | Lire site d'observation (config.yaml) |
+| POST | `/api/site` | Sauvegarder site d'observation |
+| GET | `/api/site/cities?q=` | Recherche fuzzy de villes (122 villes) |
+| GET | `/api/config` | Configuration complète |
 | GET | `/ws` | WebSocket état temps réel + logs |
 
 ## Données catalogue

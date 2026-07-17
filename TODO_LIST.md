@@ -41,7 +41,7 @@
 
 ### Carte céleste améliorations
 - [ ] Sélecteur d'objets (recherche par nom/catalogue)
-- [ ] Clic sur objet → info popup + GOTO
+- [x] Clic sur objet → info popup + GOTO (context menu)
 - [ ] Indicateur FOV caméra sur la carte
 - [ ] Labels DSO plus lisibles (fond semi-transparent)
 - [ ] Performance : culling hors-écran pour les étoiles
@@ -50,7 +50,11 @@
 - [x] Mode suivi pendant les slews
 - [x] Bouton Suivre/Libre + désactivation au pan manuel
 - [x] Ligne d'horizon + labels cardinaux (N/S/E/W + intercardinaux)
-- [x] Barre compass (azimut, ticks, labels N/NE/E/SE/S/SW/W/NW)
+- [x] Barre compass (azimut projeté, ticks, labels N/NE/E/SE/S/SW/W/NW)
+- [x] Voile sud (overlay semi-transparent sous l'horizon)
+- [x] GOTO direct depuis context menu
+- [x] Canvas clip region + try/finally pour ctx.restore()
+- [x] Render errors catchées — ne bloquent plus le drag ni les WS updates
 
 ### UI
 - [ ] Indicateur état connexion INDIGO dans header
