@@ -81,6 +81,9 @@ class Mount(BaseDevice):
         self.slewing: bool = False
         self.parked: bool = False
         self.park_state: str = ""  # "PARKED", "UNPARKED", "PARKING", "UNPARKING"
+        # GOTO target (to detect slew completion)
+        self._target_ra: float | None = None
+        self._target_dec: float | None = None
         # Manual move polling
         self._move_poll_task: asyncio.Task | None = None
 
@@ -163,6 +166,16 @@ class Mount(BaseDevice):
             if v is not None:
                 self.dec_deg = v
 
+        # Detect slew completion: clear slewing when coords reach target
+        if self.slewing and self._target_ra is not None and self._target_dec is not None:
+            ra_diff = abs(self.ra_hours - self._target_ra) * 15  # hours→degrees
+            dec_diff = abs(self.dec_deg - self._target_dec)
+            if ra_diff < 0.05 and dec_diff < 0.05:
+                self.slewing = False
+                self._target_ra = None
+                self._target_dec = None
+                log.info("[%s] slew complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+
     def _parse_tracking(self, pv: PropertyVector) -> None:
         for name in ("ON", "TRACK_ON", "TRACK"):
             item = pv.get_item(name)
@@ -197,6 +210,8 @@ class Mount(BaseDevice):
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: set coordinates and trigger slew."""
         self.slewing = True
+        self._target_ra = ra_hours
+        self._target_dec = dec_deg
         coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
         items = [
             {"name": "RA", "value": ra_hours},
@@ -217,6 +232,8 @@ class Mount(BaseDevice):
         })
         await self.send_switch(abort_prop, [{ "name": item, "value": True }])
         self.slewing = False
+        self._target_ra = None
+        self._target_dec = None
         await self._poll_coords()
 
     async def park(self) -> None:
