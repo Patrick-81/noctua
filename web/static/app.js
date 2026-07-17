@@ -429,7 +429,7 @@ async function initSkyCanvas() {
     }
 
     skyCanvas = new SkyCanvas(canvas, {
-        centerRa: 0, centerDec: 20, fov: 42,
+        centerAz: 0, centerAlt: 30, fov: 60,
         siteLat, siteLng, siteElev,
     });
 

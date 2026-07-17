@@ -1,9 +1,10 @@
 /**
- * sky-canvas.js — Client-side stereographic sky chart.
+ * sky-canvas.js — Client-side alt-azimuth sky chart.
  *
  * Pure JS, no dependencies. Loads catalogs once, renders on HTML5 Canvas.
- * Supports zoom (mousewheel), pan (drag), telescope crosshair overlay,
- * horizon line with cardinal directions, and compass bar.
+ * Uses plate carrée projection in Alt/Az coordinates so the horizon
+ * is always horizontal. Supports zoom (mousewheel), pan (drag),
+ * telescope crosshair overlay, compass bar, and right-click context menu.
  */
 
 const DEG = Math.PI / 180;
@@ -14,25 +15,25 @@ export class SkyCanvas {
         this.canvas = canvas;
         this.ctx = canvas.getContext('2d');
 
-        // View state
-        this.centerRa = options.centerRa ?? 0;      // degrees
-        this.centerDec = options.centerDec ?? 20;    // degrees
-        this.fov = options.fov ?? 42;                // degrees
-        this.minFov = 2;
-        this.maxFov = 120;
+        // View center in Alt/Az
+        this.centerAz = options.centerAz ?? 0;      // degrees [0, 360)
+        this.centerAlt = options.centerAlt ?? 30;    // degrees [-90, 90]
+        this.fov = options.fov ?? 60;                // degrees — horizontal extent
+        this.minFov = 5;
+        this.maxFov = 180;
 
-        // Telescope crosshair (set externally)
-        this.telRa = null;   // degrees
-        this.telDec = null;  // degrees
+        // Telescope crosshair (RA/Dec from mount, converted to Alt/Az for display)
+        this.telRa = null;
+        this.telDec = null;
 
         // Follow mode: auto-pan during slews only
         this.followMode = true;
         this.slewing = false;
 
-        // Observer site (for horizon computation)
-        this.siteLat = options.siteLat ?? 48.8566;   // degrees N
-        this.siteLng = options.siteLng ?? 2.3522;    // degrees E
-        this.siteElev = options.siteElev ?? 0;        // meters ASL
+        // Observer site
+        this.siteLat = options.siteLat ?? 48.8566;
+        this.siteLng = options.siteLng ?? 2.3522;
+        this.siteElev = options.siteElev ?? 0;
 
         // Catalog data (loaded async)
         this.stars = [];
@@ -44,8 +45,8 @@ export class SkyCanvas {
         this._dragging = false;
         this._dragStartX = 0;
         this._dragStartY = 0;
-        this._centerRaStart = 0;
-        this._centerDecStart = 0;
+        this._centerAzStart = 0;
+        this._centerAltStart = 0;
 
         // Compass bar height
         this._compassH = 22;
@@ -93,19 +94,37 @@ export class SkyCanvas {
         this.render();
     }
 
-    // ── Horizon / compass helpers ────────────────────────────
+    // ── Coordinate helpers ───────────────────────────────────
 
     _localSiderealTime() {
         const now = new Date();
         const jd = now.getTime() / 86400000 + 2440587.5;
         const T = (jd - 2451545.0) / 36525.0;
-        // Greenwich Mean Sidereal Time in degrees
         let gmst = 280.46061837
                  + 360.98564736629 * (jd - 2451545.0)
                  + 0.000387933 * T * T
                  - T * T * T / 38710000.0;
         gmst = ((gmst % 360) + 360) % 360;
-        return (gmst + this.siteLng) % 360; // LST in degrees
+        return (gmst + this.siteLng) % 360;
+    }
+
+    _raDecToAltAz(raDeg, decDeg) {
+        const lat = this.siteLat * DEG;
+        const ra = raDeg * DEG;
+        const dec = decDeg * DEG;
+        const lst = this._localSiderealTime() * DEG;
+        const ha = lst - ra;
+
+        const sinAlt = Math.sin(lat) * Math.sin(dec)
+                     + Math.cos(lat) * Math.cos(dec) * Math.cos(ha);
+        const alt = Math.asin(sinAlt);
+
+        const az = Math.atan2(
+            -Math.cos(dec) * Math.sin(ha),
+            Math.sin(dec) * Math.cos(lat) - Math.cos(dec) * Math.sin(lat) * Math.cos(ha)
+        );
+
+        return { az: ((az * RAD) % 360 + 360) % 360, alt: alt * RAD };
     }
 
     _altAzToRaDec(azDeg, altDeg) {
@@ -129,81 +148,38 @@ export class SkyCanvas {
         return { ra, dec: dec * RAD };
     }
 
-    _raDecToAltAz(raDeg, decDeg) {
-        const lat = this.siteLat * DEG;
-        const ra = raDeg * DEG;
-        const dec = decDeg * DEG;
-        const lst = this._localSiderealTime() * DEG;
-        const ha = lst - ra;
-
-        const sinAlt = Math.sin(lat) * Math.sin(dec)
-                     + Math.cos(lat) * Math.cos(dec) * Math.cos(ha);
-        const alt = Math.asin(sinAlt);
-
-        const az = Math.atan2(
-            -Math.cos(dec) * Math.sin(ha),
-            Math.sin(dec) * Math.cos(lat) - Math.cos(dec) * Math.sin(lat) * Math.cos(ha)
-        );
-
-        return { az: ((az * RAD) % 360 + 360) % 360, alt: alt * RAD };
-    }
-
-    // ── Stereographic projection ─────────────────────────────
+    // ── Alt/Az plate carrée projection ──────────────────────
 
     get _chartH() { return this.h - this._compassH; }
 
-    _project(raDeg, decDeg) {
-        const ra = raDeg * DEG;
-        const dec = decDeg * DEG;
-        const ra0 = this.centerRa * DEG;
-        const dec0 = this.centerDec * DEG;
+    get _scale() { return this.w / this.fov; }
 
-        const cosC = Math.sin(dec0) * Math.sin(dec)
-                    + Math.cos(dec0) * Math.cos(dec) * Math.cos(ra - ra0);
-        if (cosC <= 0) return null; // behind the projection
-
-        const x = Math.cos(dec) * Math.sin(ra - ra0) / cosC;
-        const y = (Math.cos(dec0) * Math.sin(dec)
-                 - Math.sin(dec0) * Math.cos(dec) * Math.cos(ra - ra0)) / cosC;
-
-        const halfFov = this.fov * DEG / 2;
-        const scale = (this.w / 2) / Math.tan(halfFov);
-        const chartH = this._chartH;
-
+    _project(azDeg, altDeg) {
+        let dAz = azDeg - this.centerAz;
+        dAz = ((dAz + 180) % 360 + 360) % 360 - 180;
+        const dAlt = altDeg - this.centerAlt;
+        const scale = this._scale;
         return {
-            x: this.w / 2 + x * scale,
-            y: chartH / 2 - y * scale,
+            x: this.w / 2 + dAz * scale,
+            y: this._chartH / 2 - dAlt * scale,
         };
     }
 
-    // Inverse stereographic: pixel → RA/Dec degrees
     unproject(px, py) {
-        const halfFov = this.fov * DEG / 2;
-        const scale = (this.w / 2) / Math.tan(halfFov);
-        const chartH = this._chartH;
+        const scale = this._scale;
+        const dAz = (px - this.w / 2) / scale;
+        const dAlt = -(py - this._chartH / 2) / scale;
+        let az = this.centerAz + dAz;
+        az = ((az % 360) + 360) % 360;
+        const alt = this.centerAlt + dAlt;
+        return { az, alt };
+    }
 
-        const xProj = (px - this.w / 2) / scale;
-        const yProj = -(py - chartH / 2) / scale;
-
-        const rho = Math.sqrt(xProj * xProj + yProj * yProj);
-        if (rho < 1e-10) return { ra: this.centerRa, dec: this.centerDec };
-
-        const c = 2 * Math.atan(rho / 2);
-        const sinC = Math.sin(c);
-        const cosC = Math.cos(c);
-
-        const ra0 = this.centerRa * DEG;
-        const dec0 = this.centerDec * DEG;
-
-        const sinArg = cosC * Math.sin(dec0)
-                     + yProj * sinC * Math.cos(dec0) / rho;
-        const dec = Math.asin(Math.max(-1, Math.min(1, sinArg)));
-        const ra = ra0 + Math.atan2(
-            xProj * sinC,
-            rho * Math.cos(dec0) * cosC - yProj * sinC * Math.sin(dec0),
-        );
-
-        return { ra: ra * RAD, dec: dec * RAD };
+    // Convert screen pixel to RA/Dec (via Alt/Az)
+    unprojectRaDec(px, py) {
+        const { az, alt } = this.unproject(px, py);
+        if (alt < -90 || alt > 90) return null;
+        return this._altAzToRaDec(az, alt);
     }
 
     // ── Rendering ────────────────────────────────────────────
@@ -213,6 +189,7 @@ export class SkyCanvas {
         if (!w || !h) return;
 
         const chartH = this._chartH;
+        const horizonY = this._project(this.centerAz, 0).y;
 
         ctx.fillStyle = '#0a0a1a';
         ctx.fillRect(0, 0, w, h);
@@ -224,8 +201,8 @@ export class SkyCanvas {
 
         try {
             this._drawGrid(chartH);
-            this._drawHorizonVeil(chartH);
-            this._drawHorizon(chartH);
+            this._drawHorizonVeil(chartH, horizonY);
+            this._drawHorizon(chartH, horizonY);
             this._drawConstellations(chartH);
             this._drawStars(chartH);
             this._drawDSO(this.messier, '#55aaff', chartH);
@@ -245,100 +222,69 @@ export class SkyCanvas {
     }
 
     _drawGrid(chartH) {
-        const { ctx } = this;
+        const { ctx, w } = this;
+        const scale = this._scale;
 
         ctx.strokeStyle = 'rgba(60, 80, 120, 0.3)';
         ctx.lineWidth = 0.5;
 
-        // Dec lines
-        for (let dec = -75; dec <= 75; dec += 15) {
+        // Altitude lines (horizontal)
+        const altStep = this.fov < 30 ? 5 : 10;
+        for (let alt = -90; alt <= 90; alt += altStep) {
+            if (alt === 0) continue;
+            const y = chartH / 2 - (alt - this.centerAlt) * scale;
+            if (y < 0 || y > chartH) continue;
             ctx.beginPath();
-            let started = false;
-            for (let ra = 0; ra <= 360; ra += 2) {
-                const p = this._project(ra, dec);
-                if (!p || p.y > chartH) { started = false; continue; }
-                if (!started) { ctx.moveTo(p.x, p.y); started = true; }
-                else ctx.lineTo(p.x, p.y);
-            }
+            ctx.moveTo(0, y);
+            ctx.lineTo(w, y);
             ctx.stroke();
         }
 
-        // RA lines
-        for (let ra = 0; ra < 360; ra += 30) {
+        // Azimuth lines (vertical)
+        const azStep = this.fov < 30 ? 5 : this.fov < 60 ? 10 : 15;
+        for (let az = 0; az < 360; az += azStep) {
+            let dAz = az - this.centerAz;
+            dAz = ((dAz + 180) % 360 + 360) % 360 - 180;
+            const x = w / 2 + dAz * scale;
+            if (x < -50 || x > w + 50) continue;
             ctx.beginPath();
-            let started = false;
-            for (let dec = -89; dec <= 89; dec += 2) {
-                const p = this._project(ra, dec);
-                if (!p || p.y > chartH) { started = false; continue; }
-                if (!started) { ctx.moveTo(p.x, p.y); started = true; }
-                else ctx.lineTo(p.x, p.y);
-            }
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, chartH);
             ctx.stroke();
         }
     }
 
-    _drawHorizonVeil(chartH) {
+    _drawHorizonVeil(chartH, horizonY) {
+        const { ctx, w } = this;
+        if (horizonY < 0 || horizonY > chartH) return;
+
+        ctx.fillStyle = 'rgba(5, 5, 15, 0.7)';
+        ctx.fillRect(0, horizonY, w, chartH - horizonY);
+    }
+
+    _drawHorizon(chartH, horizonY) {
         const { ctx, w } = this;
 
-        const pts = [];
-        for (let az = 0; az < 360; az += 2) {
-            const rd = this._altAzToRaDec(az, 0);
-            const p = this._project(rd.ra, rd.dec);
-            if (p && p.y < chartH) pts.push({ x: p.x, y: p.y });
-        }
-        if (pts.length < 3) return;
+        if (horizonY < 0 || horizonY > chartH) return;
 
-        pts.sort((a, b) => a.x - b.x);
-
-        ctx.save();
-        ctx.beginPath();
-        ctx.moveTo(pts[0].x, chartH);
-        for (const pt of pts) ctx.lineTo(pt.x, pt.y);
-        ctx.lineTo(pts[pts.length - 1].x, chartH);
-        ctx.closePath();
-        ctx.fillStyle = 'rgba(5, 5, 15, 0.7)';
-        ctx.fill();
-        ctx.restore();
-    }
-
-    _drawHorizon(chartH) {
-        const { ctx } = this;
-        const lst = this._localSiderealTime();
-        const lat = this.siteLat;
-
-        // Horizon is at alt=0; for each azimuth, compute RA/Dec and project
-        const points = [];
-        for (let az = 0; az < 360; az += 1) {
-            const rd = this._altAzToRaDec(az, 0);
-            const p = this._project(rd.ra, rd.dec);
-            if (p && p.y < chartH) points.push({ az, x: p.x, y: p.y });
-        }
-
-        if (points.length < 3) return;
-
-        // Draw horizon line
+        // Dashed horizon line
         ctx.save();
         ctx.strokeStyle = 'rgba(100, 180, 100, 0.4)';
         ctx.lineWidth = 1.5;
         ctx.setLineDash([6, 4]);
         ctx.beginPath();
-        ctx.moveTo(points[0].x, points[0].y);
-        for (let i = 1; i < points.length; i++) {
-            ctx.lineTo(points[i].x, points[i].y);
-        }
+        ctx.moveTo(0, horizonY);
+        ctx.lineTo(w, horizonY);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.restore();
 
-        // Label "HORIZON"
-        if (points.length > 10) {
-            const mid = points[Math.floor(points.length / 2)];
-            ctx.font = '9px monospace';
-            ctx.fillStyle = 'rgba(100, 180, 100, 0.5)';
-            ctx.fillText('--- horizon ---', mid.x - 40, mid.y - 5);
-        }
+        // "HORIZON" label
+        ctx.font = '9px monospace';
+        ctx.fillStyle = 'rgba(100, 180, 100, 0.5)';
+        ctx.fillText('--- horizon ---', w / 2 - 40, horizonY - 5);
 
-        // Cardinal + intercardinal direction labels on the horizon
+        // Cardinal + intercardinal labels along horizon
         const directions = [
             { az: 0, label: 'N', color: '#ff6666', bold: true },
             { az: 45, label: 'NE', color: '#cc9966', bold: false },
@@ -351,20 +297,21 @@ export class SkyCanvas {
         ];
 
         for (const dir of directions) {
-            const rd = this._altAzToRaDec(dir.az, 0);
-            const p = this._project(rd.ra, rd.dec);
-            if (!p || p.y > chartH) continue;
+            let dAz = dir.az - this.centerAz;
+            dAz = ((dAz + 180) % 360 + 360) % 360 - 180;
+            const lx = w / 2 + dAz * this._scale;
+            if (lx < -30 || lx > w + 30) continue;
 
             ctx.font = dir.bold ? 'bold 13px monospace' : '10px monospace';
             const tw = ctx.measureText(dir.label).width;
-            const lx = p.x - tw / 2;
-            const ly = p.y - 8;
+            const tx = lx - tw / 2;
+            const ty = horizonY - 8;
 
             // Background pill
             ctx.fillStyle = 'rgba(10, 10, 26, 0.85)';
             const pad = 3;
             ctx.beginPath();
-            const rx = lx - pad, ry = ly - 12, rw = tw + pad * 2, rh = 16, rr = 4;
+            const rx = tx - pad, ry = ty - 12, rw = tw + pad * 2, rh = 16, rr = 4;
             ctx.moveTo(rx + rr, ry);
             ctx.lineTo(rx + rw - rr, ry);
             ctx.quadraticCurveTo(rx + rw, ry, rx + rw, ry + rr);
@@ -377,7 +324,7 @@ export class SkyCanvas {
             ctx.fill();
 
             ctx.fillStyle = dir.color;
-            ctx.fillText(dir.label, lx, ly);
+            ctx.fillText(dir.label, tx, ty);
         }
     }
 
@@ -387,9 +334,12 @@ export class SkyCanvas {
         ctx.lineWidth = 0.8;
 
         for (const seg of this.constellations) {
-            const p1 = this._project(seg.ra1, seg.dec1);
-            const p2 = this._project(seg.ra2, seg.dec2);
-            if (!p1 || !p2 || p1.y > chartH || p2.y > chartH) continue;
+            const a1 = this._raDecToAltAz(seg.ra1, seg.dec1);
+            const a2 = this._raDecToAltAz(seg.ra2, seg.dec2);
+            if (a1.alt < 0 && a2.alt < 0) continue;
+            const p1 = this._project(a1.az, a1.alt);
+            const p2 = this._project(a2.az, a2.alt);
+            if (p1.y > chartH && p2.y > chartH) continue;
             ctx.beginPath();
             ctx.moveTo(p1.x, p1.y);
             ctx.lineTo(p2.x, p2.y);
@@ -401,8 +351,10 @@ export class SkyCanvas {
         const { ctx } = this;
 
         for (const star of this.stars) {
-            const p = this._project(star.ra, star.dec);
-            if (!p || p.y > chartH) continue;
+            const a = this._raDecToAltAz(star.ra, star.dec);
+            if (a.alt < 0) continue;
+            const p = this._project(a.az, a.alt);
+            if (p.y > chartH) continue;
 
             const r = Math.max(0.3, 3.0 - star.mag * 0.4);
             const brightness = Math.max(0.3, 1.0 - star.mag / 7.0);
@@ -418,11 +370,12 @@ export class SkyCanvas {
         const { ctx } = this;
 
         for (const obj of objects) {
-            const p = this._project(obj.ra, obj.dec);
-            if (!p || p.y > chartH) continue;
+            const a = this._raDecToAltAz(obj.ra, obj.dec);
+            if (a.alt < 0) continue;
+            const p = this._project(a.az, a.alt);
+            if (p.y > chartH) continue;
 
-            const halfFov = this.fov * DEG / 2;
-            const scale = (this.w / 2) / Math.tan(halfFov);
+            const scale = this._scale;
             const radiusPx = Math.max(2, (obj.size / 60) * scale * DEG);
 
             ctx.strokeStyle = color;
@@ -460,8 +413,10 @@ export class SkyCanvas {
 
     _drawCrosshair(chartH) {
         if (this.telRa === null || this.telDec === null) return;
-        const p = this._project(this.telRa, this.telDec);
-        if (!p || p.y > chartH) return;
+        const a = this._raDecToAltAz(this.telRa, this.telDec);
+        if (a.alt < 0) return;
+        const p = this._project(a.az, a.alt);
+        if (p.y > chartH) return;
 
         const { ctx } = this;
         const r = 10;
@@ -492,13 +447,12 @@ export class SkyCanvas {
 
         ctx.restore();
 
-        // RA/Dec label
+        // Az/Alt label
+        const azStr = a.az.toFixed(1) + '°';
+        const altStr = a.alt.toFixed(1) + '°';
         const raH = this.telRa / 15;
-        const raStr = `${String(Math.floor(raH)).padStart(2, '0')}h${String(Math.floor((raH % 1) * 60)).padStart(2, '0')}m`;
-        const decSign = this.telDec >= 0 ? '+' : '-';
-        const decAbs = Math.abs(this.telDec);
-        const decStr = `${decSign}${String(Math.floor(decAbs)).padStart(2, '0')}\u00B0${String(Math.floor((decAbs % 1) * 60)).padStart(2, '0')}'`;
-        const label = `${raStr} ${decStr}`;
+        const raLabel = `${String(Math.floor(raH)).padStart(2, '0')}h${String(Math.floor((raH % 1) * 60)).padStart(2, '0')}m`;
+        const label = `Az ${azStr} Alt ${altStr}  ${raLabel}`;
 
         ctx.font = 'bold 11px monospace';
         const tw = ctx.measureText(label).width;
@@ -518,6 +472,7 @@ export class SkyCanvas {
         const { ctx, w } = this;
         const barY = chartH;
         const barH = this._compassH;
+        const scale = this._scale;
 
         // Background
         ctx.fillStyle = '#0d1117';
@@ -534,50 +489,38 @@ export class SkyCanvas {
         const labels = { 0: 'N', 45: 'NE', 90: 'E', 135: 'SE', 180: 'S', 225: 'SW', 270: 'W', 315: 'NW' };
         const step = this.fov < 20 ? 5 : this.fov < 60 ? 10 : 15;
 
-        // Project each azimuth at the horizon to get its actual screen x
-        const ticks = [];
         for (let az = 0; az < 360; az += step) {
-            const rd = this._altAzToRaDec(az, 0);
-            const p = this._project(rd.ra, rd.dec);
-            if (!p || p.y > chartH) continue;
+            let dAz = az - this.centerAz;
+            dAz = ((dAz + 180) % 360 + 360) % 360 - 180;
+            const x = w / 2 + dAz * scale;
+            if (x < -20 || x > w + 20) continue;
 
-            ticks.push({
-                az,
-                x: p.x,
-                isCard: az % 90 === 0,
-                isInt: az % 45 === 0 && az % 90 !== 0,
-            });
-        }
+            const isCard = az % 90 === 0;
+            const isInt = az % 45 === 0 && az % 90 !== 0;
+            const tickH = isCard ? 12 : isInt ? 8 : 4;
 
-        // Draw ticks
-        for (const t of ticks) {
-            if (t.x < -20 || t.x > w + 20) continue;
-
-            const tickH = t.isCard ? 12 : t.isInt ? 8 : 4;
-
-            ctx.strokeStyle = t.isCard ? '#888' : '#444';
-            ctx.lineWidth = t.isCard ? 1.5 : 0.5;
+            ctx.strokeStyle = isCard ? '#888' : '#444';
+            ctx.lineWidth = isCard ? 1.5 : 0.5;
             ctx.beginPath();
-            ctx.moveTo(t.x, barY);
-            ctx.lineTo(t.x, barY + tickH);
+            ctx.moveTo(x, barY);
+            ctx.lineTo(x, barY + tickH);
             ctx.stroke();
 
-            const label = labels[t.az];
-            if (label && (t.isCard || t.isInt)) {
-                ctx.font = t.isCard ? 'bold 11px monospace' : '9px monospace';
-                ctx.fillStyle = t.isCard ? '#e0e0e0' : '#888';
+            const label = labels[az];
+            if (label && (isCard || isInt)) {
+                ctx.font = isCard ? 'bold 11px monospace' : '9px monospace';
+                ctx.fillStyle = isCard ? '#e0e0e0' : '#888';
                 const tw = ctx.measureText(label).width;
-                ctx.fillText(label, t.x - tw / 2, barY + tickH + 11);
+                ctx.fillText(label, x - tw / 2, barY + tickH + 11);
             }
         }
 
         // Center marker
-        const cx = w / 2;
         ctx.strokeStyle = '#4fc3f7';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(cx, barY);
-        ctx.lineTo(cx, barY + 6);
+        ctx.moveTo(w / 2, barY);
+        ctx.lineTo(w / 2, barY + 6);
         ctx.stroke();
     }
 
@@ -590,8 +533,9 @@ export class SkyCanvas {
         this.telDec = decDeg;
 
         if (this.followMode && this.slewing && !this._dragging) {
-            this.centerRa = raDeg;
-            this.centerDec = decDeg;
+            const a = this._raDecToAltAz(raDeg, decDeg);
+            this.centerAz = a.az;
+            this.centerAlt = a.alt;
         }
 
         this.render();
@@ -599,8 +543,9 @@ export class SkyCanvas {
 
     centerOnTel() {
         if (this.telRa !== null && this.telDec !== null) {
-            this.centerRa = this.telRa;
-            this.centerDec = this.telDec;
+            const a = this._raDecToAltAz(this.telRa, this.telDec);
+            this.centerAz = a.az;
+            this.centerAlt = a.alt;
             this.render();
         }
     }
@@ -623,8 +568,8 @@ export class SkyCanvas {
             this._dragging = true;
             this._dragStartX = e.clientX;
             this._dragStartY = e.clientY;
-            this._centerRaStart = this.centerRa;
-            this._centerDecStart = this.centerDec;
+            this._centerAzStart = this.centerAz;
+            this._centerAltStart = this.centerAlt;
             el.style.cursor = 'grabbing';
         });
 
@@ -632,14 +577,10 @@ export class SkyCanvas {
             if (!this._dragging) return;
             const dx = e.clientX - this._dragStartX;
             const dy = e.clientY - this._dragStartY;
-            const halfFov = this.fov * DEG / 2;
-            const scale = (this.w / 2) / Math.tan(halfFov);
+            const scale = this._scale;
 
-            const decDelta = (dy / scale) * RAD;
-            const raDelta = (dx / scale) * RAD / Math.cos(this._centerDecStart * DEG);
-
-            this.centerDec = Math.max(-89, Math.min(89, this._centerDecStart - decDelta));
-            this.centerRa = ((this._centerRaStart + raDelta) % 360 + 360) % 360;
+            this.centerAz = ((this._centerAzStart - dx / scale) % 360 + 360) % 360;
+            this.centerAlt = Math.max(-85, Math.min(85, this._centerAltStart + dy / scale));
 
             this.render();
         });
@@ -665,7 +606,7 @@ export class SkyCanvas {
             }
         });
 
-        // Hide context menu on left-click anywhere
+        // Hide context menu on left-click
         el.addEventListener('mousedown', (e) => {
             if (e.button === 0) this._hideObjectMenu();
         });
@@ -675,16 +616,15 @@ export class SkyCanvas {
         const chartH = this._chartH;
         if (py > chartH) return null;
 
-        const halfFov = this.fov * DEG / 2;
-        const scale = (this.w / 2) / Math.tan(halfFov);
         const hitRadius = 12;
-
         let best = null, bestDist = hitRadius;
 
         const check = (objects, type) => {
             for (const obj of objects) {
-                const p = this._project(obj.ra, obj.dec);
-                if (!p || p.y > chartH) continue;
+                const a = this._raDecToAltAz(obj.ra, obj.dec);
+                if (a.alt < 0) continue;
+                const p = this._project(a.az, a.alt);
+                if (p.y > chartH) continue;
                 const dx = px - p.x;
                 const dy = py - p.y;
                 const dist = Math.sqrt(dx * dx + dy * dy);
@@ -698,10 +638,11 @@ export class SkyCanvas {
         check(this.messier, 'messier');
         check(this.ngc, 'ngc');
 
-        // Check stars
         for (const star of this.stars) {
-            const p = this._project(star.ra, star.dec);
-            if (!p || p.y > chartH) continue;
+            const a = this._raDecToAltAz(star.ra, star.dec);
+            if (a.alt < 0) continue;
+            const p = this._project(a.az, a.alt);
+            if (p.y > chartH) continue;
             const dx = px - p.x;
             const dy = py - p.y;
             const dist = Math.sqrt(dx * dx + dy * dy);
@@ -730,26 +671,22 @@ export class SkyCanvas {
         const menu = document.getElementById('obj-context-menu');
         menu.innerHTML = '';
 
-        // Title
         const title = document.createElement('div');
         title.className = 'obj-menu-title';
         title.textContent = obj.id;
         menu.appendChild(title);
 
-        // Object type + magnitude
         const typeLine = document.createElement('div');
         typeLine.className = 'obj-menu-sub';
         const typeLabel = { star: 'Etoile', messier: 'Messier', ngc: 'NGC' }[obj.objectType] || obj.objectType;
         typeLine.textContent = obj.mag != null ? `${typeLabel} (mag ${obj.mag.toFixed(1)})` : typeLabel;
         menu.appendChild(typeLine);
 
-        // Coordinates
         const coords = document.createElement('div');
         coords.className = 'obj-menu-coords';
-        coords.innerHTML = `RA: ${raStr} (${raH.toFixed(4)}h)<br>Dec: ${decStr} (${obj.dec.toFixed(4)}°)<br>Az: ${azStr}  Alt: ${altStr}`;
+        coords.innerHTML = `Az: ${azStr}  Alt: ${altStr}<br>RA: ${raStr} (${raH.toFixed(4)}h)<br>Dec: ${decStr} (${obj.dec.toFixed(4)}°)`;
         menu.appendChild(coords);
 
-        // GOTO button
         const gotoBtn = document.createElement('button');
         gotoBtn.className = 'obj-menu-btn';
         gotoBtn.textContent = 'GOTO';
@@ -768,7 +705,6 @@ export class SkyCanvas {
         menu.style.left = clientX + 'px';
         menu.style.top = clientY + 'px';
 
-        // Ensure menu stays within viewport
         requestAnimationFrame(() => {
             const mr = menu.getBoundingClientRect();
             if (mr.right > window.innerWidth) menu.style.left = (clientX - mr.width) + 'px';
