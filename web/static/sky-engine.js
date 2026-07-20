@@ -246,7 +246,12 @@ export class SkyEngine {
         const date = this._getObsDate();
         const lst = this._lstDegrees(date, this.siteLng);
 
-        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, 0];
+        const centerRA = lst - this._manualOffsetRA;
+        const centerDEC = -this._decOffset;
+        const ha = this._manualOffsetRA;
+        const gamma = -this._parallacticAngle(ha, centerDEC) * 180 / Math.PI;
+
+        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, gamma];
         this._projection.rotate(this._currentRotation);
 
         const lstEl = document.getElementById('lst-display');
@@ -747,85 +752,28 @@ export class SkyEngine {
     //  INTERACTIONS
     // ═══════════════════════════════════════════════════════════
 
-    _radecToAltAz(raDeg, decDeg, lstDeg) {
-        const lat = this.siteLat * Math.PI / 180;
-        const lst = lstDeg * Math.PI / 180;
-        const ra = raDeg * Math.PI / 180;
+    _parallacticAngle(haDeg, decDeg) {
+        const ha = haDeg * Math.PI / 180;
         const dec = decDeg * Math.PI / 180;
-        const ha = lst - ra;
-
-        const sinAlt = Math.sin(dec) * Math.sin(lat) +
-                        Math.cos(dec) * Math.cos(lat) * Math.cos(ha);
-        const alt = Math.asin(Math.max(-1, Math.min(1, sinAlt)));
-
-        const cosAlt = Math.cos(alt);
-        let az = 0;
-        if (Math.abs(cosAlt) > 1e-10) {
-            const cosAz = (Math.sin(dec) * Math.cos(lat) -
-                           Math.cos(dec) * Math.sin(lat) * Math.cos(ha)) / cosAlt;
-            const sinAz = (-Math.cos(dec) * Math.sin(ha)) / cosAlt;
-            az = Math.atan2(sinAz, cosAz);
-        }
-
-        return {
-            alt: alt * 180 / Math.PI,
-            az: ((az * 180 / Math.PI) + 360) % 360
-        };
-    }
-
-    _altAzToRadec(altDeg, azDeg, lstDeg) {
         const lat = this.siteLat * Math.PI / 180;
-        const lst = lstDeg * Math.PI / 180;
-        const alt = altDeg * Math.PI / 180;
-        const az = azDeg * Math.PI / 180;
-
-        const sinDec = Math.sin(alt) * Math.sin(lat) +
-                       Math.cos(alt) * Math.cos(lat) * Math.cos(az);
-        const dec = Math.asin(Math.max(-1, Math.min(1, sinDec)));
-
-        const cosDec = Math.cos(dec);
-        let ha = 0;
-        if (Math.abs(cosDec) > 1e-10) {
-            const sinHa = -Math.cos(alt) * Math.sin(az) / cosDec;
-            const cosHa = (Math.sin(alt) * Math.cos(lat) -
-                           Math.cos(alt) * Math.sin(lat) * Math.cos(az)) / cosDec;
-            ha = Math.atan2(sinHa, cosHa);
-        }
-
-        let ra = ((lst - ha) * 180 / Math.PI);
-        ra = ((ra % 360) + 360) % 360;
-
-        return { ra, dec: dec * 180 / Math.PI };
+        return Math.atan2(
+            Math.sin(ha),
+            Math.tan(lat) * Math.cos(dec) - Math.sin(dec) * Math.cos(ha)
+        );
     }
 
     _setupDrag() {
         const drag = d3.behavior.drag().on("drag", () => {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
-            const lst = this._lstDegrees(new Date(), this.siteLng);
-
-            const centerRA = ((-this._currentRotation[0]) % 360 + 360) % 360;
-            const centerDEC = this._currentRotation[1];
-            const current = this._radecToAltAz(centerRA, centerDEC, lst);
-
-            let newAz = current.az;
-            let newAlt = current.alt;
-
             if (this._lockRA) {
-                if (!this._lockDEC) newAlt -= d3.event.dy * sensitivity;
+                if (!this._lockDEC) this._decOffset -= d3.event.dy * sensitivity;
             } else if (this._lockDEC) {
-                newAz += d3.event.dx * sensitivity;
+                this._manualOffsetRA += d3.event.dx * sensitivity;
             } else {
-                newAz += d3.event.dx * sensitivity;
-                newAlt -= d3.event.dy * sensitivity;
+                this._manualOffsetRA += d3.event.dx * sensitivity;
+                this._decOffset -= d3.event.dy * sensitivity;
             }
-
-            newAlt = Math.max(-90, Math.min(90, newAlt));
-            newAz = ((newAz % 360) + 360) % 360;
-
-            const newCenter = this._altAzToRadec(newAlt, newAz, lst);
-            this._manualOffsetRA = lst - newCenter.ra;
-            this._decOffset = newCenter.dec;
-
+            this._decOffset = Math.max(-90, Math.min(90, this._decOffset));
             this._updateSiderealRotation();
         });
         d3.select(this.container).call(drag);
@@ -1015,7 +963,9 @@ export class SkyEngine {
         this._manualOffsetRA = 0;
         this._decOffset = 0;
         const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
-        this._currentRotation = [-lst - raDeg, -decDeg, 0];
+        const ha = lst - raDeg;
+        const gamma = -this._parallacticAngle(ha, decDeg) * 180 / Math.PI;
+        this._currentRotation = [-lst - raDeg, -decDeg, gamma];
         this._projection.rotate(this._currentRotation);
         this.render();
     }
