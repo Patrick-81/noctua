@@ -18,8 +18,11 @@ from typing import TYPE_CHECKING
 
 import yaml
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from .cities import search_cities
 from .weblog import handler as weblog_handler
@@ -57,6 +60,7 @@ class WebServer:
         self.site = site_config or {}
         self.config_path = config_path
         self.app = FastAPI(title="INDIGO Devices")
+        self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
 
         # Wire up state broadcasting
@@ -67,6 +71,15 @@ class WebServer:
         logging.getLogger().addHandler(weblog_handler)
 
         self._setup_routes()
+
+    @staticmethod
+    async def _no_cache_middleware(request: Request, call_next):
+        response = await call_next(request)
+        if request.url.path.startswith(("/", "/app.js")):
+            response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            response.headers["Pragma"] = "no-cache"
+            response.headers["Expires"] = "0"
+        return response
 
     def _setup_routes(self) -> None:
         app = self.app
@@ -88,6 +101,19 @@ class WebServer:
         @app.get("/api/drivers")
         async def get_drivers():
             return self.registry.drivers_list()
+
+        @app.post("/api/drivers/attach")
+        async def attach_driver(body: dict):
+            """Attach (load) a driver on the INDIGO server."""
+            driver_name = body.get("driver", "")
+            if not driver_name:
+                return {"error": "no driver specified"}
+            c = self.registry.client
+            if not c.connected:
+                return {"error": "not connected to INDIGO server"}
+            await c.send_attach_driver(driver_name)
+            log.info("Attach driver: %s", driver_name)
+            return {"ok": True, "driver": driver_name}
 
         @app.get("/api/config")
         async def get_config():
@@ -140,6 +166,33 @@ class WebServer:
             f = self.registry.get_focuser()
             return SanitizedJSONResponse(f.state_dict() if f else None)
 
+        @app.get("/api/connection")
+        async def get_connection():
+            c = self.registry.client
+            return {
+                "protocol": getattr(c, '_protocol', 'connect'),
+                "host": c._host,
+                "port": c._port,
+                "connected": c.connected,
+            }
+
+        @app.post("/api/connection")
+        async def set_connection(body: dict):
+            """Update INDIGO connection parameters and reconnect."""
+            c = self.registry.client
+            host = body.get("host", c._host)
+            port = int(body.get("port", c._port))
+            protocol = body.get("protocol", getattr(c, '_protocol', 'connect'))
+            c._host = host
+            c._port = port
+            c._protocol = protocol
+            if c.connected:
+                await c.disconnect()
+            c._reconnect_try = 0
+            loop = asyncio.get_event_loop()
+            loop.create_task(c.connect())
+            return {"ok": True, "host": host, "port": port, "protocol": protocol}
+
         @app.post("/api/mount/slew")
         async def mount_slew(body: dict):
             m = self.registry.get_mount()
@@ -170,6 +223,14 @@ class WebServer:
             if not m:
                 return {"error": "no mount"}
             await m.unpark()
+            return {"ok": True}
+
+        @app.post("/api/mount/home")
+        async def mount_home():
+            m = self.registry.get_mount()
+            if not m:
+                return {"error": "no mount"}
+            await m.home()
             return {"ok": True}
 
         @app.post("/api/mount/tracking")
@@ -310,6 +371,11 @@ class WebServer:
             app.mount("/catalogs", StaticFiles(directory=str(CATALOGS_DIR)),
                       name="catalogs")
 
+        CELESTIAL_DIR = Path(__file__).parent.parent / "public" / "celestial-data"
+        if CELESTIAL_DIR.exists():
+            app.mount("/celestial-data", StaticFiles(directory=str(CELESTIAL_DIR)),
+                      name="celestial-data")
+
         if STATIC_DIR.exists():
             app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True),
                       name="static")
@@ -333,6 +399,10 @@ class WebServer:
             m = self.registry.get_mount()
             if m:
                 await m.unpark()
+        elif cmd == "mount/home":
+            m = self.registry.get_mount()
+            if m:
+                await m.home()
         elif cmd == "camera/expose":
             c = self.registry.get_camera()
             if c:

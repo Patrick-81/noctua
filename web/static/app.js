@@ -1,29 +1,100 @@
-// INDIGO Devices — vanilla JS client
+// ═══════════════════════════════════════════════════════════════
+// INDIGO Devices — App principal (applets flottants)
+// ═══════════════════════════════════════════════════════════════
 
-import { SkyCanvas } from '/sky-canvas.js';
+import { SkyEngine } from '/sky-engine.js';
+
+// ── State ─────────────────────────────────────────────────────
 
 let ws = null;
 let devices = {};
 let selectedDevice = null;
 const MAX_LOG = 500;
 let logEntries = [];
+let skyEngine = null;
+let currentMode = 'mount';
 
-// ── WebSocket ──────────────────────────────────────────────────
+// ── Mode Manager ──────────────────────────────────────────────
+
+const MODES = {
+    mount: {
+        applets: ['applet-status', 'applet-joystick', 'applet-commands',
+                  'applet-hud', 'applet-search'],
+        driverType: 'mount'
+    },
+    focuser: {
+        applets: ['applet-focuser-control', 'applet-focuser-position'],
+        driverType: 'focuser'
+    },
+    guiding: {
+        applets: ['applet-guiding-graph', 'applet-guiding-settings'],
+        driverType: 'ccd'
+    },
+    capture: {
+        applets: ['applet-capture-settings', 'applet-capture-preview'],
+        driverType: 'ccd'
+    },
+    astrometry: {
+        applets: ['applet-solver', 'applet-polar'],
+        driverType: null
+    }
+};
+
+const DRIVER_TYPE_KEYWORDS = {
+    mount: ['mount', 'telescope', 'lx200', 'onstep', 'eqmod', 'synscan', 'ioptron', 'celestron', 'synta', 'rainbow', 'gemini'],
+    ccd: ['ccd', 'camera', 'qhy', 'zwo', 'asi', 'sbig', 'atik', 'toup', 'playerone', 'svbony', 'guide'],
+    focuser: ['focuser', 'focus', 'moonlite', 'highpoint', 'prima', 'unicat', 'robofocus'],
+};
+
+function filterDriversByType(drivers, type) {
+    if (!type || !drivers.length) return drivers;
+    const keywords = DRIVER_TYPE_KEYWORDS[type] || [];
+    if (!keywords.length) return drivers;
+    return drivers.filter(d => {
+        const name = (d.name || '').toLowerCase();
+        const label = (d.label || '').toLowerCase();
+        return keywords.some(kw => name.includes(kw) || label.includes(kw));
+    });
+}
+
+function switchMode(mode) {
+    if (!MODES[mode]) return;
+    currentMode = mode;
+
+    document.querySelectorAll('.mode-specific').forEach(el => {
+        el.style.display = 'none';
+    });
+
+    for (const id of MODES[mode].applets) {
+        const el = document.getElementById(id);
+        if (el) el.style.display = '';
+    }
+
+    document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+
+    refreshDriverList();
+}
+
+function initModeBar() {
+    document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+    });
+}
+
+// ── WebSocket ─────────────────────────────────────────────────
 
 function connectWS() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
 
     ws.onopen = () => {
-        document.getElementById('connection-status').className = 'status-dot connected';
-        document.getElementById('connection-label').textContent = 'connecte';
-        addLog('info', 'ws', 'WebSocket connecte');
+        addLog('info', 'ws', 'WebSocket connecté');
     };
 
     ws.onclose = () => {
-        document.getElementById('connection-status').className = 'status-dot disconnected';
-        document.getElementById('connection-label').textContent = 'deconnecte';
-        addLog('warning', 'ws', 'WebSocket deconnecte, reconnexion...');
+        addLog('warning', 'ws', 'WebSocket déconnecté, reconnexion...');
         setTimeout(connectWS, 2000);
     };
 
@@ -33,6 +104,7 @@ function connectWS() {
             const hadMount = !!findMount();
             devices = msg.devices;
             renderDevices();
+            updateCameraFov();
             const m = findMount();
             if (m && !hadMount) {
                 selectedDevice = m.name;
@@ -48,35 +120,47 @@ function connectWS() {
     };
 }
 
-// ── Device list ────────────────────────────────────────────────
+// ── Device list ───────────────────────────────────────────────
 
 function renderDevices() {
-    const container = document.getElementById('devices-container');
-    container.innerHTML = '';
+    const container = document.getElementById('applet-props');
+    if (!container) return;
 
-    for (const [name, dev] of Object.entries(devices)) {
-        const div = document.createElement('div');
-        div.className = 'device-item' + (name === selectedDevice ? ' selected' : '');
-        div.innerHTML = `<span class="type">${dev.type}</span> &mdash; ${name} <span class="status ${dev.connected ? '' : 'disconnected'}">${dev.connected ? '\u25CF' : '\u25CB'}</span>`;
-        div.onclick = () => selectDevice(name);
-        container.appendChild(div);
+    if (!selectedDevice) {
+        container.style.display = 'none';
+        return;
+    }
+
+    const dev = devices[selectedDevice];
+    if (!dev) {
+        container.style.display = 'none';
+        return;
+    }
+
+    if (dev.type === 'mount') {
+        container.style.display = 'none';
+        return;
+    }
+
+    if (dev.props && dev.props.length > 0) {
+        container.style.display = '';
+        renderProps(selectedDevice);
+    } else {
+        container.style.display = 'none';
     }
 }
 
 function selectDevice(name) {
     selectedDevice = name;
-    renderDevices();
     const dev = devices[name];
     if (dev && dev.type === 'mount') {
-        document.getElementById('device-props').innerHTML = '';
         renderMountPanel();
     } else {
-        document.getElementById('mount-panel').style.display = 'none';
         renderProps(name);
     }
 }
 
-// ── Mount panel ────────────────────────────────────────────────
+// ── Mount panel ───────────────────────────────────────────────
 
 function findMount() {
     for (const [name, dev] of Object.entries(devices)) {
@@ -87,49 +171,54 @@ function findMount() {
 
 function renderMountPanel() {
     const m = findMount();
-    const panel = document.getElementById('mount-panel');
-    if (!m) { panel.style.display = 'none'; return; }
-    panel.style.display = '';
-
+    if (!m) return;
     const d = m.dev;
 
     const raH = d.ra_hours != null ? d.ra_hours : 0;
     const decD = d.dec_deg != null ? d.dec_deg : 0;
-    document.getElementById('mount-ra-sexa').textContent = decToSexa(raH, true);
-    document.getElementById('mount-ra-dec').textContent = raH.toFixed(4) + ' h';
-    document.getElementById('mount-dec-sexa').textContent = decToSexa(decD, false);
-    document.getElementById('mount-dec-dec').textContent = decD.toFixed(4) + '\u00B0';
 
-    const trackEl = document.getElementById('mount-tracking');
-    trackEl.textContent = d.tracking ? 'TRACK ON' : 'TRACK OFF';
-    trackEl.className = 'badge ' + (d.tracking ? 'badge-on' : 'badge-off');
+    const trackEl = document.getElementById('status-tracking');
+    if (trackEl) {
+        trackEl.textContent = d.tracking ? '● ON' : '● OFF';
+        trackEl.className = 'value ' + (d.tracking ? 'status-online' : 'status-stopped');
+    }
 
-    const parkEl = document.getElementById('mount-park');
-    parkEl.textContent = d.parked ? 'PARKED' : 'UNPARKED';
-    parkEl.className = 'badge ' + (d.parked ? 'badge-warn' : 'badge-on');
+    const slewingEl = document.getElementById('status-slewing');
+    if (slewingEl) {
+        slewingEl.textContent = d.slewing ? '● ACTIVE' : '● IDLE';
+        slewingEl.className = 'value ' + (d.slewing ? 'status-slewing' : '');
+        slewingEl.style.color = d.slewing ? '#ffcc00' : '#666';
+    }
 
-    document.getElementById('mount-slew').style.display = d.slewing ? '' : 'none';
+    const parkingEl = document.getElementById('status-parking');
+    if (parkingEl) {
+        const parking = d.park_state === 'Busy';
+        parkingEl.textContent = parking ? '● ACTIVE' : '● IDLE';
+        parkingEl.className = 'value ' + (parking ? 'status-parking' : '');
+        parkingEl.style.color = parking ? '#ff8800' : '#666';
+    }
+
+    const homingEl = document.getElementById('status-homing');
+    if (homingEl) {
+        homingEl.textContent = d.homing ? '● ACTIVE' : '● IDLE';
+        homingEl.className = 'value ' + (d.homing ? 'status-parking' : '');
+        homingEl.style.color = d.homing ? '#ff8800' : '#666';
+    }
+
+    const busy = d.park_state === 'Busy' || d.slewing || d.homing;
+    ['btn-goto', 'btn-park', 'btn-unpark', 'btn-home'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) btn.disabled = busy;
+    });
 
     if (d.props) {
         const statusProp = d.props.find(p => p.name === 'OnStep Status');
-        if (statusProp && statusProp.items.length > 0) {
-            document.getElementById('onstep-status-section').style.display = '';
-            const lines = statusProp.items.map(it => {
-                const label = it.label || it.name;
-                const val = it.value || '';
-                return label === val ? val : `${label}: ${val}`;
-            });
-            document.getElementById('onstep-status-text').textContent = lines.join('\n');
-        } else {
-            document.getElementById('onstep-status-section').style.display = 'none';
-        }
+        // OnStep status currently not in an applet, could be added later
 
-        // Populate slew speed selector from actual TELESCOPE_SLEW_RATE items
         const slewProp = d.props.find(p => p.name === 'TELESCOPE_SLEW_RATE');
         if (slewProp && slewProp.items.length > 0) {
             const sel = document.getElementById('slew-speed');
-            const prev = sel.value;
-            if (sel.options.length !== slewProp.items.length || sel.dataset.count !== String(slewProp.items.length)) {
+            if (sel && sel.dataset.count !== String(slewProp.items.length)) {
                 sel.innerHTML = '';
                 let selected = false;
                 for (const item of slewProp.items) {
@@ -139,31 +228,43 @@ function renderMountPanel() {
                     if (item.value && !selected) { opt.selected = true; selected = true; }
                     sel.appendChild(opt);
                 }
-                if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
                 sel.dataset.count = String(slewProp.items.length);
             }
         }
     }
 
-    // Update sky canvas crosshair
-    if (skyCanvas) {
-        skyCanvas.slewing = !!d.slewing;
+    if (skyEngine) {
+        skyEngine.slewing = !!d.slewing;
         const raDeg = d.ra_hours != null ? d.ra_hours * 15 : null;
         const decDeg = d.dec_deg != null ? d.dec_deg : null;
-        skyCanvas.setTelPosition(raDeg, decDeg);
+        skyEngine.setTelPosition(raDeg, decDeg);
     }
 }
 
-// ── Coordinate conversion ──────────────────────────────────────
+function updateCameraFov() {
+    if (!skyEngine) return;
+    for (const dev of Object.values(devices)) {
+        if (dev.type !== 'camera') continue;
+        const w = dev.width_px ?? 0;
+        const h = dev.height_px ?? 0;
+        const ps = dev.pixel_size_um ?? 0;
+        const fl = dev.focal_length_mm ?? 0;
+        const bx = dev.binning_x ?? 1;
+        const by = dev.binning_y ?? 1;
+        if (w && h && ps && fl) {
+            skyEngine.cameraFovX = 2 * Math.atan(w * bx * ps / 1e6 / (2 * fl / 1e3)) * (180 / Math.PI);
+            skyEngine.cameraFovY = 2 * Math.atan(h * by * ps / 1e6 / (2 * fl / 1e3)) * (180 / Math.PI);
+            skyEngine.render();
+        }
+        break;
+    }
+}
+
+// ── Coordinate conversion ─────────────────────────────────────
 
 function decToSexa(decimalHours, isRA) {
     if (!decimalHours && decimalHours !== 0) return '--:--:--';
-    let total;
-    if (isRA) {
-        total = decimalHours * 15;
-    } else {
-        total = decimalHours;
-    }
+    let total = isRA ? decimalHours * 15 : decimalHours;
     const sign = total < 0 ? '-' : (isRA ? '' : '+');
     total = Math.abs(total);
     const deg = Math.floor(total);
@@ -185,11 +286,12 @@ function sexaToDec(str, isRA) {
     return isRA ? deg / 15 : sign * deg;
 }
 
-// ── Mount commands ─────────────────────────────────────────────
+// ── Mount commands ────────────────────────────────────────────
 
 function mountGoto() {
-    const raStr = document.getElementById('goto-ra').value;
-    const decStr = document.getElementById('goto-dec').value;
+    const raStr = document.getElementById('goto-ra')?.value;
+    const decStr = document.getElementById('goto-dec')?.value;
+    if (!raStr || !decStr) return;
     const raH = sexaToDec(raStr, true);
     const decD = sexaToDec(decStr, false);
     if (raH === null || decD === null) {
@@ -197,13 +299,13 @@ function mountGoto() {
         return;
     }
     apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: decD });
-    addLog('info', 'mount', `GOTO RA=${raH.toFixed(4)}h DEC=${decD.toFixed(4)}\u00B0`);
+    addLog('info', 'mount', `GOTO RA=${raH.toFixed(4)}h DEC=${decD.toFixed(4)}°`);
 }
 
 function mountMove(dir) {
     const m = findMount();
-    if (!m) { addLog('error', 'mount', 'Pas de monture detectee — devices: ' + JSON.stringify(Object.keys(devices))); return; }
-    const speed = document.getElementById('slew-speed').value;
+    if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
+    const speed = document.getElementById('slew-speed')?.value;
     addLog('debug', 'mount', `move ${dir} rate=${speed}`);
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });
 }
@@ -213,42 +315,29 @@ function mountHaltMove() {
     apiPost('/api/mount/halt');
 }
 
-function mountAbort() {
-    apiPost('/api/mount/abort');
-}
+function mountAbort() { apiPost('/api/mount/abort'); }
 
 function mountToggleTracking() {
     const m = findMount();
     if (!m) return;
-    const on = !m.dev.tracking;
-    apiPost('/api/mount/tracking', { on });
+    apiPost('/api/mount/tracking', { on: !m.dev.tracking });
 }
 
-function mountPark() {
-    apiPost('/api/mount/park');
-}
+function mountPark() { apiPost('/api/mount/park'); }
+function mountUnpark() { apiPost('/api/mount/unpark'); }
+function mountHome() { apiPost('/api/mount/home'); }
 
-function mountUnpark() {
-    apiPost('/api/mount/unpark');
-}
-
-function mountHome() {
-    apiPost('/api/property', {
-        device: findMount()?.name,
-        property: 'TELESCOPE_HOME',
-        items: [{ name: 'GO', value: true }],
-    });
-}
-
-// ── Property panel (generic) ───────────────────────────────────
+// ── Property panel (generic) ──────────────────────────────────
 
 function renderProps(deviceName) {
     const dev = devices[deviceName];
-    const container = document.getElementById('device-props');
-    if (!dev || !dev.props || dev.props.length === 0) {
-        container.innerHTML = '';
+    const container = document.getElementById('applet-props');
+    if (!dev || !dev.props || dev.props.length === 0 || !container) {
+        if (container) container.style.display = 'none';
         return;
     }
+
+    container.style.display = '';
 
     const groups = {};
     for (const p of dev.props) {
@@ -257,7 +346,11 @@ function renderProps(deviceName) {
         groups[g].push(p);
     }
 
-    let html = `<div class="device-panel"><h2>${escapeHTML(deviceName)}</h2>`;
+    const dragHandle = container.querySelector('.applet-drag');
+    if (dragHandle) dragHandle.remove();
+
+    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span></div>`;
+    html += `<div class="device-panel">`;
     for (const [groupName, props] of Object.entries(groups)) {
         html += `<div class="prop-group"><div class="prop-group-header" onclick="this.parentElement.classList.toggle('collapsed')">${escapeHTML(groupName)}</div><div class="prop-group-body">`;
         for (const p of props) html += renderPropRow(deviceName, p);
@@ -265,6 +358,42 @@ function renderProps(deviceName) {
     }
     html += '</div>';
     container.innerHTML = html;
+
+    // Re-init drag for this panel
+    const newHandle = container.querySelector('.applet-drag');
+    if (newHandle) {
+        newHandle.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+            e.preventDefault();
+            const rect = container.getBoundingClientRect();
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+            container.style.transform = 'none';
+            container.style.zIndex = 50;
+            container.style.transition = 'none';
+            newHandle.style.cursor = 'grabbing';
+            function onMove(ev) {
+                let left = ev.clientX - offsetX;
+                let top = ev.clientY - offsetY;
+                left = Math.max(0, Math.min(window.innerWidth - 60, left));
+                top = Math.max(0, Math.min(window.innerHeight - 40, top));
+                container.style.left = left + 'px';
+                container.style.top = top + 'px';
+                container.style.right = '';
+                container.style.bottom = '';
+            }
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                newHandle.style.cursor = 'grab';
+                container.style.zIndex = '';
+                container.style.transition = '';
+                saveAppletPositions();
+            }
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    }
 }
 
 function renderPropRow(deviceName, p) {
@@ -309,7 +438,7 @@ function renderText(deviceName, p) {
     }).join(' ');
 }
 
-// ── API calls ──────────────────────────────────────────────────
+// ── API calls ─────────────────────────────────────────────────
 
 function setSwitchItem(device, prop, item, value) {
     apiPost('/api/property', { device, property: prop, items: [{ name: item, value: value }] });
@@ -333,15 +462,15 @@ function apiPost(url, body) {
     }).catch(e => addLog('error', 'api', e.message));
 }
 
-// ── Utilities ──────────────────────────────────────────────────
+// ── Utilities ─────────────────────────────────────────────────
 
 function escapeAttr(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
 function escapeHTML(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
-// ── Log ────────────────────────────────────────────────────────
+// ── Log ───────────────────────────────────────────────────────
 
 function addLog(level, logger, msg) {
-    const el = document.getElementById('log');
+    const el = document.getElementById('log-content');
     if (!el) return;
     const time = new Date().toLocaleTimeString();
     const entry = document.createElement('div');
@@ -357,92 +486,49 @@ function addLog(level, logger, msg) {
     applyLogFilters();
 }
 
-function clearLog() { document.getElementById('log').innerHTML = ''; logEntries = []; }
+function clearLog() {
+    const el = document.getElementById('log-content');
+    if (el) el.innerHTML = '';
+    logEntries = [];
+}
 
 function copyLog() {
     const text = logEntries.map(e => `[${e.dataset.level}] [${e.dataset.logger}] ${e.dataset.msg}`).join('\n');
-    navigator.clipboard.writeText(text).then(
-        () => addLog('info', 'log', 'Log copié dans le presse-papier'),
-        () => addLog('warning', 'log', 'Échec copie')
-    );
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(
+            () => addLog('info', 'log', 'Log copié'),
+            () => copyLogFallback(text)
+        );
+    } else {
+        copyLogFallback(text);
+    }
+}
+
+function copyLogFallback(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+        document.execCommand('copy');
+        addLog('info', 'log', 'Log copié');
+    } catch (e) {
+        addLog('error', 'log', 'Échec copie');
+    }
+    document.body.removeChild(ta);
 }
 
 function applyLogFilters() {
     const activeLevels = new Set();
-    document.querySelectorAll('#log-filters input[type="checkbox"]').forEach(cb => { if (cb.checked) activeLevels.add(cb.dataset.level); });
+    document.querySelectorAll('.log-filters input[type="checkbox"]').forEach(cb => {
+        if (cb.checked) activeLevels.add(cb.dataset.level);
+    });
     logEntries.forEach(entry => entry.classList.toggle('hidden', !activeLevels.has(entry.dataset.level)));
 }
 
-// ── Resizer ────────────────────────────────────────────────────
-
-function initResizer() {
-    const handle = document.getElementById('split-handle');
-    const left = document.getElementById('left-panel');
-    const container = document.getElementById('split-container');
-    let dragging = false;
-
-    handle.addEventListener('mousedown', (e) => {
-        e.preventDefault();
-        dragging = true;
-        handle.classList.add('active');
-        document.body.style.cursor = 'col-resize';
-        document.body.style.userSelect = 'none';
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        const rect = container.getBoundingClientRect();
-        const pct = ((e.clientX - rect.left) / rect.width) * 100;
-        const clamped = Math.max(15, Math.min(70, pct));
-        left.style.width = clamped + '%';
-    });
-
-    document.addEventListener('mouseup', () => {
-        if (dragging) {
-            dragging = false;
-            handle.classList.remove('active');
-            document.body.style.cursor = '';
-            document.body.style.userSelect = '';
-        }
-    });
-}
-
-// ── Sky Canvas ─────────────────────────────────────────────────
-
-let skyCanvas = null;
-
-async function initSkyCanvas() {
-    const canvas = document.getElementById('sky-canvas');
-    if (!canvas) return;
-
-    // Fetch site config for horizon computation
-    let siteLat = 48.8566, siteLng = 2.3522, siteElev = 0;
-    try {
-        const cfg = await fetch('/api/config').then(r => r.json());
-        if (cfg.site) {
-            siteLat = cfg.site.latitude ?? siteLat;
-            siteLng = cfg.site.longitude ?? siteLng;
-            siteElev = cfg.site.elevation ?? siteElev;
-        }
-    } catch (e) {
-        addLog('warning', 'sky', 'Config site non disponible, défaut Paris');
-    }
-
-    skyCanvas = new SkyCanvas(canvas, {
-        centerAz: 0, centerAlt: 30, fov: 60,
-        siteLat, siteLng, siteElev,
-    });
-
-    try {
-        await skyCanvas.loadCatalogs();
-    } catch (e) {
-        addLog('error', 'sky', 'Erreur chargement catalogues: ' + e.message);
-    }
-    document.getElementById('sky-chart-wait').style.display = 'none';
-    document.getElementById('sky-chart-status').textContent = skyCanvas.stars?.length ? 'Carte prête' : 'Erreur catalogues';
-}
-
-// ── D-pad (mouse + touch) ─────────────────────────────────────
+// ── D-pad ─────────────────────────────────────────────────────
 
 function initDpad() {
     const dpad = document.querySelector('.dpad');
@@ -452,6 +538,7 @@ function initDpad() {
     let activeBtn = null;
 
     function startMove(dir, btn) {
+        if (dir === 'stop') { stopMove(); mountAbort(); return; }
         if (activeDir === dir) return;
         if (activeDir) stopMove();
         activeDir = dir;
@@ -468,30 +555,27 @@ function initDpad() {
         mountHaltMove();
     }
 
-    dpad.querySelectorAll('[data-direction]').forEach(btn => {
-        const dir = btn.dataset.direction;
-
+    dpad.querySelectorAll('[data-dir]').forEach(btn => {
+        const dir = btn.dataset.dir;
         btn.addEventListener('pointerdown', (e) => {
             e.preventDefault();
             btn.setPointerCapture(e.pointerId);
             startMove(dir, btn);
         });
-
         btn.addEventListener('pointerup', (e) => {
             e.preventDefault();
             stopMove();
         });
-
         btn.addEventListener('pointercancel', () => stopMove());
     });
 
     document.addEventListener('pointerup', () => stopMove());
 
-    const stopBtn = document.getElementById('btn-dpad-stop');
+    const stopBtn = document.getElementById('btn-dpad-stop') || document.querySelector('.dpad-stop');
     if (stopBtn) stopBtn.addEventListener('click', () => { stopMove(); mountAbort(); });
 }
 
-// ── Action buttons ─────────────────────────────────────────────
+// ── Action buttons ────────────────────────────────────────────
 
 function initButtons() {
     const bind = (id, fn) => {
@@ -505,40 +589,184 @@ function initButtons() {
     bind('btn-unpark', mountUnpark);
     bind('btn-home', mountHome);
     bind('btn-abort', mountAbort);
+    bind('btn-emergency', () => {
+        mountAbort();
+        mountToggleTracking();
+        addLog('warning', 'mount', 'ARRÊT D\'URGENCE activé');
+    });
+    bind('btn-sync', () => {
+        if (!skyEngine) return;
+        let ra = -skyEngine._currentRotation[0];
+        let dec = -skyEngine._currentRotation[1];
+        if (ra < 0) ra += 360;
+        if (ra >= 360) ra -= 360;
+        apiPost('/api/mount/slew', { ra_hours: ra / 15, dec_deg: dec });
+    });
+
     bind('log-clear', clearLog);
     bind('log-copy', copyLog);
 
-    // Sky chart follow toggle
-    const followBtn = document.getElementById('sky-follow-btn');
-    if (followBtn) {
-        followBtn.addEventListener('click', () => {
-            if (skyCanvas) {
-                skyCanvas.followMode = !skyCanvas.followMode;
-                followBtn.className = 'set-btn ' + (skyCanvas.followMode ? 'sky-follow-on' : 'sky-follow-off');
-                followBtn.textContent = skyCanvas.followMode ? '\u25CE Suivre' : '\u25CE Libre';
-                addLog('info', 'sky', skyCanvas.followMode ? 'Suivi télescope activé' : 'Suivi télescope désactivé');
-            }
-        });
+    document.querySelectorAll('.log-filters input[type="checkbox"]').forEach(cb => {
+        cb.addEventListener('change', applyLogFilters);
+    });
+}
+
+// ── Joystick (slew continu) ──────────────────────────────────
+
+function initJoystick() {
+    let slewInterval = null;
+    let currentDir = null;
+
+    function startSlew(dir) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+        const m = findMount();
+        if (!m) return;
+        if (currentDir === dir) return;
+        stopSlew();
+        currentDir = dir;
+        const speed = document.getElementById('slew-speed')?.value || 'Find';
+        mountMove(dir);
+        slewInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) renderMountPanel();
+        }, 500);
     }
 
-    // Sky chart center on telescope
-    const centerBtn = document.getElementById('sky-center-btn');
-    if (centerBtn) {
-        centerBtn.addEventListener('click', () => {
-            if (skyCanvas) {
-                skyCanvas.centerOnTel();
-                addLog('info', 'sky', 'Carte centrée sur le télescope');
-            }
-        });
+    function stopSlew() {
+        if (slewInterval) { clearInterval(slewInterval); slewInterval = null; }
+        if (currentDir) {
+            mountHaltMove();
+            currentDir = null;
+        }
     }
 
-    // ── Site config popup ─────────────────────────────────────
-    const siteOverlay = document.getElementById('site-popup-overlay');
-    const siteBtn = document.getElementById('sky-site-btn');
-    const siteClose = document.getElementById('site-popup-close');
-    const siteCancel = document.getElementById('site-cancel-btn');
-    const siteSave = document.getElementById('site-save-btn');
-    const siteGps = document.getElementById('site-gps-btn');
+    document.querySelectorAll('.joy-btn[data-dir]').forEach(btn => {
+        const dir = btn.dataset.dir;
+        if (dir === 'stop') {
+            btn.addEventListener('click', stopSlew);
+            return;
+        }
+        btn.addEventListener('mousedown', (e) => { e.preventDefault(); startSlew(dir); });
+        btn.addEventListener('mouseup', (e) => { e.preventDefault(); if (currentDir === dir) stopSlew(); });
+        btn.addEventListener('mouseleave', (e) => { if (currentDir === dir) stopSlew(); });
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); startSlew(dir); });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); if (currentDir === dir) stopSlew(); });
+        btn.addEventListener('touchcancel', () => { if (currentDir === dir) stopSlew(); });
+    });
+}
+
+// ── Object search ─────────────────────────────────────────────
+
+function initObjectSearch() {
+    const input = document.getElementById('obj-search');
+    const resultsEl = document.getElementById('obj-search-results');
+    if (!input || !resultsEl) return;
+
+    let activeIdx = -1;
+    let currentResults = [];
+
+    function renderResults(results) {
+        currentResults = results;
+        activeIdx = -1;
+        resultsEl.innerHTML = '';
+        if (!results.length) { resultsEl.style.display = 'none'; return; }
+        results.forEach((r, i) => {
+            const div = document.createElement('div');
+            div.className = 'obj-search-item';
+            const name = r.name || '';
+            div.innerHTML = `<span class="obj-id">${escapeHTML(r.id)}</span><span class="obj-name">${escapeHTML(name)}</span><span class="obj-catalog">${escapeHTML(r.catalog)}</span>`;
+            div.addEventListener('click', () => selectResult(r));
+            div.addEventListener('mouseenter', () => setActive(i));
+            resultsEl.appendChild(div);
+        });
+        resultsEl.style.display = 'block';
+    }
+
+    function setActive(idx) {
+        resultsEl.querySelectorAll('.obj-search-item').forEach((el, i) => el.classList.toggle('active', i === idx));
+        activeIdx = idx;
+    }
+
+    function selectResult(r) {
+        input.value = r.id;
+        resultsEl.style.display = 'none';
+        if (skyEngine) {
+            skyEngine.clearHighlight();
+            skyEngine.centerOnObject(r.ra, r.dec);
+            skyEngine.highlightObject(r.ra, r.dec, r.id);
+            addLog('info', 'search', `Objet: ${r.id} (${r.catalog})`);
+        }
+    }
+
+    let searchTimeout = null;
+    input.addEventListener('input', () => {
+        clearTimeout(searchTimeout);
+        const q = input.value.trim();
+        if (q.length < 1) { resultsEl.style.display = 'none'; return; }
+        searchTimeout = setTimeout(() => {
+            if (!skyEngine) return;
+            renderResults(skyEngine.search(q));
+        }, 150);
+    });
+
+    input.addEventListener('keydown', (e) => {
+        const count = currentResults.length;
+        if (!count || resultsEl.style.display === 'none') return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive((activeIdx + 1) % count); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((activeIdx - 1 + count) % count); }
+        else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeIdx >= 0 && activeIdx < count) selectResult(currentResults[activeIdx]);
+            else if (count > 0) selectResult(currentResults[0]);
+        } else if (e.key === 'Escape') { resultsEl.style.display = 'none'; input.blur(); }
+    });
+
+    input.addEventListener('blur', () => setTimeout(() => { resultsEl.style.display = 'none'; }, 200));
+    input.addEventListener('focus', () => {
+        const q = input.value.trim();
+        if (q.length >= 1 && skyEngine) renderResults(skyEngine.search(q));
+    });
+}
+
+// ── Object catalogs (pour search + hit-test) ─────────────────
+
+async function loadObjectCatalogs() {
+    const objects = [];
+    try {
+        const [mess, ngc, namedStars, bsc] = await Promise.all([
+            fetch('/catalogs/messier.json').then(r => r.json()),
+            fetch('/catalogs/ngc_ic.json').then(r => r.json()),
+            fetch('/catalogs/stars.json').then(r => r.json()),
+            fetch('/catalogs/bsc5.json').then(r => r.json()),
+        ]);
+        for (const o of mess.objects) {
+            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Messier', type: o.type || 'Messier' });
+        }
+        for (const o of ngc.objects) {
+            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'NGC', type: o.type || 'NGC' });
+        }
+        for (const o of namedStars.objects) {
+            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Star', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
+        }
+        for (const o of bsc.objects) {
+            if (objects.some(e => e.id === o.id)) continue;
+            objects.push({ id: o.id, name: o.names?.[0] || null, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'BSC', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
+        }
+        if (skyEngine) skyEngine._objects = objects;
+        addLog('info', 'sky', `${objects.length} objets chargés pour hit-test`);
+    } catch (e) {
+        addLog('warning', 'sky', 'Catalogues objets non disponibles: ' + e.message);
+    }
+}
+
+// ── Site config popup ─────────────────────────────────────────
+
+function initSitePopup() {
+    const overlay = document.getElementById('site-popup-overlay');
+    const siteBtn = document.getElementById('btn-update-location');
+    const closeBtn = document.getElementById('site-popup-close');
+    const cancelBtn = document.getElementById('site-cancel-btn');
+    const saveBtn = document.getElementById('site-save-btn');
+    const gpsBtn = document.getElementById('site-gps-btn');
     const siteName = document.getElementById('site-name');
     const siteLat = document.getElementById('site-lat');
     const siteLng = document.getElementById('site-lng');
@@ -547,34 +775,31 @@ function initButtons() {
     const citySearch = document.getElementById('site-city-search');
     const cityResults = document.getElementById('site-city-results');
 
-    function openSitePanel() {
-        // Pre-fill from current config
+    function openPopup() {
         fetch('/api/site').then(r => r.json()).then(site => {
-            siteName.value = site.name || '';
-            siteLat.value = site.latitude ?? '';
-            siteLng.value = site.longitude ?? '';
-            siteElev.value = site.elevation ?? '';
-            // Match timezone option
-            const opt = siteTz.querySelector(`option[value="${site.timezone}"]`);
-            if (opt) siteTz.value = site.timezone;
+            if (siteName) siteName.value = site.name || '';
+            if (siteLat) siteLat.value = site.latitude ?? '';
+            if (siteLng) siteLng.value = site.longitude ?? '';
+            if (siteElev) siteElev.value = site.elevation ?? '';
+            if (siteTz && site.timezone) {
+                const opt = siteTz.querySelector(`option[value="${site.timezone}"]`);
+                if (opt) siteTz.value = site.timezone;
+            }
         }).catch(() => {});
-        siteOverlay.style.display = 'flex';
-        cityResults.style.display = 'none';
-        citySearch.value = '';
+        if (overlay) overlay.style.display = 'flex';
+        if (cityResults) cityResults.style.display = 'none';
+        if (citySearch) citySearch.value = '';
     }
 
-    function closeSitePanel() {
-        siteOverlay.style.display = 'none';
+    function closePopup() {
+        if (overlay) overlay.style.display = 'none';
     }
 
-    if (siteBtn) siteBtn.addEventListener('click', openSitePanel);
-    if (siteClose) siteClose.addEventListener('click', closeSitePanel);
-    if (siteCancel) siteCancel.addEventListener('click', closeSitePanel);
-    if (siteOverlay) siteOverlay.addEventListener('click', (e) => {
-        if (e.target === siteOverlay) closeSitePanel();
-    });
+    if (siteBtn) siteBtn.addEventListener('click', openPopup);
+    if (closeBtn) closeBtn.addEventListener('click', closePopup);
+    if (cancelBtn) cancelBtn.addEventListener('click', closePopup);
+    if (overlay) overlay.addEventListener('click', (e) => { if (e.target === overlay) closePopup(); });
 
-    // City search
     if (citySearch) {
         let searchTimeout = null;
         citySearch.addEventListener('input', () => {
@@ -590,9 +815,9 @@ function initButtons() {
                         div.className = 'city-item';
                         div.innerHTML = `<span>${c.name}</span><span class="city-meta">${c.lat.toFixed(2)}°N ${c.lng.toFixed(2)}°E ${c.elev}m</span>`;
                         div.addEventListener('click', () => {
-                            siteLat.value = c.lat;
-                            siteLng.value = c.lng;
-                            siteElev.value = c.elev;
+                            if (siteLat) siteLat.value = c.lat;
+                            if (siteLng) siteLng.value = c.lng;
+                            if (siteElev) siteElev.value = c.elev;
                             cityResults.style.display = 'none';
                             citySearch.value = c.name;
                         });
@@ -602,46 +827,42 @@ function initButtons() {
                 }).catch(() => { cityResults.style.display = 'none'; });
             }, 300);
         });
-        // Close city results on outside click
         document.addEventListener('click', (e) => {
             if (!e.target.closest('.site-city-row')) cityResults.style.display = 'none';
         });
     }
 
-    // GPS
-    if (siteGps) {
-        siteGps.addEventListener('click', () => {
+    if (gpsBtn) {
+        gpsBtn.addEventListener('click', () => {
             if (!navigator.geolocation) { addLog('warning', 'site', 'Géolocalisation non supportée'); return; }
-            siteGps.textContent = '⏳ Localisation...';
-            siteGps.disabled = true;
+            gpsBtn.textContent = '⏳ Localisation...';
+            gpsBtn.disabled = true;
             navigator.geolocation.getCurrentPosition(
                 pos => {
-                    siteLat.value = pos.coords.latitude.toFixed(4);
-                    siteLng.value = pos.coords.longitude.toFixed(4);
-                    siteElev.value = Math.round(pos.coords.altitude || 0);
-                    siteGps.textContent = '📍 Géolocaliser (GPS)';
-                    siteGps.disabled = false;
-                    addLog('info', 'site', `GPS: ${pos.coords.latitude.toFixed(4)}°N ${pos.coords.longitude.toFixed(4)}°E ${Math.round(pos.coords.altitude || 0)}m`);
+                    if (siteLat) siteLat.value = pos.coords.latitude.toFixed(4);
+                    if (siteLng) siteLng.value = pos.coords.longitude.toFixed(4);
+                    if (siteElev) siteElev.value = Math.round(pos.coords.altitude || 0);
+                    gpsBtn.textContent = '📍 Géolocaliser (GPS)';
+                    gpsBtn.disabled = false;
                 },
                 err => {
                     addLog('warning', 'site', `GPS échoué: ${err.message}`);
-                    siteGps.textContent = '📍 Géolocaliser (GPS)';
-                    siteGps.disabled = false;
+                    gpsBtn.textContent = '📍 Géolocaliser (GPS)';
+                    gpsBtn.disabled = false;
                 },
                 { enableHighAccuracy: true, timeout: 15000 }
             );
         });
     }
 
-    // Save
-    if (siteSave) {
-        siteSave.addEventListener('click', async () => {
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
             const body = {
-                name: siteName.value.trim(),
-                latitude: parseFloat(siteLat.value) || 0,
-                longitude: parseFloat(siteLng.value) || 0,
-                elevation: parseFloat(siteElev.value) || 0,
-                timezone: siteTz.value,
+                name: siteName?.value?.trim() || '',
+                latitude: parseFloat(siteLat?.value) || 0,
+                longitude: parseFloat(siteLng?.value) || 0,
+                elevation: parseFloat(siteElev?.value) || 0,
+                timezone: siteTz?.value || 'UTC',
             };
             try {
                 await fetch('/api/site', {
@@ -649,34 +870,439 @@ function initButtons() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
-                addLog('info', 'site', `Lieu sauvegardé: ${body.name || '(sans nom)'} ${body.latitude.toFixed(4)}°N ${body.longitude.toFixed(4)}°E ${body.elevation}m`);
-                // Update sky chart horizon
-                if (skyCanvas) {
-                    skyCanvas.siteLat = body.latitude;
-                    skyCanvas.siteLng = body.longitude;
-                    skyCanvas.siteElev = body.elevation;
-                }
-                closeSitePanel();
+                addLog('info', 'site', `Lieu sauvegardé: ${body.latitude.toFixed(4)}°N ${body.longitude.toFixed(4)}°E`);
+                if (skyEngine) skyEngine.updateSite(body.latitude, body.longitude, body.elevation);
+                closePopup();
             } catch (e) {
-                addLog('error', 'site', `Erreur sauvegarde: ${e.message}`);
+                addLog('error', 'site', `Erreur: ${e.message}`);
             }
         });
     }
 }
 
-// Keep property panel globals for dynamically generated inline handlers
+// ── Time management ───────────────────────────────────────────
+
+function initTimeControls() {
+    const realtimeBtn = document.getElementById('btn-mode-realtime');
+    const manualBtn = document.getElementById('btn-mode-manual');
+    const manualControls = document.getElementById('manual-controls');
+    const applyBtn = document.getElementById('btn-apply-manual');
+    const dateInput = document.getElementById('manual-date');
+    const timeInput = document.getElementById('manual-time');
+
+    function fillManualFields(date) {
+        const pad = (n) => String(n).padStart(2, '0');
+        if (dateInput) dateInput.value = `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`;
+        if (timeInput) timeInput.value = `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+    }
+
+    if (realtimeBtn) {
+        realtimeBtn.addEventListener('click', () => {
+            realtimeBtn.classList.add('active');
+            if (manualBtn) manualBtn.classList.remove('active');
+            if (manualControls) manualControls.style.display = 'none';
+            if (skyEngine) skyEngine.setRealTime();
+        });
+    }
+
+    if (manualBtn) {
+        manualBtn.addEventListener('click', () => {
+            manualBtn.classList.add('active');
+            if (realtimeBtn) realtimeBtn.classList.remove('active');
+            if (manualControls) manualControls.style.display = 'flex';
+            fillManualFields(new Date());
+        });
+    }
+
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            const dateVal = dateInput?.value;
+            const timeVal = timeInput?.value;
+            if (!dateVal) return;
+            const full = new Date(`${dateVal}T${timeVal || '00:00:00'}`);
+            if (isNaN(full.getTime())) return;
+            if (skyEngine) skyEngine.setManualTime(full);
+        });
+    }
+
+    fillManualFields(new Date());
+}
+
+// ── Location update ───────────────────────────────────────────
+
+const DRIVER_STORAGE_KEY = 'indigo-selected-driver';
+let _allDrivers = [];
+
+async function refreshDriverList() {
+    const driverSelect = document.getElementById('indigo-driver');
+    if (!driverSelect) return;
+    try {
+        _allDrivers = await fetch('/api/drivers').then(r => r.json());
+    } catch (e) { _allDrivers = []; }
+
+    const type = MODES[currentMode]?.driverType;
+    const filtered = filterDriversByType(_allDrivers, type);
+    const prev = driverSelect.value || localStorage.getItem(DRIVER_STORAGE_KEY) || '';
+
+    driverSelect.innerHTML = '';
+    if (filtered.length === 0) {
+        driverSelect.innerHTML = '<option value="">Aucun driver</option>';
+    } else {
+        for (const d of filtered) {
+            const opt = document.createElement('option');
+            opt.value = d.name;
+            opt.textContent = d.label || d.name;
+            driverSelect.appendChild(opt);
+        }
+    }
+
+    // Restore previous selection if still present
+    if (prev && driverSelect.querySelector(`option[value="${prev}"]`)) {
+        driverSelect.value = prev;
+    }
+}
+
+function initConnectionBar() {
+    const connectBtn = document.getElementById('btn-indigo-connect');
+    const attachBtn = document.getElementById('btn-indigo-attach');
+    const applyPortBtn = document.getElementById('btn-indigo-apply-port');
+    const protoSelect = document.getElementById('indigo-protocol');
+    const driverSelect = document.getElementById('indigo-driver');
+    const attachRow = document.getElementById('conn-row-attach');
+    const ipInput = document.getElementById('indigo-ip');
+    const portInput = document.getElementById('indigo-port');
+    const serialInput = document.getElementById('indigo-serial');
+    let isConnected = false;
+
+    // Toggle attach row visibility — shown when protocol is "attach" OR when connected
+    if (protoSelect && attachRow) {
+        function updateAttachRow() {
+            attachRow.style.display = (protoSelect.value === 'attach' || isConnected) ? '' : 'none';
+        }
+        protoSelect.addEventListener('change', updateAttachRow);
+        updateAttachRow();
+    }
+
+    // Connect button
+    if (connectBtn) {
+        connectBtn.addEventListener('click', async () => {
+            const protocol = protoSelect?.value || 'connect';
+            const host = ipInput?.value || '192.168.1.25';
+            const port = parseInt(portInput?.value || '7624', 10);
+            addLog('info', 'ws', `Connexion ${protocol} → ${host}:${port}...`);
+            try {
+                const res = await fetch('/api/connection', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ protocol, host, port }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'ws', `Paramètres mis à jour: ${protocol} ${host}:${port}`);
+                else addLog('error', 'ws', `Erreur: ${JSON.stringify(data)}`);
+            } catch (e) {
+                addLog('error', 'ws', `Erreur connexion: ${e.message}`);
+            }
+        });
+    }
+
+    // Attach driver button
+    if (attachBtn && driverSelect) {
+        attachBtn.addEventListener('click', async () => {
+            const driver = driverSelect.value;
+            if (!driver) { addLog('warning', 'ws', 'Aucun driver sélectionné'); return; }
+            addLog('info', 'ws', `Attachement du driver: ${driver}...`);
+            try {
+                const res = await fetch('/api/drivers/attach', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ driver }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'ws', `Driver "${driver}" attaché`);
+                else addLog('error', 'ws', `Erreur attach: ${JSON.stringify(data)}`);
+            } catch (e) {
+                addLog('error', 'ws', `Erreur attach: ${e.message}`);
+            }
+        });
+    }
+
+    // Apply serial port
+    if (applyPortBtn && serialInput) {
+        applyPortBtn.addEventListener('click', async () => {
+            const device = driverSelect?.value;
+            const port = serialInput.value.trim();
+            if (!device || !port) { addLog('warning', 'ws', 'Driver ou port manquant'); return; }
+            addLog('info', 'ws', `Configuration port série: ${device} → ${port}`);
+            try {
+                const res = await fetch('/api/property', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        device,
+                        property: 'DEVICE_PORT',
+                        items: [{ name: 'PORT', value: port }],
+                    }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'ws', `Port série configuré: ${port}`);
+                else addLog('error', 'ws', `Erreur port: ${JSON.stringify(data)}`);
+            } catch (e) {
+                addLog('error', 'ws', `Erreur port: ${e.message}`);
+            }
+        });
+    }
+
+    // Save driver selection to localStorage
+    if (driverSelect) {
+        driverSelect.addEventListener('change', () => {
+            localStorage.setItem(DRIVER_STORAGE_KEY, driverSelect.value);
+        });
+    }
+
+    // Load current connection state
+    fetch('/api/connection').then(r => r.json()).then(data => {
+        if (protoSelect && data.protocol) protoSelect.value = data.protocol;
+        if (ipInput && data.host) ipInput.value = data.host;
+        if (portInput && data.port) portInput.value = data.port;
+        if (protoSelect && attachRow) {
+            attachRow.style.display = protoSelect.value === 'attach' ? '' : 'none';
+        }
+        if (data.connected) refreshDriverList();
+    }).catch(() => {});
+
+    // Poll connection status + drivers every 3s
+    setInterval(async () => {
+        try {
+            const data = await fetch('/api/connection').then(r => r.json());
+            const statusEl = document.getElementById('indigo-status');
+            isConnected = !!data.connected;
+            if (statusEl) {
+                statusEl.textContent = data.connected ? '● Connecté' : '● Hors ligne';
+                statusEl.className = data.connected ? 'status-online' : 'status-offline';
+            }
+            if (data.connected) {
+                refreshDriverList();
+            }
+            if (protoSelect && attachRow) {
+                attachRow.style.display = (protoSelect.value === 'attach' || isConnected) ? '' : 'none';
+            }
+        } catch (e) {}
+    }, 3000);
+}
+
+function initLocationUpdate() {
+    const latInput = document.getElementById('obs-lat');
+    const lonInput = document.getElementById('obs-lon');
+
+    const updateBtn = document.getElementById('btn-update-location');
+    if (updateBtn) {
+        updateBtn.addEventListener('click', () => {
+            const lat = parseFloat(latInput?.value);
+            const lon = parseFloat(lonInput?.value);
+            if (!isNaN(lat) && !isNaN(lon) && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180) {
+                if (skyEngine) skyEngine.updateSite(lat, lon, skyEngine.siteElev);
+                const stationEl = document.getElementById('station-display');
+                if (stationEl) stationEl.textContent = `Station : ${lat.toFixed(2)}°N / ${lon.toFixed(2)}°E`;
+            }
+        });
+    }
+}
+
+// ── Sky engine init ───────────────────────────────────────────
+
+async function initSkyEngine() {
+    const container = document.getElementById('canvas-container');
+    if (!container) return;
+
+    let siteLat = 43.952, siteLng = 1.568, siteElev = 210;
+    try {
+        const cfg = await fetch('/api/config').then(r => r.json());
+        if (cfg.site) {
+            siteLat = cfg.site.latitude ?? siteLat;
+            siteLng = cfg.site.longitude ?? siteLng;
+            siteElev = cfg.site.elevation ?? siteElev;
+        }
+    } catch (e) {
+        addLog('warning', 'sky', 'Config site non disponible');
+    }
+
+    skyEngine = new SkyEngine(container, { siteLat, siteLng, siteElev });
+    skyEngine.init();
+    skyEngine.setupContextMenu();
+
+    try {
+        await skyEngine.loadCatalogs();
+        addLog('info', 'sky', 'Carte céleste initialisée');
+    } catch (e) {
+        addLog('error', 'sky', 'Erreur chargement données: ' + e.message);
+    }
+
+    try {
+        await loadObjectCatalogs();
+    } catch (e) {
+        addLog('warning', 'sky', 'Erreur catalogues: ' + e.message);
+    }
+
+    // Magnitude slider
+    const magSlider = document.getElementById('mag-slider');
+    const magValue = document.getElementById('mag-value');
+    if (magSlider) {
+        magSlider.addEventListener('input', () => {
+            const val = parseFloat(magSlider.value);
+            if (magValue) magValue.textContent = val.toFixed(1);
+            if (skyEngine) skyEngine.setMagnitudeLimit(val);
+        });
+    }
+
+    // Update station display
+    const stationEl = document.getElementById('station-display');
+    if (stationEl) stationEl.textContent = `Station : ${siteLat.toFixed(2)}°N / ${siteLng.toFixed(2)}°E`;
+    if (latInput) latInput.value = siteLat;
+    if (lonInput) lonInput.value = siteLng;
+}
+
+// ── Layer toggles ─────────────────────────────────────────────
+
+function initLayerToggles() {
+    // Toggle display panel
+    const toggleBtn = document.getElementById('btn-toggle-display');
+    const displayPanel = document.getElementById('display-panel');
+    if (toggleBtn && displayPanel) {
+        toggleBtn.addEventListener('click', () => {
+            const open = displayPanel.style.display === 'none';
+            displayPanel.style.display = open ? '' : 'none';
+            toggleBtn.textContent = open ? '☰ AFFICHAGE ▴' : '☰ AFFICHAGE ▾';
+        });
+    }
+
+    // Layer checkboxes
+    document.querySelectorAll('[data-layer]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (skyEngine) skyEngine.setLayerVisibility(cb.dataset.layer, cb.checked);
+        });
+    });
+
+    // Catalog checkboxes
+    document.querySelectorAll('[data-catalog]').forEach(cb => {
+        cb.addEventListener('change', () => {
+            if (skyEngine) skyEngine.setCatalogVisibility(cb.dataset.catalog, cb.checked);
+        });
+    });
+}
+
+// ── Global function exports (for inline handlers) ─────────────
+
 window.setSwitchItem = setSwitchItem;
 window.setNumberItem = setNumberItem;
 window.setTextItem = setTextItem;
-window.mountGoto = mountGoto;
 
-// ── Init ───────────────────────────────────────────────────────
+// ── Init ──────────────────────────────────────────────────────
+
+// ── Drag system for applets ───────────────────────────────────
+
+const DRAG_STORAGE_KEY = 'indigo-applet-positions';
+
+function loadAppletPositions() {
+    try {
+        const saved = JSON.parse(localStorage.getItem(DRAG_STORAGE_KEY) || '{}');
+        for (const [id, pos] of Object.entries(saved)) {
+            const el = document.getElementById(id);
+            if (!el || id === 'applet-mode-bar') continue;
+            el.style.left = pos.left || 'auto';
+            el.style.top = pos.top || 'auto';
+            el.style.right = pos.right || 'auto';
+            el.style.bottom = pos.bottom || 'auto';
+            el.style.transform = 'none';
+        }
+    } catch (e) {}
+}
+
+function saveAppletPositions() {
+    const positions = {};
+    document.querySelectorAll('.glass-panel.applet').forEach(el => {
+        if (el.id === 'applet-mode-bar') return;
+        const s = el.style;
+        const hasLeft = s.left && s.left !== 'auto';
+        const hasTop = s.top && s.top !== 'auto';
+        const hasRight = s.right && s.right !== 'auto';
+        const hasBottom = s.bottom && s.bottom !== 'auto';
+        if (hasLeft || hasTop || hasRight || hasBottom) {
+            positions[el.id] = {
+                left: hasLeft ? s.left : 'auto',
+                top: hasTop ? s.top : 'auto',
+                right: hasRight ? s.right : 'auto',
+                bottom: hasBottom ? s.bottom : 'auto'
+            };
+        }
+    });
+    try {
+        localStorage.setItem(DRAG_STORAGE_KEY, JSON.stringify(positions));
+    } catch (e) {}
+}
+
+function initDraggableApplets() {
+    document.querySelectorAll('.glass-panel.applet').forEach(panel => {
+        if (panel.id === 'applet-mode-bar' || panel.id === 'applet-connection') return;
+
+        const handle = panel.querySelector('.applet-drag');
+        if (!handle) return;
+
+        handle.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+            e.preventDefault();
+
+            // Convert CSS right/bottom positioning to explicit left/top
+            const rect = panel.getBoundingClientRect();
+            panel.style.left = rect.left + 'px';
+            panel.style.top = rect.top + 'px';
+            panel.style.right = 'auto';
+            panel.style.bottom = 'auto';
+            panel.style.transform = 'none';
+            panel.style.zIndex = 50;
+            panel.style.transition = 'none';
+            handle.style.cursor = 'grabbing';
+
+            const offsetX = e.clientX - rect.left;
+            const offsetY = e.clientY - rect.top;
+
+            function onMove(ev) {
+                let left = ev.clientX - offsetX;
+                let top = ev.clientY - offsetY;
+                left = Math.max(0, Math.min(window.innerWidth - 60, left));
+                top = Math.max(0, Math.min(window.innerHeight - 40, top));
+                panel.style.left = left + 'px';
+                panel.style.top = top + 'px';
+            }
+
+            function onUp() {
+                document.removeEventListener('mousemove', onMove);
+                document.removeEventListener('mouseup', onUp);
+                handle.style.cursor = 'grab';
+                panel.style.zIndex = '';
+                panel.style.transition = '';
+                saveAppletPositions();
+            }
+
+            document.addEventListener('mousemove', onMove);
+            document.addEventListener('mouseup', onUp);
+        });
+    });
+}
 
 document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('#log-filters input[type="checkbox"]').forEach(cb => cb.addEventListener('change', applyLogFilters));
-    initResizer();
-    initDpad();
+    initModeBar();
+    initConnectionBar();
     initButtons();
-    initSkyCanvas();
+    initDpad();
+    initJoystick();
+    initObjectSearch();
+    initSitePopup();
+    initTimeControls();
+    initLocationUpdate();
+    initSkyEngine();
+    initDraggableApplets();
+    initLayerToggles();
+    loadAppletPositions();
     connectWS();
+    switchMode('mount');
 });

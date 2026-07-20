@@ -46,9 +46,10 @@ BlobHandler = Callable[[str, str, str, str, bytes], Any]
 class IndigoClient:
     """Async INDIGO TCP client."""
 
-    def __init__(self, host_port: str):
+    def __init__(self, host_port: str, protocol: str = "connect"):
         self._host, self._port = host_port.split(":")
         self._port = int(self._port)
+        self._protocol = protocol
         self._sock: socket.socket | None = None
         self._connected = False
         self._reconnect_try = 0

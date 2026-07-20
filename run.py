@@ -62,6 +62,7 @@ def main():
     web_cfg = config.get("web", {})
 
     # Determine INDIGO server address
+    protocol = indigo_cfg.get("protocol", "connect")
     if args.indigo_server:
         indigo_host_port = args.indigo_server
     else:
@@ -73,11 +74,11 @@ def main():
     web_host = args.host or web_cfg.get("host", "0.0.0.0")
     web_port = args.port or web_cfg.get("port", 8080)
 
-    log.info("INDIGO server: %s", indigo_host_port)
+    log.info("INDIGO server: %s (%s)", indigo_host_port, protocol)
     log.info("Web server:    http://%s:%d", web_host, web_port)
 
     # Create INDIGO client + registry
-    client = IndigoClient(indigo_host_port)
+    client = IndigoClient(indigo_host_port, protocol=protocol)
     registry = DeviceRegistry(client)
 
     # Create web server

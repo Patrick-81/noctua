@@ -47,6 +47,7 @@ MOUNT_PROPERTIES = {
     "TELESCOPE_PARK",
     "TELESCOPE_ABORT_MOTION",
     "TELESCOPE_SLEW_RATE",
+    "TELESCOPE_HOME",
 }
 
 
@@ -80,7 +81,8 @@ class Mount(BaseDevice):
         self.tracking: bool = False
         self.slewing: bool = False
         self.parked: bool = False
-        self.park_state: str = ""  # "PARKED", "UNPARKED", "PARKING", "UNPARKING"
+        self.park_state: str = ""  # INDIGO property state: "Ok", "Busy", "Alert"
+        self.homing: bool = False
         # GOTO target (to detect slew completion)
         self._target_ra: float | None = None
         self._target_dec: float | None = None
@@ -140,6 +142,8 @@ class Mount(BaseDevice):
             self._parse_park(pv)
         elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
             self._parse_horizontal(pv)
+        elif name in ("MOUNT_HOME", "TELESCOPE_HOME"):
+            self._parse_home(pv)
 
     def _apply_set(self, pv: PropertyVector) -> None:
         name = pv.name.upper()
@@ -152,9 +156,12 @@ class Mount(BaseDevice):
             log.debug("[%s] tracking=%s", self.name, self.tracking)
         elif name in ("MOUNT_PARK", "TELESCOPE_PARK"):
             self._parse_park(pv)
-            log.info("[%s] park=%s", self.name, self.parked)
+            log.info("[%s] park=%s state=%s", self.name, self.parked, self.park_state)
         elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
             self._parse_horizontal(pv)
+        elif name in ("MOUNT_HOME", "TELESCOPE_HOME"):
+            self._parse_home(pv)
+            log.info("[%s] home state=%s", self.name, pv.state)
 
     def _parse_coordinates(self, pv: PropertyVector) -> None:
         ra_item = pv.get_item("RA")
@@ -187,6 +194,7 @@ class Mount(BaseDevice):
                 return
 
     def _parse_park(self, pv: PropertyVector) -> None:
+        self.park_state = pv.state or "Ok"
         # INDI legacy: "PARK" switch, INDIGO v2.0: "PARKED"
         for name in ("PARKED", "PARK"):
             item = pv.get_item(name)
@@ -206,6 +214,11 @@ class Mount(BaseDevice):
             v = parse_sexagesimal(str(alt_item.value))
             if v is not None:
                 self.alt_deg = v
+
+    def _parse_home(self, pv: PropertyVector) -> None:
+        state = (pv.state or "").lower()
+        if self.homing and state != "busy":
+            self.homing = False
 
     # ── Commands ─────────────────────────────────────────────────
 
@@ -257,6 +270,37 @@ class Mount(BaseDevice):
         })
         await self.send_switch(park_prop, [{"name": item, "value": True}])
 
+    async def home(self) -> None:
+        """Send HOME command to the mount.
+
+        Tries INDIGO v2.0 (MOUNT_HOME / HOME) then INDI legacy
+        (TELESCOPE_HOME / GO, FIND, SET).
+        """
+        home_prop = self._resolve_prop_name("MOUNT_HOME")
+        pv = self._properties.get(home_prop)
+        if pv is None:
+            # Brute-force: try well-known property names directly
+            for name in ("MOUNT_HOME", "TELESCOPE_HOME"):
+                pv = self._properties.get(name)
+                if pv is not None:
+                    home_prop = name
+                    break
+        if pv is not None:
+            self.homing = True
+            self._prev_ra = self.ra_hours
+            self._prev_dec = self.dec_deg
+            item = "GO"
+            for candidate in ("HOME", "GO", "FIND", "SET"):
+                if pv.get_item(candidate):
+                    item = candidate
+                    break
+            log.info("[%s] home: sending %s.%s", self.name, home_prop, item)
+            await self.send_switch(home_prop, [{"name": item, "value": True}])
+            self._start_move_poll()
+        else:
+            log.warning("[%s] home: no HOME property found in %s",
+                        self.name, list(self._properties.keys()))
+
     async def set_tracking(self, on: bool) -> None:
         track_prop = self._resolve_prop_name("MOUNT_TRACKING")
         # Determine correct item names for the server's naming scheme
@@ -279,8 +323,9 @@ class Mount(BaseDevice):
         await self.send_switch(track_prop, items)
 
     async def move(self, direction: str, rate: str = "CENTERING") -> None:
-        """Start a manual move. direction: N/S/E/W"""
-        d = direction.upper()
+        """Start a manual move. direction: N/S/E/W or NORTH/SOUTH/EAST/WEST"""
+        _DIR_MAP = {"NORTH": "N", "SOUTH": "S", "EAST": "E", "WEST": "W"}
+        d = _DIR_MAP.get(direction.upper(), direction.upper())
         if d in ("N", "S"):
             motion_prop = self._resolve_prop_name("MOUNT_MOTION_DEC")
             # Map: INDIGO NORTH/SOUTH → INDI MOTION_NORTH/MOTION_SOUTH
@@ -315,13 +360,15 @@ class Mount(BaseDevice):
     async def _move_poll_loop(self) -> None:
         try:
             stable_count = 0
+            poll_count = 0
             while True:
                 await self._poll_coords()
+                poll_count += 1
                 # During GOTO: detect slew completion by coordinate stabilization
                 if self.slewing and self._target_ra is not None:
                     ra_diff = abs(self.ra_hours - self._prev_ra) * 15
                     dec_diff = abs(self.dec_deg - self._prev_dec)
-                    if ra_diff < 0.01 and dec_diff < 0.01:
+                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 2:
                         stable_count += 1
                     else:
                         stable_count = 0
@@ -332,6 +379,21 @@ class Mount(BaseDevice):
                         self._target_ra = None
                         self._target_dec = None
                         log.info("[%s] slew complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        self._stop_move_poll()
+                        return
+                # During HOME: detect homing completion by coordinate stabilization
+                elif self.homing:
+                    ra_diff = abs(self.ra_hours - self._prev_ra) * 15
+                    dec_diff = abs(self.dec_deg - self._prev_dec)
+                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 2:
+                        stable_count += 1
+                    else:
+                        stable_count = 0
+                    self._prev_ra = self.ra_hours
+                    self._prev_dec = self.dec_deg
+                    if stable_count >= 3:
+                        self.homing = False
+                        log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
                         self._stop_move_poll()
                         return
                 await asyncio.sleep(0.5)
@@ -372,6 +434,8 @@ class Mount(BaseDevice):
             "tracking": self.tracking,
             "slewing": self.slewing,
             "parked": self.parked,
+            "park_state": self.park_state,
+            "homing": self.homing,
             "properties": list(self._properties.keys()),
             "props": self._serialize_properties(),
         }

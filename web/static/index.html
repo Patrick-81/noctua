@@ -5,114 +5,299 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>INDIGO Devices</title>
     <link rel="stylesheet" href="/style.css">
+    <script src="/lib/d3.min.js"></script>
 </head>
 <body>
-    <header>
-        <h1>INDIGO Devices</h1>
-        <div id="connection-status" class="status-dot disconnected"></div>
-        <span id="connection-label">deconnecte</span>
-    </header>
 
-    <div id="split-container">
-        <!-- Left panel: controls -->
-        <div id="left-panel">
-            <div id="left-scroll">
-                <section id="devices-section">
-                    <div id="devices-container"></div>
-                </section>
+    <!-- Fond : canvas D3 plein écran -->
+    <div id="canvas-container"></div>
 
-                <!-- Mount panel -->
-                <div id="mount-panel" style="display:none">
-                    <div class="mount-coords">
-                        <div class="coord-block">
-                            <span class="coord-label">RA</span>
-                            <span class="coord-sexa" id="mount-ra-sexa">--:--:--</span>
-                            <span class="coord-dec" id="mount-ra-dec">--.---- h</span>
-                        </div>
-                        <div class="coord-block">
-                            <span class="coord-label">DEC</span>
-                            <span class="coord-sexa" id="mount-dec-sexa">+--:--:--</span>
-                            <span class="coord-dec" id="mount-dec-dec">--.---- deg</span>
-                        </div>
-                        <div class="mount-status">
-                            <span id="mount-tracking" class="badge badge-off">TRACK OFF</span>
-                            <span id="mount-park" class="badge">UNPARKED</span>
-                            <span id="mount-slew" class="badge badge-busy" style="display:none">SLEWING</span>
-                        </div>
+    <!-- Conteneur des applets (pointer-events: none) -->
+    <div id="applets-layer">
+
+        <!-- APPLET: Sélecteur de mode (toujours visible) -->
+        <div id="applet-mode-bar" class="glass-panel applet">
+            <button class="mode-btn active" data-mode="mount" title="Pilotage Monture">
+                <span class="mode-icon">🔭</span>
+                <span class="mode-label">Monture</span>
+            </button>
+            <button class="mode-btn" data-mode="focuser" title="Focuser">
+                <span class="mode-icon">🔍</span>
+                <span class="mode-label">Focuser</span>
+            </button>
+            <button class="mode-btn" data-mode="guiding" title="Autoguidage">
+                <span class="mode-icon">🎯</span>
+                <span class="mode-label">Guidage</span>
+            </button>
+            <button class="mode-btn" data-mode="capture" title="Capture">
+                <span class="mode-icon">📷</span>
+                <span class="mode-label">Capture</span>
+            </button>
+            <button class="mode-btn" data-mode="astrometry" title="Astrométrie">
+                <span class="mode-icon">⭐</span>
+                <span class="mode-label">Astro</span>
+            </button>
+        </div>
+
+        <!-- APPLET: Connexion INDIGO (toujours visible) -->
+        <div id="applet-connection" class="glass-panel applet">
+            <div id="conn-row-top">
+                <select id="indigo-protocol" title="Protocole INDIGO">
+                    <option value="connect">Connect</option>
+                    <option value="attach">Attach</option>
+                </select>
+                <input id="indigo-ip" placeholder="Hôte" value="192.168.1.25" style="width:110px;">
+                <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;">
+                <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
+                <span id="indigo-status" class="status-offline">● Hors ligne</span>
+            </div>
+            <div id="conn-row-attach" style="display:none;">
+                <span style="color:#666; font-size:0.6rem;">Driver:</span>
+                <select id="indigo-driver" style="width:160px;"></select>
+                <button id="btn-indigo-attach" class="btn-glass warning" style="font-size:0.6rem;">ATTACHER</button>
+                <span style="color:#444;">|</span>
+                <span style="color:#666; font-size:0.6rem;">Port:</span>
+                <input id="indigo-serial" placeholder="/dev/ttyUSB0" style="width:110px;">
+                <button id="btn-indigo-apply-port" class="btn-glass" style="font-size:0.6rem;">APPLIQUER</button>
+            </div>
+            <div id="conn-row-location">
+                <span style="color:#88ff88;">📍</span>
+                <input id="obs-lat" value="43.952" style="width:60px;">
+                <span style="color:#666;">°N</span>
+                <input id="obs-lon" value="1.568" style="width:60px;">
+                <span style="color:#666;">°E</span>
+                <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;">MAJ</button>
+            </div>
+        </div>
+
+        <!-- APPLET: Coords télescope (toujours visible) -->
+        <div id="applet-coords" class="glass-panel applet">
+            <span class="label">🔴 TÉLESCOPE</span>
+            <span class="value" id="tele-real-coords">RA ---° DEC ---°</span>
+        </div>
+
+        <!-- APPLET: Légende (toujours visible) -->
+        <div id="applet-legend" class="glass-panel applet">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">LÉGENDE</span></div>
+            <div class="legend-item"><span class="line-sample" style="background: rgba(255,255,255,0.04);"></span> Voie Lactée</div>
+            <div class="legend-item"><span class="line-sample" style="background: #00ffff;"></span> Équateur Céleste</div>
+            <div class="legend-item"><span class="line-sample" style="border-top: 2px dashed #ffff00;"></span> Écliptique</div>
+            <div class="legend-item"><span class="line-sample" style="background: #ff00ff;"></span> Méridien Local</div>
+            <div class="legend-item"><span class="line-sample" style="background: rgba(0,255,204,0.2);"></span> Constellations</div>
+            <div class="legend-item"><span class="dot-sample" style="background: rgba(255,0,150,0.6);"></span> Ciel Profond</div>
+            <div class="legend-item"><span class="dot-sample" style="background: #ffcc00;"></span> Planètes</div>
+            <div class="legend-item"><span class="dot-sample" style="background: #ff8800; box-shadow: 0 0 8px #ff880066;"></span> Télescope</div>
+        </div>
+
+        <!-- APPLET: Log (toujours visible) -->
+        <div id="applet-log" class="glass-panel applet">
+            <div class="applet-drag">
+                <span class="drag-icon">⣿⣿</span>
+                <span class="hud-title" style="margin:0; border:none; padding:0;">LOG</span>
+            </div>
+            <div class="log-header">
+                <div class="log-filters">
+                    <label><input type="checkbox" checked data-level="info"> info</label>
+                    <label><input type="checkbox" checked data-level="warning"> warn</label>
+                    <label><input type="checkbox" checked data-level="error"> error</label>
+                    <label><input type="checkbox" data-level="debug"> debug</label>
+                </div>
+                <div class="log-actions">
+                    <button id="log-copy" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;">Copier</button>
+                    <button id="log-clear" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;">Clear</button>
+                </div>
+            </div>
+            <div id="log-content"></div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLETS MODE: PILOTAGE MONTURE                       -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-status" class="glass-panel applet mode-specific" data-modes="mount">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">STATUS</span></div>
+            <div class="status-item"><span class="label">Tracking</span><span class="value" id="status-tracking">● OFF</span></div>
+            <div class="status-item"><span class="label">Slewing</span><span class="value" id="status-slewing">● IDLE</span></div>
+            <div class="status-item"><span class="label">Parking</span><span class="value" id="status-parking">● IDLE</span></div>
+            <div class="status-item"><span class="label">Homing</span><span class="value" id="status-homing">● IDLE</span></div>
+        </div>
+
+        <div id="applet-joystick" class="glass-panel applet mode-specific" data-modes="mount">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ PILOTAGE</span></div>
+            <div class="joy-grid">
+                <div></div>
+                <button class="joy-btn" data-dir="north" title="Nord">▲</button>
+                <div></div>
+                <button class="joy-btn" data-dir="west" title="Ouest">◄</button>
+                <button class="joy-btn stop-btn" data-dir="stop" title="Stop">●</button>
+                <button class="joy-btn" data-dir="east" title="Est">►</button>
+                <div></div>
+                <button class="joy-btn" data-dir="south" title="Sud">▼</button>
+                <div></div>
+            </div>
+            <div class="joy-speed-row">
+                <select id="slew-speed">
+                    <option value="Guide">Guide</option>
+                    <option value="Centering">Centering</option>
+                    <option value="Find" selected>Find</option>
+                    <option value="Max">Max</option>
+                </select>
+                <button id="btn-sync" class="btn-glass" title="Synchroniser">⟳ SYNC</button>
+            </div>
+            <div style="font-size:0.55rem; color:#666; margin-top:6px;">Maintien pour déplacement continu</div>
+        </div>
+
+        <div id="applet-commands" class="glass-panel applet mode-specific" data-modes="mount">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ COMMANDES</span></div>
+            <div class="control-grid">
+                <button id="btn-park" class="btn-glass warning">⏸ PARK</button>
+                <button id="btn-unpark" class="btn-glass success">▶ UNPARK</button>
+                <button id="btn-home" class="btn-glass">🏠 HOME</button>
+                <button id="btn-tracking" class="btn-glass success">🔭 TRACK</button>
+                <button id="btn-abort" class="btn-glass danger">⏹ STOP</button>
+                <button id="btn-emergency" class="btn-glass danger full">🛑 EMERGENCY</button>
+            </div>
+        </div>
+
+        <div id="applet-hud" class="glass-panel applet mode-specific" data-modes="mount">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ CONSOLE DE POINTAGE</span></div>
+            <div style="font-size:0.7rem; color:#aaa;">Réticule central (RA, DEC) :</div>
+            <div class="hud-value" id="tele-coords">000.00° , +00.00°</div>
+            <div class="hud-geo" id="station-display">Station : 43.95°N / 1.57°E</div>
+
+            <div class="slider-container">
+                <label for="mag-slider">Magnitude Limite : <span id="mag-value">6.0</span></label>
+                <input type="range" id="mag-slider" min="0.0" max="8.0" step="0.2" value="6.0">
+            </div>
+
+            <div class="layer-toggles">
+                <button id="btn-toggle-display" class="btn-glass" style="font-size:0.65rem; width:100%;">☰ AFFICHAGE ▾</button>
+                <div id="display-panel" class="display-panel" style="display:none;">
+                    <div class="toggle-section">
+                        <div class="toggle-section-label">Objets</div>
+                        <label class="layer-cb"><input type="checkbox" data-layer="stars" checked> ⚪ Étoiles</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="dsos" checked> 🔴 DSO</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="planets" checked> 🟡 Planètes</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="constellations" checked> ✶ Constellations</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="milkyway" checked> ☁ Voie Lactée</label>
                     </div>
-
-                    <div class="mount-controls">
-                        <!-- GOTO -->
-                        <div class="mount-section">
-                            <h3>GOTO</h3>
-                            <div class="goto-row">
-                                <label>RA <input type="text" id="goto-ra" class="prop-input" placeholder="hh:mm:ss" value=""></label>
-                                <label>DEC <input type="text" id="goto-dec" class="prop-input" placeholder="dd:mm:ss" value=""></label>
-                                <button class="set-btn" id="btn-goto">Slew</button>
-                            </div>
-                        </div>
-
-                        <!-- D-pad -->
-                        <div class="mount-section">
-                            <h3>Mouvement</h3>
-                            <div class="dpad-area">
-                                <select id="slew-speed" class="prop-input">
-                                    <option value="Guide">Guide</option>
-                                    <option value="Centering">Centering</option>
-                                    <option value="Find" selected>Find</option>
-                                    <option value="Max">Max</option>
-                                </select>
-                                <div class="dpad">
-                                    <button class="dpad-btn dpad-n" data-direction="N">N</button>
-                                    <button class="dpad-btn dpad-w" data-direction="W">W</button>
-                                    <button class="dpad-btn dpad-stop" id="btn-dpad-stop">STOP</button>
-                                    <button class="dpad-btn dpad-e" data-direction="E">E</button>
-                                    <button class="dpad-btn dpad-s" data-direction="S">S</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Actions -->
-                        <div class="mount-section">
-                            <h3>Actions</h3>
-                            <div class="controls">
-                                <button class="set-btn" id="btn-tracking">Tracking</button>
-                                <button class="set-btn" id="btn-park">Park</button>
-                                <button class="set-btn" id="btn-unpark">Unpark</button>
-                                <button class="set-btn btn-home" id="btn-home">Home</button>
-                                <button class="set-btn btn-abort" id="btn-abort">Abort</button>
-                            </div>
-                        </div>
-
-                        <!-- OnStep status -->
-                        <div class="mount-section" id="onstep-status-section" style="display:none">
-                            <h3>OnStep Status</h3>
-                            <div class="onstep-status" id="onstep-status-text"></div>
-                        </div>
+                    <div class="toggle-section">
+                        <div class="toggle-section-label">Grilles / Lignes</div>
+                        <label class="layer-cb"><input type="checkbox" data-layer="grid" checked> ╋ Grille</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="equator" checked> — Équateur</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="ecliptic" checked> ╌ Écliptique</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="meridian" checked> ┆ Méridien</label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="horizon" checked> 🌅 Horizon</label>
+                    </div>
+                    <div class="toggle-section">
+                        <div class="toggle-section-label">Catalogues DSO</div>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="messier" checked> M (Messier)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="ngc" checked> NGC</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="ic" checked> IC</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="caldwell" checked> Caldwell</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="sh2" checked> Sh2 (Sharpless)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="ldn" checked> LDN</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="ced" checked> Ced (Cederblad)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="vdb" checked> VdB (van den Bergh)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="lbn" checked> LBN</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="rcw" checked> RCW</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="snr" checked> SNR (Rémanents)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="cr" checked> Cr (Crab)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="other" checked> Autres (B, ESO, PGC...)</label>
                     </div>
                 </div>
+            </div>
 
-                <div id="device-props"></div>
+            <div class="time-container">
+                <div class="hud-title" style="font-size:0.75rem; margin-bottom:4px; border-bottom-color:rgba(0,255,204,0.08);">⏱ GESTION TEMPORELLE</div>
+                <div class="time-mode-toggle">
+                    <button id="btn-mode-realtime" class="mode-btn active">🕐 Temps Réel</button>
+                    <button id="btn-mode-manual" class="mode-btn">✏️ Manuel</button>
+                </div>
+                <div id="manual-controls" style="display:none; gap:6px; flex-direction:column;">
+                    <div style="display:flex; gap:6px;">
+                        <input type="date" id="manual-date" style="flex:1;">
+                        <input type="time" id="manual-time" step="1" style="flex:1;">
+                    </div>
+                    <button id="btn-apply-manual" style="background:rgba(255,0,85,0.12); color:#ff0055; border:1px solid rgba(255,0,85,0.3); border-radius:4px; font-family:monospace; font-size:0.7rem; padding:4px; cursor:pointer;">Appliquer</button>
+                </div>
+                <div class="time-row"><span>Date/Heure locale :</span><span id="clock-display">--:--:--</span></div>
+                <div class="time-row"><span>LST :</span><span id="lst-display">--:--:--</span></div>
+            </div>
+
+            <div class="hud-help">🖱️ Glisser : Pivoter | 📜 Molette : Zoom</div>
+        </div>
+
+        <div id="applet-search" class="glass-panel applet mode-specific" data-modes="mount">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span></div>
+            <div id="obj-search-wrap">
+                <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off" style="width:260px;">
+                <div id="obj-search-results" class="obj-search-results" style="display:none"></div>
             </div>
         </div>
 
-        <!-- Resizer -->
-        <div id="split-handle"></div>
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLETS MODE: FOCUSER                                 -->
+        <!-- ══════════════════════════════════════════════════════ -->
 
-        <!-- Right panel: sky chart -->
-        <div id="right-panel">
-            <div id="sky-chart-container">
-                <canvas id="sky-canvas"></canvas>
-                <div id="sky-chart-wait">Chargement des catalogues...</div>
-            </div>
-            <div id="sky-chart-info">
-                <button id="sky-site-btn" class="set-btn" title="Configurer le lieu d'observation">⊙ Lieu</button>
-                <button id="sky-center-btn" class="set-btn" title="Centrer sur le télescope">⊕ Centrer</button>
-                <button id="sky-follow-btn" class="set-btn sky-follow-on" title="Suivre le télescope pendant les slews">◎ Suivre</button>
-                <span id="sky-chart-status"></span>
-            </div>
+        <div id="applet-focuser-control" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:80px; right:16px; width:220px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUSER</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
-    </div>
+
+        <div id="applet-focuser-position" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:320px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ POSITION</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLETS MODE: AUTOGUIDAGE (placeholder)              -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Graphique</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:220px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLETS MODE: CAPTURE (placeholder)                   -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:260px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Paramètres</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <div id="applet-capture-preview" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLETS MODE: ASTROMÉTRIE (placeholder)               -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Solver</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:260px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Mise en station</span></div>
+            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        </div>
+
+        <!-- APPLET: Propriétés device (commun, mais positionné) -->
+        <div id="applet-props" class="glass-panel applet" style="display:none;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title">PROPRIÉTÉS</span></div>
+        </div>
+
+    </div><!-- /applets-layer -->
 
     <!-- Context menu for sky objects -->
     <div id="obj-context-menu" class="obj-menu" style="display:none"></div>
@@ -127,7 +312,7 @@
             <div class="popup-body">
                 <div class="site-field">
                     <label>Nom du site</label>
-                    <input type="text" id="site-name" class="prop-input" placeholder="Ex: Jardin maison" style="width:100%">
+                    <input type="text" id="site-name" class="prop-input" placeholder="Ex: Montdurausse" style="width:100%">
                 </div>
                 <div class="site-field">
                     <label>Ville</label>
@@ -154,45 +339,13 @@
                     <div class="site-field">
                         <label>Timezone</label>
                         <select id="site-tz" class="prop-input" style="width:100%">
+                            <option value="Europe/Paris" selected>Europe/Paris</option>
                             <option value="UTC">UTC</option>
-                            <option value="Europe/Paris">Europe/Paris</option>
                             <option value="Europe/London">Europe/London</option>
                             <option value="Europe/Berlin">Europe/Berlin</option>
-                            <option value="Europe/Madrid">Europe/Madrid</option>
-                            <option value="Europe/Rome">Europe/Rome</option>
-                            <option value="Europe/Amsterdam">Europe/Amsterdam</option>
-                            <option value="Europe/Brussels">Europe/Brussels</option>
-                            <option value="Europe/Zurich">Europe/Zurich</option>
-                            <option value="Europe/Vienna">Europe/Vienna</option>
-                            <option value="Europe/Prague">Europe/Prague</option>
-                            <option value="Europe/Warsaw">Europe/Warsaw</option>
-                            <option value="Europe/Budapest">Europe/Budapest</option>
-                            <option value="Europe/Bucharest">Europe/Bucharest</option>
-                            <option value="Europe/Athens">Europe/Athens</option>
-                            <option value="Europe/Istanbul">Europe/Istanbul</option>
-                            <option value="Europe/Moscow">Europe/Moscow</option>
                             <option value="America/New_York">America/New_York</option>
-                            <option value="America/Chicago">America/Chicago</option>
-                            <option value="America/Denver">America/Denver</option>
                             <option value="America/Los_Angeles">America/Los_Angeles</option>
-                            <option value="America/Sao_Paulo">America/Sao_Paulo</option>
-                            <option value="America/Argentina/Buenos_Aires">America/Argentina/Buenos_Aires</option>
-                            <option value="America/Mexico_City">America/Mexico_City</option>
-                            <option value="America/Toronto">America/Toronto</option>
                             <option value="Asia/Tokyo">Asia/Tokyo</option>
-                            <option value="Asia/Shanghai">Asia/Shanghai</option>
-                            <option value="Asia/Kolkata">Asia/Kolkata</option>
-                            <option value="Asia/Dubai">Asia/Dubai</option>
-                            <option value="Asia/Seoul">Asia/Seoul</option>
-                            <option value="Asia/Singapore">Asia/Singapore</option>
-                            <option value="Asia/Hong_Kong">Asia/Hong_Kong</option>
-                            <option value="Asia/Taipei">Asia/Taipei</option>
-                            <option value="Australia/Sydney">Australia/Sydney</option>
-                            <option value="Australia/Melbourne">Australia/Melbourne</option>
-                            <option value="Pacific/Auckland">Pacific/Auckland</option>
-                            <option value="Africa/Cairo">Africa/Cairo</option>
-                            <option value="Africa/Johannesburg">Africa/Johannesburg</option>
-                            <option value="Africa/Nairobi">Africa/Nairobi</option>
                         </select>
                     </div>
                 </div>
@@ -204,21 +357,6 @@
             </div>
         </div>
     </div>
-
-    <footer>
-        <div id="log-header">
-            <h2>Log</h2>
-            <div id="log-filters">
-                <label><input type="checkbox" checked data-level="info"> info</label>
-                <label><input type="checkbox" checked data-level="warning"> warn</label>
-                <label><input type="checkbox" checked data-level="error"> error</label>
-                <label><input type="checkbox" data-level="debug"> debug</label>
-            </div>
-            <button id="log-copy">Copier</button>
-            <button id="log-clear">Clear</button>
-        </div>
-        <div id="log"></div>
-    </footer>
 
     <script type="module" src="/app.js"></script>
 </body>

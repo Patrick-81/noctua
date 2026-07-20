@@ -1,100 +1,118 @@
-# CHECKPOINT — 17 juillet 2026
+# CHECKPOINT — 20 juillet 2026
 
 ## État actuel
-Le serveur est **fonctionnel** et connecté à l'INDIGO réel.
+Migration UI terminée — applets flottants glassmorphisme + mode manager + correctifs bugs critiques.
 
-## Ce qui marche
+## Changements majeurs (20 juillet)
 
-### Backend Python
-- [x] Connexion TCP à l'INDIGO server (192.168.1.25:7624)
-- [x] Parse XML INDIGO avec fallback junk-after-document
-- [x] Auto-reconnect en cas de déconnexion
-- [x] Découverte automatique des devices (LX200 OnStep, SVBONY SV305PRO)
-- [x] Upgrade vers types spécialisés (Mount, Camera, Focuser)
-- [x] Auto-connect des devices au démarrage
-- [x] Résolution noms INDIGO v2.0 ↔ INDI legacy (PROP_ALIASES)
-- [x] Assainissement NaN/Inf pour JSON
-- [x] WebLogHandler — logs Python → WebSocket
-- [x] `_safe_send()` — wrapper WS send anti-flood (évite erreurs ConnectionClosedOK)
+### Architecture UI
+- [x] **Suppression du layout split** — plus de header, footer, split-container
+- [x] **Canvas plein écran** — carte céleste en fond (100vw × 100vh)
+- [x] **Applets flottants glassmorphisme** — panneaux superposés au canvas
+- [x] **Système de modes** — sélecteur Pilotage / Focuser / Guidage / Capture / Astrométrie
+- [x] **Mode manager** — chaque mode affiche ses propres applets, les autres sont cachés
+- [x] **Applets communs** — connexion, coords, légende, log toujours visibles
 
-### Frontend JS
-- [x] WebSocket état temps réel + logs
-- [x] Split layout redimensionnable (gauche/droite)
-- [x] Panneau monture : coordonnées sexagesimales + décimales
-- [x] GOTO (input hh:mm:ss / dd:mm:ss → /api/mount/slew)
-- [x] D-pad avec sélection vitesse (dédié /api/mount/move)
-- [x] Park / Unpark / Abort / Tracking / Home
-- [x] OnStep Status (tous les items, white-space: pre-wrap)
-- [x] Badges tracking/park/slewing
-- [x] Panneau propriétés interactives (switch/number/text, groupes pliables)
-- [x] Canvas carte stéréographique client-side (sky-canvas.js)
-- [x] Bouton « Copier » dans le header du log (copyLog)
+### Moteur carte céleste
+- [x] **sky-engine.js** — nouveau moteur D3 v3 orthographic sur canvas HTML5
+- [x] Projection orthographique (clip 90°, globe)
+- [x] Couche 1-18 : fond, voie lactée, grille, équateur, écliptique, méridien, **horizon** (orange tirets, recalé en temps réel selon lat/LST), constellations, étoiles, labels méridiens, DSOs, planètes, zenith, labels cardinaux, réticule centre, indicateur télescope, highlight objet, FOV caméra
+- [x] Synchronisation sidérale temps réel (setInterval 1s)
+- [x] Mode temps manuel (date/heure sélecteur)
+- [x] Drag rotation + scroll zoom
+- [x] Context menu clic droit avec hit-test + GOTO
+- [x] Recherche d'objets avec autocomplete multi-catalogue
+- [x] Limite de magnitude (slider)
+- [x] **Filtrage par catalogue DSO** — panneau déroulant AFFICHAGE avec 13 catalogues (M, NGC, IC, Caldwell, Sh2, LDN, Ced, VdB, LBN, RCW, SNR, Cr, Autres)
+- [x] **Terre exclue** de l'affichage planètes
 
-### Carte céleste (sky-canvas.js)
-- [x] Projection stéréographique en JS pur (centre = chartH/2)
-- [x] 9096 étoiles (BSC5), 743 segments constellation
-- [x] 110 Messier + 32 NGC/Caldwell
-- [x] Grille RA/Dec (sans labels — causait des artefacts)
-- [x] Crosshair télescope (rouge, glow, centre dot, label RA/Dec)
-- [x] Zoom molette (2°–120°)
-- [x] Pan drag (projection inverse stéréographique)
-- [x] Instantané — zéro clignotement, zéro round-trip serveur
-- [x] Suivi: centre la carte pendant les slews, désactivé au drag manuel
-- [x] Bouton « Suivre / Libre » dans la barre d'info
-- [x] Bouton « Centrer » pour recentrage manuel
-- [x] Ligne d'horizon + labels cardinaux (N/S/E/W + intercardinaux)
-- [x] Barre compass (azimut projeté via _altAzToRaDec + _project, ticks, labels)
-- [x] Voile sud — overlay semi-transparent sous l'horizon (polygon trié par x)
-- [x] Context menu clic droit — hit test étoiles/Messier/NGC, popup coords + GOTO
-- [x] GOTO direct depuis context menu (bypass sexaToDec, envoie ra_hours/dec_deg)
-- [x] Canvas clip region pour séparer chart de compass bar
-- [x] try/finally dans render() pour ctx.restore() garanti
-- [x] try/catch dans render() — erreurs jamais propagées aux callers
-- [x] try/catch séparé pour compass bar — erreurs compass n'arrêtent pas le chart
-- [x] Render errors loggées en console.error pour debug
+### Fix bugs critiques
 
-### D-pad (corrigé)
-- [x] Remplacement mouse/touch events → Pointer Events (setPointerCapture)
-- [x] Suppression du `mouseleave` qui stoppait le move prématurément
-- [x] `pointerup` global document comme garde-fou
-- [x] Visuel : `.dpad-btn.active` avec glow bleu pendant le move
-- [x] Debug logging dans `mountMove()` et `mountHaltMove()`
-- [x] Bouton STOP : `stopMove()` + `mountAbort()`
+#### Joystick (D-pad)
+- [x] **Direction mismatch** — `data-dir="north"` ne correspondait pas à `"N"` dans `mount.move()`. Ajout d'un `_DIR_MAP` (`mount.py`)
+- [x] **Bouton Stop** — `data-dir="stop"` routait vers `mountMove()` au lieu de `mountAbort()`
 
-### Site d'observation (popup config)
-- [x] Backend: `/api/site` GET/POST (lit/écrit config.yaml)
-- [x] Backend: `/api/site/cities` (recherche fuzzy sur 122 villes)
-- [x] Base de données 122 villes mondiales (`web/cities.py`)
-- [x] Popup HTML: nom, ville (autocomplete), lat/lng, altitude, timezone, GPS
-- [x] CSS: overlay + panel + résultats autocomplete
-- [x] JS: open/close, city search debounced, GPS geolocation, save → POST
-- [x] Save met à jour le sky chart en temps réel (siteLat/siteLng/siteElev)
-- [x] config.yaml: schema complet (name/lat/lng/elevation/timezone)
+#### Connexion INDIGO
+- [x] **Ligne ATTACHER cachée** — en mode "Connect", la ligne driver était masquée. Affichée dès que connecté
+- [x] **Indicateur de statut faux** — le WebSocket local affichait "Connecté" dès le chargement. Polling `/api/connection` pour le vrai statut INDIGO
+- [x] **Pas de reconnexion** — changer host/port while connected ne faisait rien. Déconnexion + reconnexion propre
+- [x] **Fuite event listeners** — `addEventListener` dans `refreshDriverList()` (appelée toutes les 3s) déplacé hors de la boucle
 
-## Ce qui ne marche pas / incomplet
+#### Clipboard
+- [x] **Copy log cassé** — `navigator.clipboard` nécessite contexte sécurisé. Fallback `textarea` + `execCommand('copy')`
 
-### Bugs connus
-- [ ] D-pad : à tester avec le serveur réel (debug logging ajouté)
+### CSS
+- [x] Design glassmorphisme (`backdrop-filter: blur(10px)`)
+- [x] Palette : fond #020205, accent cyan #00ffcc, reticule rouge #ff0055, telescope orange #ff8800
+- [x] Buttons `.btn-glass` avec variantes success/warning/danger
+- [x] Inputs stylisés (fond dark, bordure cyan)
+- [x] Status animés (pulse pour slewing/parking)
+- [x] Responsive mobile (max-width: 768px)
+- [x] **Panneau AFFICHAGE déroulant** — bouton toggle + sections Couches/Grilles/Catalogues
+- [x] **Mode bar big icons** — boutons 56×56px avec emoji + label
 
-### Fonctionnalités manquantes
-- [ ] Caméra : pas de panneau dédié (juste les propriétés interactives)
-- [ ] Focuser : pas de panneau dédié
-- [ ] Search/sélecteur d'objets sur la carte
-- [ ] Indicateur FOV caméra sur la carte
-- [ ] Gestion erreurs connexion INDIGO dans l'UI
+### Backend
+- [x] **Endpoint `/api/drivers/attach`** — POST pour charger un driver via Mount/CCD/Focuser Agent
+- [x] **Endpoint `/api/connection`** — GET/POST pour paramètres de connexion INDIGO
+- [x] **`IndigoClient`** — paramètre `protocol` (connect/attach), méthode `disconnect()`
+- [x] **`DeviceRegistry.drivers_list()`** — retourne la liste des drivers disponibles
+- [x] **Filtrage drivers par mode** — `DRIVER_TYPE_KEYWORDS` mappe modes → mots-clés
 
-### Architecture
-- [ ] `web/sky_chart.py` est obsolète (ancien renderer starplot) — peut être supprimé
-- [ ] Les catalogues sont copiés dans `public/catalogs/` depuis `indigo_xtens`
-- [ ] Aucun test unitaire
-- [ ] Pas de CI/CD
+### Fichiers modifiés
+- [x] `web/static/index.html` — structure applets, mode bar icons, connexion bar (3 rangs), panneau AFFICHAGE
+- [x] `web/static/style.css` — glassmorphisme, mode-btn icons, drag handles, display-panel
+- [x] `web/static/app.js` — mode manager, driver filtering, layer/catalog toggle, connection bar, drag system, clipboard fallback
+- [x] `web/static/sky-engine.js` — layers object, catalog visibility, horizon line, Earth skip, Ced/VdB/LBN/RCW/SNR filtering
+- [x] `web/server.py` — endpoints connection/drivers/attach, disconnect before reconnect
+- [x] `indigo/client.py` — protocol parameter, disconnect method
+- [x] `indigo/devices/mount.py` — `_DIR_MAP` for direction normalization
 
-## Fichiers modifiés ce jour (17 juillet)
-- `web/static/app.js` — D-pad (Pointer Events), debug, sky follow/center buttons, site popup logic, wait overlay fix
-- `web/static/sky-canvas.js` — crosshair, setTelPosition(), follow, horizon+compass+veil, context menu, render try/catch
-- `web/static/index.html` — sky-chart-info buttons, site popup overlay HTML, context menu div
-- `web/static/style.css` — `.dpad-btn.active`, `.sky-follow-on/off`, popup styles, `#sky-chart-wait pointer-events: none`
-- `web/server.py` — `/api/config`, `/api/site` GET/POST, `/api/site/cities`, `/api/mount/slew`, `_safe_send()`
-- `web/cities.py` — 122 villes + search_cities()
-- `run.py` — passes config_path to WebServer
-- `config.yaml` — schema site complet (name/lat/lng/elevation/timezone)
+### Fichiers supprimés
+- [x] `celestial-wrapper.js` — remplacé par sky-engine.js
+- [x] `sky-canvas.js` — déjà obsolète
+- [x] CDN d3-celestial (script + CSS)
+
+### Fichiers ajoutés
+- [x] `sky-engine.js` — moteur cartographique
+- [x] `lib/d3.min.js` — D3 v3 local (plus de CDN)
+
+## Ce qui reste à faire
+
+### Applets placeholder (à implémenter)
+- [ ] **Autoguidage** : graphique dérive, paramètres, stats
+- [ ] **Capture** : paramètres exposition, preview FITS, séquence
+- [ ] **Astrométrie** : solver, mise en station polaire
+
+### Fonctionnalités existantes à vérifier
+- [ ] Tester D-pad avec le serveur réel
+- [ ] Tester GOTO depuis la carte
+- [ ] Vérifier le panneau propriétés pour caméra/focuser
+- [ ] Tester filtrage catalogues avec la carte réelle
+
+### Améliorations possibles
+- [ ] Ajouter un panneau OnStep Status dans le mode Pilotage
+- [ ] Ajouter un panneau device list (sélection multi-device)
+
+## Architecture cible
+
+```
+MODE: PILOTAGE
+  [commun] connection, coords, legend, log
+  [monture] status, joystick, commands, hud, search
+
+MODE: FOCUSER
+  [commun] connection, coords, legend, log
+  [focuser] control, position
+
+MODE: AUTOGUIDAGE
+  [commun] connection, coords, legend, log
+  [guiding] graph, settings, stats
+
+MODE: CAPTURE
+  [commun] connection, coords, legend, log
+  [capture] settings, preview, sequence
+
+MODE: ASTROMÉTRIE
+  [commun] connection, coords, legend, log
+  [astrometry] solver, polar
+```
