@@ -418,6 +418,45 @@ export class SkyEngine {
             this._pathGenerator(this._getHorizon());
             ctx.stroke();
             ctx.setLineDash([]);
+
+            // Graduations azimutales
+            const azLabels = [
+                { az: 0, name: 'N' }, { az: 30, name: '30°' }, { az: 60, name: '60°' },
+                { az: 90, name: 'E' }, { az: 120, name: '120°' }, { az: 150, name: '150°' },
+                { az: 180, name: 'S' }, { az: 210, name: '210°' }, { az: 240, name: '240°' },
+                { az: 270, name: 'O' }, { az: 300, name: '300°' }, { az: 330, name: '330°' },
+            ];
+            const lat = this.siteLat * Math.PI / 180;
+            const lst = this._lstDegrees(new Date(), this.siteLng) * Math.PI / 180;
+            const cosLat = Math.cos(lat);
+            const tanLat = Math.tan(lat);
+
+            ctx.fillStyle = "rgba(255, 160, 50, 0.9)";
+            ctx.font = "8px monospace";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            for (const lbl of azLabels) {
+                const azRad = lbl.az * Math.PI / 180;
+                const dec = Math.asin(cosLat * Math.cos(azRad));
+                const cosDec = Math.cos(dec);
+                const ha = Math.atan2(-Math.sin(azRad) / cosDec, -Math.sin(dec) * tanLat / cosDec);
+                let ra = (lst - ha) * 180 / Math.PI;
+                ra = ((ra % 360) + 360) % 360;
+                if (!this._celestialClip([ra, dec * 180 / Math.PI])) continue;
+                const pt = this._projection([ra, dec * 180 / Math.PI]);
+                if (!pt) continue;
+
+                const isCardinal = lbl.az % 90 === 0;
+                if (isCardinal) {
+                    ctx.font = "bold 10px monospace";
+                    ctx.fillStyle = "rgba(255, 160, 50, 1.0)";
+                } else {
+                    ctx.font = "7px monospace";
+                    ctx.fillStyle = "rgba(255, 160, 50, 0.6)";
+                }
+                ctx.fillText(lbl.name, pt[0], pt[1] + 12);
+            }
         }
 
         // 7. Constellations
@@ -711,13 +750,15 @@ export class SkyEngine {
     _setupDrag() {
         const drag = d3.behavior.drag().on("drag", () => {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
-            if (!this._lockRA) {
+            if (this._lockRA) {
+                if (!this._lockDEC) this._decOffset -= d3.event.dy * sensitivity;
+            } else if (this._lockDEC) {
                 this._manualOffsetRA += d3.event.dx * sensitivity;
-            }
-            if (!this._lockDEC) {
+            } else {
+                this._manualOffsetRA += d3.event.dx * sensitivity;
                 this._decOffset -= d3.event.dy * sensitivity;
-                this._decOffset = Math.max(-90, Math.min(90, this._decOffset));
             }
+            this._decOffset = Math.max(-90, Math.min(90, this._decOffset));
             this._updateSiderealRotation();
         });
         d3.select(this.container).call(drag);
