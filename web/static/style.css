@@ -490,6 +490,24 @@ body {
     width: 100%; accent-color: #ff0055; cursor: pointer; background: transparent;
 }
 
+.rotation-locks {
+    margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(0, 255, 204, 0.1);
+}
+.lock-row {
+    display: flex; gap: 4px;
+}
+.lock-btn {
+    flex: 1; font-size: 0.6rem !important; padding: 4px 6px !important;
+    text-align: center; white-space: nowrap;
+}
+.lock-btn.active {
+    background: rgba(255, 0, 85, 0.25) !important;
+    border-color: rgba(255, 0, 85, 0.6) !important;
+    color: #ff0055 !important;
+    box-shadow: 0 0 8px rgba(255, 0, 85, 0.3);
+}
+
 .time-container {
     margin-top: 10px; padding-top: 8px;
     border-top: 1px solid rgba(0, 255, 204, 0.1);

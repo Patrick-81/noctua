@@ -46,6 +46,8 @@ export class SkyEngine {
         this._currentRotation = [0, 0, 0];
         this._manualOffsetRA = 0;
         this._decOffset = 0;
+        this._lockRA = false;
+        this._lockDEC = false;
         this._timeMode = 'realtime';
         this._manualDate = new Date();
         this._realtimer = null;
@@ -165,6 +167,11 @@ export class SkyEngine {
             this.catalogs[catalog] = visible;
             this.render();
         }
+    }
+
+    setRotationLock(axis, locked) {
+        if (axis === 'ra') this._lockRA = locked;
+        if (axis === 'dec') this._lockDEC = locked;
     }
 
     _dsoHasCatalog(dso) {
@@ -704,9 +711,13 @@ export class SkyEngine {
     _setupDrag() {
         const drag = d3.behavior.drag().on("drag", () => {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
-            this._manualOffsetRA += d3.event.dx * sensitivity;
-            this._decOffset -= d3.event.dy * sensitivity;
-            this._decOffset = Math.max(-90, Math.min(90, this._decOffset));
+            if (!this._lockRA) {
+                this._manualOffsetRA += d3.event.dx * sensitivity;
+            }
+            if (!this._lockDEC) {
+                this._decOffset -= d3.event.dy * sensitivity;
+                this._decOffset = Math.max(-90, Math.min(90, this._decOffset));
+            }
             this._updateSiderealRotation();
         });
         d3.select(this.container).call(drag);

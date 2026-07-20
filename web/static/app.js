@@ -1188,6 +1188,32 @@ function initLayerToggles() {
             if (skyEngine) skyEngine.setCatalogVisibility(cb.dataset.catalog, cb.checked);
         });
     });
+
+    // Rotation lock buttons
+    const lockZenith = document.getElementById('btn-lock-zenith');
+    const lockEW = document.getElementById('btn-lock-ew');
+    if (lockZenith) {
+        lockZenith.addEventListener('click', () => {
+            if (!skyEngine) return;
+            skyEngine._lockRA = !skyEngine._lockRA;
+            lockZenith.classList.toggle('active', skyEngine._lockRA);
+            if (skyEngine._lockRA && skyEngine._lockDEC) {
+                skyEngine._lockDEC = false;
+                lockEW.classList.remove('active');
+            }
+        });
+    }
+    if (lockEW) {
+        lockEW.addEventListener('click', () => {
+            if (!skyEngine) return;
+            skyEngine._lockDEC = !skyEngine._lockDEC;
+            lockEW.classList.toggle('active', skyEngine._lockDEC);
+            if (skyEngine._lockDEC && skyEngine._lockRA) {
+                skyEngine._lockRA = false;
+                lockZenith.classList.remove('active');
+            }
+        });
+    }
 }
 
 // ── Global function exports (for inline handlers) ─────────────
