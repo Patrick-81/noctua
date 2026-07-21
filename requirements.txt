@@ -1,4 +1,5 @@
 fastapi>=0.115
-uvicorn>=0.30
+uvicorn[standard]>=0.30
+websockets>=12.0
 pyyaml>=6.0
 Pillow>=10.0
