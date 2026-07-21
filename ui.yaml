@@ -1,0 +1,217 @@
+mode: capture
+log_levels:
+  info: true
+  warning: true
+  error: true
+  debug: false
+sky:
+  magnitude_limit: 6
+  layers:
+    stars: true
+    dsos: true
+    planets: true
+    constellations: true
+    milkyway: true
+    grid: true
+    equator: true
+    ecliptic: true
+    meridian: true
+    horizon: true
+  catalogs:
+    messier: true
+    ngc: true
+    ic: true
+    caldwell: true
+    sh2: true
+    ldn: true
+    ced: true
+    vdb: true
+    lbn: true
+    rcw: true
+    snr: true
+    cr: true
+    other: true
+modes:
+  mount:
+    rotation_lock: none
+    time_mode: realtime
+    manual_date: null
+    manual_time: null
+    driver: null
+    collapsed:
+      applet-hud: false
+      applet-log: false
+      applet-joystick: false
+    applets:
+      applet-log:
+        left: 20px
+        top: 669px
+        right: null
+        bottom: null
+      applet-status:
+        left: 1691px
+        top: 12px
+        right: null
+        bottom: null
+      applet-joystick:
+        left: 56px
+        top: 120px
+        right: null
+        bottom: null
+      applet-commands:
+        left: 56px
+        top: 380px
+        right: null
+        bottom: null
+      applet-hud:
+        left: 1591.39px
+        top: 166px
+        right: null
+        bottom: null
+      applet-search:
+        left: 16px
+        top: 560px
+        right: null
+        bottom: null
+      applet-focuser-control:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-focuser-position:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-graph:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-preview:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-solver:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-polar:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+  focuser:
+    driver: null
+    collapsed: {}
+    applets:
+      applet-focuser-control:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-focuser-position:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+  guiding:
+    driver: null
+    collapsed: {}
+    applets:
+      applet-guiding-graph:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+  capture:
+    driver: indigo_ccd_simulator
+    collapsed:
+      applet-log: false
+    applets:
+      applet-log:
+        left: 44px
+        top: 638px
+        right: null
+        bottom: null
+      applet-focuser-control:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-focuser-position:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-graph:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-preview:
+        left: 43px
+        top: 144px
+        right: null
+        bottom: null
+      applet-solver:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-polar:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+  astrometry:
+    driver: null
+    collapsed: {}
+    applets:
+      applet-solver:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-polar:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null

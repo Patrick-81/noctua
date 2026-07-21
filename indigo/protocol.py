@@ -147,7 +147,7 @@ def parse_xml_message(xml_str: str) -> tuple[str, PropertyVector | dict | None]:
         tag = parts[0] if parts else ""
         attrs = {}
         if len(parts) > 1:
-            attrs = dict(re.findall(r'(\w+)="([^"]*)"', parts[1]))
+            attrs = dict(re.findall(r"""(\w+)=(['"])(.*?)\2""", parts[1]))
 
         if tag == "delProperty":
             return ("delProperty", {

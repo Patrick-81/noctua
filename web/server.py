@@ -55,16 +55,20 @@ class SanitizedJSONResponse(JSONResponse):
 
 class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
-                 config_path: Path | None = None):
+                 config_path: Path | None = None, ui_path: Path | None = None):
         self.registry = registry
         self.site = site_config or {}
         self.config_path = config_path
+        self.ui_path = ui_path
         self.app = FastAPI(title="INDIGO Devices")
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
+
+        # Enable BLOB upload on cameras so the INDIGO server sends images
+        self._setup_camera_blobs()
 
         # Install weblog handler on the root logger
         weblog_handler.setLevel(logging.DEBUG)
@@ -118,6 +122,21 @@ class WebServer:
         @app.get("/api/config")
         async def get_config():
             return {"site": self.site}
+
+        @app.get("/api/ui")
+        async def get_ui():
+            if self.ui_path and self.ui_path.exists():
+                with open(self.ui_path) as f:
+                    return yaml.safe_load(f) or {}
+            return {}
+
+        @app.post("/api/ui")
+        async def set_ui(body: dict):
+            if not self.ui_path:
+                return {"error": "ui_path not configured"}
+            with open(self.ui_path, "w") as f:
+                yaml.dump(body, f, default_flow_style=False, sort_keys=False)
+            return {"ok": True}
 
         @app.get("/api/site")
         async def get_site():
@@ -429,3 +448,57 @@ class WebServer:
             self._ws_clients.remove(ws)
         except ValueError:
             pass
+
+    def _setup_camera_blobs(self) -> None:
+        """Enable BLOB upload on cameras and wire image forwarding."""
+        import asyncio as _asyncio
+
+        async def _enable_blob_upload():
+            """Wait for cameras to appear and enable their BLOB upload."""
+            while True:
+                await _asyncio.sleep(2)
+                for name, dev in self.registry.all_devices().items():
+                    if not hasattr(dev, 'on_image'):
+                        continue
+                    # Wire the image callback if not already done
+                    if dev.on_image is None:
+                        dev.on_image = self._on_camera_image
+                        log.info("Wired image callback for camera: %s", name)
+                    # Enable CCD_UPLOAD if the camera has this property
+                    if hasattr(dev, '_properties') and 'CCD_UPLOAD' in dev._properties:
+                        pv = dev._properties['CCD_UPLOAD']
+                        # Only send if not already enabled
+                        upload_on = any(
+                            item.name == 'UPLOAD' and item.value for item in pv.items
+                        )
+                        if not upload_on:
+                            log.info("Enabling CCD_UPLOAD on %s", name)
+                            await dev.send_switch('CCD_UPLOAD', [
+                                {'name': 'UPLOAD', 'value': True},
+                                {'name': 'UPLOAD_CLIENT', 'value': True},
+                            ])
+
+        loop = asyncio.get_event_loop()
+        loop.create_task(_enable_blob_upload())
+
+    def _on_camera_image(self, data: bytes, fmt: str) -> None:
+        """Forward camera image to all WebSocket clients."""
+        import base64
+        if not self._ws_clients:
+            return
+        b64 = base64.b64encode(data).decode("ascii")
+        payload = json.dumps({
+            "type": "image",
+            "format": fmt,
+            "data": b64,
+        })
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))

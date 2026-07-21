@@ -55,6 +55,8 @@
                 <span style="color:#666; font-size:0.6rem;">Driver:</span>
                 <select id="indigo-driver" style="width:160px;"></select>
                 <button id="btn-indigo-attach" class="btn-glass warning" style="font-size:0.6rem;">ATTACHER</button>
+            </div>
+            <div id="conn-row-serial" style="display:none;">
                 <span style="color:#444;">|</span>
                 <span style="color:#666; font-size:0.6rem;">Port:</span>
                 <input id="indigo-serial" placeholder="/dev/ttyUSB0" style="width:110px;">
@@ -70,15 +72,9 @@
             </div>
         </div>
 
-        <!-- APPLET: Coords télescope (toujours visible) -->
-        <div id="applet-coords" class="glass-panel applet">
-            <span class="label">🔴 TÉLESCOPE</span>
-            <span class="value" id="tele-real-coords">RA ---° DEC ---°</span>
-        </div>
-
         <!-- APPLET: Légende (toujours visible) -->
         <div id="applet-legend" class="glass-panel applet">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">LÉGENDE</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">LÉGENDE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div class="legend-item"><span class="line-sample" style="background: rgba(255,255,255,0.04);"></span> Voie Lactée</div>
             <div class="legend-item"><span class="line-sample" style="background: #00ffff;"></span> Équateur Céleste</div>
             <div class="legend-item"><span class="line-sample" style="border-top: 2px dashed #ffff00;"></span> Écliptique</div>
@@ -94,6 +90,7 @@
             <div class="applet-drag">
                 <span class="drag-icon">⣿⣿</span>
                 <span class="hud-title" style="margin:0; border:none; padding:0;">LOG</span>
+                <button class="applet-minimize" title="Réduire / étendre"></button>
             </div>
             <div class="log-header">
                 <div class="log-filters">
@@ -115,7 +112,7 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-status" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">STATUS</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">STATUS</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div class="status-item"><span class="label">Tracking</span><span class="value" id="status-tracking">● OFF</span></div>
             <div class="status-item"><span class="label">Slewing</span><span class="value" id="status-slewing">● IDLE</span></div>
             <div class="status-item"><span class="label">Parking</span><span class="value" id="status-parking">● IDLE</span></div>
@@ -123,7 +120,7 @@
         </div>
 
         <div id="applet-joystick" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ PILOTAGE</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ PILOTAGE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div class="joy-grid">
                 <div></div>
                 <button class="joy-btn" data-dir="north" title="Nord">▲</button>
@@ -148,7 +145,7 @@
         </div>
 
         <div id="applet-commands" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ COMMANDES</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ COMMANDES</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div class="control-grid">
                 <button id="btn-park" class="btn-glass warning">⏸ PARK</button>
                 <button id="btn-unpark" class="btn-glass success">▶ UNPARK</button>
@@ -160,9 +157,11 @@
         </div>
 
         <div id="applet-hud" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ CONSOLE DE POINTAGE</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ CONSOLE DE POINTAGE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="font-size:0.7rem; color:#aaa;">Réticule central (RA, DEC) :</div>
             <div class="hud-value" id="tele-coords">000.00° , +00.00°</div>
+            <div style="font-size:0.7rem; color:#aaa; margin-top:6px;">Télescope :</div>
+            <div class="hud-value" id="tele-real-coords" style="font-size:0.8rem; color:#ff8800;">--- Hors ligne ---</div>
             <div class="hud-geo" id="station-display">Station : 43.95°N / 1.57°E</div>
 
             <div class="slider-container">
@@ -237,7 +236,7 @@
         </div>
 
         <div id="applet-search" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="obj-search-wrap">
                 <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off" style="width:260px;">
                 <div id="obj-search-results" class="obj-search-results" style="display:none"></div>
@@ -249,12 +248,12 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-focuser-control" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:80px; right:16px; width:220px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUSER</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUSER</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 
         <div id="applet-focuser-position" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:320px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ POSITION</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ POSITION</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 
@@ -263,12 +262,12 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Graphique</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Graphique</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 
         <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:220px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 
@@ -277,13 +276,113 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:260px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Paramètres</span></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Paramètres</span><span id="cam-led" class="cam-led cam-off" title="Caméra hors ligne"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <!-- Frame type -->
+            <div class="cap-section">
+                <div class="cap-label">Type de frame</div>
+                <div class="cap-frame-type">
+                    <button class="btn-glass cap-ft-btn active" data-frame="LIGHT">LIGHT</button>
+                    <button class="btn-glass cap-ft-btn" data-frame="DARK">DARK</button>
+                    <button class="btn-glass cap-ft-btn" data-frame="FLAT">FLAT</button>
+                    <button class="btn-glass cap-ft-btn" data-frame="BIAS">BIAS</button>
+                </div>
+            </div>
+
+            <!-- Exposure -->
+            <div class="cap-section">
+                <div class="cap-label">Temps de pose</div>
+                <div class="cap-row">
+                    <input type="number" id="cap-exposure" class="cap-input" value="1.0" min="0" step="0.1" placeholder="secondes">
+                    <span class="cap-unit">s</span>
+                </div>
+            </div>
+
+            <!-- Binning -->
+            <div class="cap-section">
+                <div class="cap-label">Binning</div>
+                <div class="cap-row">
+                    <select id="cap-binning" class="cap-select">
+                        <option value="1">1×1</option>
+                        <option value="2">2×2</option>
+                        <option value="3">3×3</option>
+                        <option value="4">4×4</option>
+                    </select>
+                    <span class="cap-info" id="cap-sensor-info"></span>
+                </div>
+            </div>
+
+            <!-- Gain -->
+            <div class="cap-section">
+                <div class="cap-label">Gain</div>
+                <div class="cap-row">
+                    <input type="range" id="cap-gain-slider" class="cap-slider" min="0" max="600" step="1" value="0">
+                    <input type="number" id="cap-gain" class="cap-input cap-input-sm" value="0" min="0" max="600" step="1">
+                </div>
+            </div>
+
+            <!-- Offset -->
+            <div class="cap-section">
+                <div class="cap-label">Offset</div>
+                <div class="cap-row">
+                    <input type="range" id="cap-offset-slider" class="cap-slider" min="0" max="500" step="1" value="0">
+                    <input type="number" id="cap-offset" class="cap-input cap-input-sm" value="0" min="0" max="500" step="1">
+                </div>
+            </div>
+
+            <!-- Temperature -->
+            <div class="cap-section">
+                <div class="cap-label">Température</div>
+                <div class="cap-row">
+                    <span class="cap-temp-current" id="cap-temp-current">--- °C</span>
+                    <span class="cap-temp-arrow">→</span>
+                    <input type="number" id="cap-target-temp" class="cap-input cap-input-sm" value="-10" step="0.5" placeholder="°C">
+                    <button id="cap-set-temp" class="btn-glass cap-btn-sm" title="Appliquer">❄</button>
+                </div>
+            </div>
+
+            <!-- Sequence -->
+            <div class="cap-section">
+                <div class="cap-label">Séquence</div>
+                <div class="cap-row">
+                    <span class="cap-seq-label">Nombre :</span>
+                    <input type="number" id="cap-count" class="cap-input cap-input-sm" value="1" min="1" max="999" step="1">
+                    <span class="cap-seq-label">Pause :</span>
+                    <input type="number" id="cap-delay" class="cap-input cap-input-sm" value="0" min="0" step="0.5">
+                    <span class="cap-unit">s</span>
+                </div>
+            </div>
+
+            <!-- Exposure progress -->
+            <div class="cap-section cap-progress" id="cap-progress-section" style="display:none;">
+                <div class="cap-label">Progression</div>
+                <div class="cap-progress-bar">
+                    <div class="cap-progress-fill" id="cap-progress-fill" style="width:0%"></div>
+                </div>
+                <div class="cap-progress-text" id="cap-progress-text">0 / 0</div>
+                <div class="cap-countdown-row" id="cap-countdown-row" style="display:none;">
+                    <span class="cap-countdown-label">Exposition</span>
+                    <span class="cap-countdown-value" id="cap-countdown">00:00.0</span>
+                    <div class="cap-progress-bar" style="height:4px; margin-top:3px;">
+                        <div class="cap-progress-fill cap-exp-fill" id="cap-exp-fill" style="width:0%; background:var(--accent);"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Actions -->
+            <div class="cap-section cap-actions">
+                <button id="cap-expose-btn" class="btn-glass success cap-action-btn">▶ EXPOSER</button>
+                <button id="cap-abort-btn" class="btn-glass danger cap-action-btn">⏹ STOP</button>
+            </div>
         </div>
 
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>
+            <div id="cap-preview-wrap" style="display:none; text-align:center;">
+                <canvas id="cap-preview-canvas" style="max-width:100%; border-radius:4px;"></canvas>
+                <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
+            </div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
@@ -291,12 +390,12 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Solver</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Solver</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 
         <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:260px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Mise en station</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Mise en station</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
         </div>
 

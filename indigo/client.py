@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import socket
 import threading
 import time
@@ -205,71 +206,216 @@ class IndigoClient:
                 break
 
     def _process_buffer(self) -> None:
-        """Extract complete XML messages from the receive buffer.
+        """Extract complete XML messages and BLOB binary data from the receive buffer.
 
-        INDIGO XML is multi-line: each message is a complete element
-        like <defSwitchVector>...</defSwitchVector> spanning multiple lines.
-        We accumulate the buffer and extract messages by detecting
-        complete top-level elements.
+        INDIGO BLOB messages contain binary image data inline between XML tags:
+            <setBlobVector ...>
+                <oneBlob name="CCD_IMAGE" size="12345" format="image/fits">
+                <binary payload — 12345 bytes, NOT valid UTF-8>
+                </oneBlob>
+            </setBlobVector>
+
+        This method keeps the buffer as raw bytes, detects BLOB vectors,
+        extracts the binary payload by size, and dispatches both XML and
+        BLOB data through the appropriate callbacks.
         """
-        text = self._recv_buffer.decode("utf-8", errors="replace")
+        import re as _re
 
-        # Find complete messages: either self-closing <xxx/> or <xxx>...</xxx>
-        # We track open/close of vector-level elements.
-        # Known vector tags: def/set/new + Number/Switch/Text/Blob + Vector, delProperty, getProperties
-        import re
+        # Regex for vector-level elements (works on both str and bytes)
+        _re_vector = _re.compile(
+            rb'<(def|set|new)(Number|Switch|Text|Blob)Vector[\s/>]')
+        _re_selfclose = _re.compile(
+            rb'<(?:getProperties|delProperty)\s[^>]*/>')
 
-        complete_messages = []
-        remaining = text
+        complete_messages = []  # list of (tag_type_str, raw_xml_bytes)
+        blob_messages = []      # list of (device, name, size, fmt, binary_data)
 
-        while remaining:
-            remaining = remaining.lstrip("\n\r")
-
-            if not remaining:
+        while self._recv_buffer:
+            self._recv_buffer = self._recv_buffer.lstrip(b"\n\r")
+            if not self._recv_buffer:
                 break
 
-            # Self-closing tag: <getProperties .../>  or <delProperty .../>
-            m = re.match(r'(<(?:getProperties|delProperty)\s[^>]*/>)', remaining)
+            # Self-closing tag
+            m = _re_selfclose.match(self._recv_buffer)
             if m:
-                complete_messages.append(m.group(1))
-                remaining = remaining[m.end():]
+                complete_messages.append(("selfclose", m.group(0)))
+                self._recv_buffer = self._recv_buffer[m.end():]
                 continue
 
             # Opening of a vector element
-            m = re.match(r'(<(def|set|new)(Number|Switch|Text|Blob)Vector\s)', remaining)
+            m = _re_vector.match(self._recv_buffer)
             if not m:
+                # Handle non-self-closing delProperty / getProperties
+                if self._recv_buffer.startswith(b"<delProperty") or \
+                   self._recv_buffer.startswith(b"<getProperties"):
+                    close = self._recv_buffer.find(b">")
+                    if close < 0:
+                        break  # incomplete
+                    tag_end = close + 1
+                    # Check for self-closing />
+                    if tag_end < len(self._recv_buffer) and \
+                       self._recv_buffer[tag_end - 2:tag_end] == b'/>':
+                        complete_messages.append((
+                            "selfclose", self._recv_buffer[:tag_end]))
+                        self._recv_buffer = self._recv_buffer[tag_end:]
+                        continue
+                    # Content element — find matching close tag
+                    tag_name = self._recv_buffer[1:tag_end].split(None, 1)[0]
+                    close_tag = b"</" + tag_name + b">"
+                    idx = self._recv_buffer.find(close_tag, tag_end)
+                    if idx < 0:
+                        break  # incomplete
+                    msg_end = idx + len(close_tag)
+                    complete_messages.append((
+                        tag_name.decode("ascii", errors="replace"),
+                        self._recv_buffer[:msg_end]))
+                    self._recv_buffer = self._recv_buffer[msg_end:]
+                    continue
                 # Not a known XML element — skip one line
-                nl = remaining.find("\n")
+                nl = self._recv_buffer.find(b"\n")
                 if nl >= 0:
-                    remaining = remaining[nl + 1:]
+                    self._recv_buffer = self._recv_buffer[nl + 1:]
                 else:
                     break  # incomplete, wait for more data
                 continue
 
-            # Find the matching close tag
-            tag_type = m.group(2) + m.group(3) + "Vector"  # e.g. "defSwitchVector"
-            close_tag = f"</{tag_type}>"
-            idx = remaining.find(close_tag)
+            tag_type = m.group(1) + m.group(2) + b"Vector"  # e.g. b"defSwitchVector"
+            close_tag = b"</" + tag_type + b">"
+
+            # BLOB vector: extract binary payload inline
+            if b"Blob" in m.group(2):
+                device, prop_name, item_name, fmt, binary_data, consumed = (
+                    self._extract_blob(tag_type, close_tag))
+                if consumed < 0:
+                    break  # incomplete, wait for more data
+                if device and self.on_blob and binary_data:
+                    self._dispatch(self.on_blob, device, prop_name,
+                                   item_name, fmt, binary_data)
+                self._recv_buffer = self._recv_buffer[consumed:]
+                continue
+
+            # Regular XML vector: find matching close tag
+            # Use nesting count to ensure we find the right close tag
+            # (in case two vectors of the same type are in the buffer)
+            idx = self._recv_buffer.find(close_tag)
             if idx < 0:
                 break  # incomplete message, wait for more data
 
+            # Verify this close tag belongs to the current vector:
+            # count open tags of same type before idx — should be exactly 1
+            open_count = 0
+            search_start = 0
+            open_pattern = m.group(0)  # e.g. b'<setNumberVector '
+            while True:
+                pos = self._recv_buffer.find(open_pattern, search_start, idx)
+                if pos < 0:
+                    break
+                open_count += 1
+                search_start = pos + 1
+            if open_count > 1:
+                # Close tag belongs to a later vector — wait for the first
+                # vector's close tag to arrive
+                break
+
             msg_end = idx + len(close_tag)
-            complete_messages.append(remaining[:msg_end])
-            remaining = remaining[msg_end:]
+            complete_messages.append((
+                tag_type.decode("ascii", errors="replace"),
+                self._recv_buffer[:msg_end],
+            ))
+            self._recv_buffer = self._recv_buffer[msg_end:]
 
-        self._recv_buffer = remaining.encode("utf-8", errors="replace")
+        # Dispatch XML messages
+        for tag_type, raw_xml in complete_messages:
+            if tag_type == "selfclose":
+                xml_str = raw_xml.decode("utf-8", errors="replace").strip()
+                if not xml_str:
+                    continue
+                if self.on_message:
+                    self._dispatch(self.on_message, xml_str)
+                self._handle_xml(xml_str)
+                continue
 
-        for msg in complete_messages:
-            msg = msg.strip()
-            if not msg:
+            xml_str = raw_xml.decode("utf-8", errors="replace").strip()
+            if not xml_str:
                 continue
             if self.on_message:
-                self._dispatch(self.on_message, msg)
-            self._handle_xml(msg)
+                self._dispatch(self.on_message, xml_str)
+            self._handle_xml(xml_str)
 
-        # Log raw buffer remainder for debugging
-        if complete_messages:
-            log.debug("Processed %d XML messages", len(complete_messages))
+        if complete_messages or blob_messages:
+            log.debug("Processed %d XML messages, %d BLOBs",
+                      len(complete_messages), len(blob_messages))
+
+    def _extract_blob(self, tag_type: bytes, close_tag: bytes):
+        """Extract a BLOB from the buffer.
+
+        Returns (device_name, prop_name, item_name, fmt, binary_data,
+        consumed_bytes).  consumed_bytes is -1 if the message is incomplete.
+
+        INDIGO uses single quotes for attributes (device='...' name='...').
+        """
+        idx = self._recv_buffer.find(close_tag)
+        if idx < 0:
+            return None, None, None, "", b"", -1
+
+        # Extract the XML part before the binary payload
+        blob_section = self._recv_buffer[:idx]
+
+        # Parse metadata from the oneBlob/defBlob element
+        # Accept both single and double quotes for INDIGO compatibility
+        blob_match = re.search(
+            rb"""<(?:oneBlob|defBlob)\s[^>]*?name=['"]([^'"]*)['"][^>]*?"""
+            rb"""size=['"](\d+)['"][^>]*?format=['"]([^'"]*)['"]""",
+            blob_section)
+        if not blob_match:
+            blob_match = re.search(
+                rb"""<(?:oneBlob|defBlob)\s[^>]*?format=['"]([^'"]*)['"][^>]*?"""
+                rb"""name=['"]([^'"]*)['"][^>]*?size=['"](\d+)['"]""",
+                blob_section)
+            if blob_match:
+                fmt = blob_match.group(1).decode("ascii", errors="replace")
+                name = blob_match.group(2).decode("utf-8", errors="replace")
+                size = int(blob_match.group(3))
+            else:
+                size_match = re.search(rb"""size=['"](\d+)['"]""", blob_section)
+                size = int(size_match.group(1)) if size_match else 0
+                name = ""
+                fmt = ""
+        else:
+            name = blob_match.group(1).decode("utf-8", errors="replace")
+            size = int(blob_match.group(2))
+            fmt = blob_match.group(3).decode("ascii", errors="replace")
+
+        # Extract device name and property name from the parent vector tag
+        header = self._recv_buffer[:idx + 200]
+        dev_match = re.search(rb"""device=['"]([^'"]*)['"]""", header)
+        device = dev_match.group(1).decode("utf-8", errors="replace") if dev_match else ""
+        prop_match = re.search(rb"""name=['"]([^'"]*)['"]""", header)
+        prop_name = prop_match.group(1).decode("utf-8", errors="replace") if prop_match else name
+
+        # The binary payload sits between the last '>' of the XML part and the close tag
+        last_gt = blob_section.rfind(b">")
+        if last_gt < 0:
+            return device, prop_name, name, fmt, b"", -1
+
+        bin_start = last_gt + 1
+        bin_end = bin_start + size
+
+        # Ensure we have enough data
+        if len(self._recv_buffer) < bin_end:
+            return None, None, None, "", b"", -1  # incomplete
+
+        binary_data = self._recv_buffer[bin_start:bin_end]
+        consumed = bin_end + len(close_tag)  # past the close tag
+
+        # Skip any trailing newlines after the close tag
+        while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+            consumed += 1
+
+        log.info("BLOB: %s.%s [%s] size=%d format=%s (%d bytes)",
+                 device, prop_name, name, size, fmt, len(binary_data))
+
+        return device, prop_name, name, fmt, binary_data, consumed
 
     def _handle_xml(self, xml_str: str) -> None:
         """Parse and dispatch a single XML message."""

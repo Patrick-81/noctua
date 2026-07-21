@@ -1,97 +1,80 @@
-# CHECKPOINT — 20 juillet 2026
+# CHECKPOINT — 21 juillet 2026
 
 ## État actuel
-Migration UI terminée — applets flottants glassmorphisme + mode manager + correctifs bugs critiques.
+BLOB pipeline corrigée — regex quotes + arity mismatch + XML robustness. Capture timer ajouté (compteur MM:SS.d + barre exposition). Prêt pour test end-to-end avec CCD Imager Simulator.
 
-## Changements majeurs (20 juillet)
+## Changements majeurs (21 juillet)
 
-### Architecture UI
-- [x] **Suppression du layout split** — plus de header, footer, split-container
-- [x] **Canvas plein écran** — carte céleste en fond (100vw × 100vh)
-- [x] **Applets flottants glassmorphisme** — panneaux superposés au canvas
-- [x] **Système de modes** — sélecteur Pilotage / Focuser / Guidage / Capture / Astrométrie
-- [x] **Mode manager** — chaque mode affiche ses propres applets, les autres sont cachés
-- [x] **Applets communs** — connexion, coords, légende, log toujours visibles
+### BLOB pipeline (critique)
 
-### Moteur carte céleste
-- [x] **sky-engine.js** — nouveau moteur D3 v3 orthographic sur canvas HTML5
-- [x] Projection orthographique (clip 90°, globe)
-- [x] Couche 1-18 : fond, voie lactée, grille, équateur, écliptique, méridien, **horizon** (orange tirets, recalé en temps réel selon lat/LST), constellations, étoiles, labels méridiens, DSOs, planètes, zenith, labels cardinaux, réticule centre, indicateur télescope, highlight objet, FOV caméra
-- [x] Synchronisation sidérale temps réel (setInterval 1s)
-- [x] Mode temps manuel (date/heure sélecteur)
-- [x] Drag rotation + scroll zoom
-- [x] Context menu clic droit avec hit-test + GOTO
-- [x] Recherche d'objets avec autocomplete multi-catalogue
-- [x] Limite de magnitude (slider)
-- [x] **Filtrage par catalogue DSO** — panneau déroulant AFFICHAGE avec 13 catalogues (M, NGC, IC, Caldwell, Sh2, LDN, Ced, VdB, LBN, RCW, SNR, Cr, Autres)
-- [x] **Terre exclue** de l'affichage planètes
+#### Bug 1 : Regex quotes dans `_extract_blob`
+- **Problème** : les regex utilisaient `name="..."` (double quotes) mais INDIGO envoie `name='...'` (single quotes). Résultat : aucun BLOB n'était jamais extrait.
+- **Fix** : toutes les regex dans `_extract_blob` (`client.py:349`) acceptent désormais `['"]` pour les attributs. Extraction du `prop_name` (vecteur parent) + `item_name` (oneBlob) + `device` + `fmt` + `binary_data`.
 
-### Fix bugs critiques
+#### Bug 2 : Arity mismatch `_on_blob`
+- **Problème** : `client.py` dispatchait 4 args `(device, name, fmt, binary_data)` mais `registry._on_blob` attendait 5 `(device_name, prop_name, item_name, fmt, data)`. TypeError à l'arrivée du premier BLOB.
+- **Fix** : `_extract_blob` retourne maintenant 6 valeurs (dont `prop_name` extrait du tag parent). Dispatch 5 args. Chaîne complète : `client.on_blob → registry._on_blob → camera.on_blob_data → on_image → server._on_camera_image → WebSocket → frontend`.
 
-#### Joystick (D-pad)
-- [x] **Direction mismatch** — `data-dir="north"` ne correspondait pas à `"N"` dans `mount.move()`. Ajout d'un `_DIR_MAP` (`mount.py`)
-- [x] **Bouton Stop** — `data-dir="stop"` routait vers `mountMove()` au lieu de `mountAbort()`
+### XML parsing robustness
 
-#### Connexion INDIGO
-- [x] **Ligne ATTACHER cachée** — en mode "Connect", la ligne driver était masquée. Affichée dès que connecté
-- [x] **Indicateur de statut faux** — le WebSocket local affichait "Connecté" dès le chargement. Polling `/api/connection` pour le vrai statut INDIGO
-- [x] **Pas de reconnexion** — changer host/port while connected ne faisait rien. Déconnexion + reconnexion propre
-- [x] **Fuite event listeners** — `addEventListener` dans `refreshDriverList()` (appelée toutes les 3s) déplacé hors de la boucle
+- **`_re_vector`** : regex élargie `[\s/>]` pour matcher les vecteurs self-closing.
+- **Validation nesting** : avant d'accepter un close tag, on compte les open tags du même type. Si >1, le close tag appartient au 2e vecteur → on attend (évite 2 vecteurs concaténés en 1 XML invalide).
+- **`delProperty` non-self-closing** : gestion explicite des `<delProperty>...</delProperty>` au lieu de skip une ligne.
+- **`parse_xml_message`** : regex attrs self-closing corrigée pour single quotes via `(\w+)=(['"])(.*?)\2`.
 
-#### Clipboard
-- [x] **Copy log cassé** — `navigator.clipboard` nécessite contexte sécurisé. Fallback `textarea` + `execCommand('copy')`
+### Capture timer
 
-### CSS
-- [x] Design glassmorphisme (`backdrop-filter: blur(10px)`)
-- [x] Palette : fond #020205, accent cyan #00ffcc, reticule rouge #ff0055, telescope orange #ff8800
-- [x] Buttons `.btn-glass` avec variantes success/warning/danger
-- [x] Inputs stylisés (fond dark, bordure cyan)
-- [x] Status animés (pulse pour slewing/parking)
-- [x] Responsive mobile (max-width: 768px)
-- [x] **Panneau AFFICHAGE déroulant** — bouton toggle + sections Couches/Grilles/Catalogues
-- [x] **Mode bar big icons** — boutons 56×56px avec emoji + label
+- **HTML** (`index.html`) : nouvelle row `cap-countdown-row` dans la section progression — label "Exposition", affichage `MM:SS.d` en monospace cyan, barre fine d'exposition.
+- **JS** (`app.js`) :
+  - Variables `_exposureStartMs`, `_exposureDurationMs`, `_countdownRaf`
+  - `startCountdown()` / `stopCountdown()` — `requestAnimationFrame` pour 60fps
+  - `_tickCountdown()` : calcule remaining = duration - elapsed, affiche MM:SS.d + pourcentage barre
+  - `startSequence()` : lance le compteur au début de chaque pose
+  - `updateCaptureProgress()` : appelle `stopCountdown()` à l'arrêt
+  - Bouton STOP : reset propre via `updateCaptureProgress()`
+- **CSS** (`style.css`) : `.cap-countdown-row`, `.cap-countdown-value` (monospace cyan bold), `.cap-exp-fill` (transition 100ms)
 
-### Backend
-- [x] **Endpoint `/api/drivers/attach`** — POST pour charger un driver via Mount/CCD/Focuser Agent
-- [x] **Endpoint `/api/connection`** — GET/POST pour paramètres de connexion INDIGO
-- [x] **`IndigoClient`** — paramètre `protocol` (connect/attach), méthode `disconnect()`
-- [x] **`DeviceRegistry.drivers_list()`** — retourne la liste des drivers disponibles
-- [x] **Filtrage drivers par mode** — `DRIVER_TYPE_KEYWORDS` mappe modes → mots-clés
+### Chaîne BLOB complète vérifiée
+```
+INDIGO server → TCP raw bytes
+→ _process_buffer() (bytes-based, regex quotes OK)
+→ _extract_blob() (prop_name + item_name + fmt + binary_data)
+→ dispatch on_blob(device, prop_name, item_name, fmt, data)
+→ registry._on_blob()
+→ camera.on_blob_data()
+→ camera.on_image(data, fmt)
+→ server._on_camera_image()
+→ WebSocket {"type":"image", "format":"image/fits", "data":"base64..."}
+→ frontend handleCameraImage()
+→ renderFITSImage() → canvas
+```
 
 ### Fichiers modifiés
-- [x] `web/static/index.html` — structure applets, mode bar icons, connexion bar (3 rangs), panneau AFFICHAGE
-- [x] `web/static/style.css` — glassmorphisme, mode-btn icons, drag handles, display-panel
-- [x] `web/static/app.js` — mode manager, driver filtering, layer/catalog toggle, connection bar, drag system, clipboard fallback
-- [x] `web/static/sky-engine.js` — layers object, catalog visibility, horizon line, Earth skip, Ced/VdB/LBN/RCW/SNR filtering
-- [x] `web/server.py` — endpoints connection/drivers/attach, disconnect before reconnect
-- [x] `indigo/client.py` — protocol parameter, disconnect method
-- [x] `indigo/devices/mount.py` — `_DIR_MAP` for direction normalization
-
-### Fichiers supprimés
-- [x] `celestial-wrapper.js` — remplacé par sky-engine.js
-- [x] `sky-canvas.js` — déjà obsolète
-- [x] CDN d3-celestial (script + CSS)
-
-### Fichiers ajoutés
-- [x] `sky-engine.js` — moteur cartographique
-- [x] `lib/d3.min.js` — D3 v3 local (plus de CDN)
+- `indigo/client.py` — _extract_blob rewrite (quotes + prop_name + 6 returns), dispatch 5 args, _re_vector broadened, nesting validation, delProperty content handling
+- `indigo/protocol.py` — parse_xml_message self-close attrs regex single/double quotes
+- `web/static/app.js` — capture countdown timer (startCountdown/stopCountdown/_tickCountdown), exposure tracking vars
+- `web/static/index.html` — cap-countdown-row HTML
+- `web/static/style.css` — countdown + exp-fill styles
 
 ## Ce qui reste à faire
 
+### Test end-to-end (PRIORITÉ)
+- [ ] Lancer INDIGO server + CCD Imager Simulator
+- [ ] Vérifier `BLOB: device.prop [item] size=N format=image/fits` dans les logs
+- [ ] Vérifier image rendue dans le canvas de preview capture
+- [ ] Vérifier countdown pendant l'exposition
+
 ### Applets placeholder (à implémenter)
 - [ ] **Autoguidage** : graphique dérive, paramètres, stats
-- [ ] **Capture** : paramètres exposition, preview FITS, séquence
 - [ ] **Astrométrie** : solver, mise en station polaire
+
+### Bugs ouverts
+- [ ] **Drag rotation** — les verrous Zénith/E/O ne fonctionnent pas (voir historique tentatives)
 
 ### Fonctionnalités existantes à vérifier
 - [ ] Tester D-pad avec le serveur réel
 - [ ] Tester GOTO depuis la carte
 - [ ] Vérifier le panneau propriétés pour caméra/focuser
-- [ ] Tester filtrage catalogues avec la carte réelle
-
-### Améliorations possibles
-- [ ] Ajouter un panneau OnStep Status dans le mode Pilotage
-- [ ] Ajouter un panneau device list (sélection multi-device)
 
 ## Architecture cible
 
@@ -110,7 +93,7 @@ MODE: AUTOGUIDAGE
 
 MODE: CAPTURE
   [commun] connection, coords, legend, log
-  [capture] settings, preview, sequence
+  [capture] settings, preview, sequence, countdown
 
 MODE: ASTROMÉTRIE
   [commun] connection, coords, legend, log

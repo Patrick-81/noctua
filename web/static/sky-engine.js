@@ -48,6 +48,7 @@ export class SkyEngine {
         this._decOffset = 0;
         this._lockRA = false;
         this._lockDEC = false;
+        this._parallacticAngleDeg = 0;
         this._timeMode = 'realtime';
         this._manualDate = new Date();
         this._realtimer = null;
@@ -251,7 +252,8 @@ export class SkyEngine {
         const ha = this._manualOffsetRA;
         const gamma = -this._parallacticAngle(ha, centerDEC) * 180 / Math.PI;
 
-        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, gamma];
+        this._parallacticAngleDeg = gamma;
+        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, 0];
         this._projection.rotate(this._currentRotation);
 
         const lstEl = document.getElementById('lst-display');
@@ -362,6 +364,12 @@ export class SkyEngine {
         ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
         ctx.fill();
 
+        // Apply parallactic angle rotation for sky objects
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
+        ctx.translate(-cx, -cy);
+
         // 2. Voie lactée
         if (this.layers.milkyway && this._milkywayData) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
@@ -437,7 +445,7 @@ export class SkyEngine {
             const tanLat = Math.tan(lat);
 
             ctx.fillStyle = "rgba(255, 160, 50, 0.9)";
-            ctx.font = "8px monospace";
+            ctx.font = "12px monospace";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
 
@@ -454,10 +462,10 @@ export class SkyEngine {
 
                 const isCardinal = lbl.az % 90 === 0;
                 if (isCardinal) {
-                    ctx.font = "bold 10px monospace";
+                    ctx.font = "bold 15px monospace";
                     ctx.fillStyle = "rgba(255, 160, 50, 1.0)";
                 } else {
-                    ctx.font = "7px monospace";
+                    ctx.font = "11px monospace";
                     ctx.fillStyle = "rgba(255, 160, 50, 0.6)";
                 }
                 ctx.fillText(lbl.name, pt[0], pt[1] + 12);
@@ -494,7 +502,7 @@ export class SkyEngine {
         // 9. Labels méridiens
         const meridianLabels = this._getMeridianLabels();
         ctx.fillStyle = "rgba(0, 255, 255, 0.6)";
-        ctx.font = "9px monospace";
+        ctx.font = "14px monospace";
         ctx.textAlign = "center";
         for (const label of meridianLabels) {
             if (!this._celestialClip([label.ra, 0])) continue;
@@ -524,7 +532,7 @@ export class SkyEngine {
                 if (!name && dso.id) name = dso.id;
                 if (!name) name = "DSO-" + dsocounter;
                 ctx.fillStyle = "rgba(255, 0, 150, 0.85)";
-                ctx.font = "9px monospace";
+                ctx.font = "14px monospace";
                 ctx.textAlign = "left";
                 ctx.fillText(name, pt[0] + 7, pt[1] + 3);
             }
@@ -542,14 +550,16 @@ export class SkyEngine {
             ctx.arc(pt[0], pt[1], 4, 0, 2 * Math.PI);
             ctx.fill();
             ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
-            ctx.font = "10px monospace";
+            ctx.font = "15px monospace";
             ctx.textAlign = "left";
             ctx.fillText(`ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0] + 8, pt[1] + 3);
         }
 
+        ctx.restore();
+
         // 13. Labels cardinaux (N/S/E/O)
         ctx.fillStyle = "#ffaa00";
-        ctx.font = "bold 13px monospace";
+        ctx.font = "bold 20px monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("N", cx, cy - rsky + 15);
@@ -571,6 +581,12 @@ export class SkyEngine {
         ctx.moveTo(cx, cy + 6);
         ctx.lineTo(cx, cy + 24);
         ctx.stroke();
+
+        // Apply parallactic angle rotation for sky indicators
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
+        ctx.translate(-cx, -cy);
 
         // 15. Indicateur télescope (orange + glow)
         if (this._telRaDeg !== null && this._telDecDeg !== null) {
@@ -602,7 +618,7 @@ export class SkyEngine {
                     ctx.stroke();
 
                     ctx.fillStyle = this.slewing ? "#ffcc00" : "#ff8800";
-                    ctx.font = "bold 9px monospace";
+                    ctx.font = "bold 14px monospace";
                     ctx.textAlign = "left";
                     ctx.textBaseline = "bottom";
                     ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
@@ -633,6 +649,8 @@ export class SkyEngine {
             this.cameraFovX > 0 && this.cameraFovY > 0) {
             this._renderCameraFov(ctx);
         }
+
+        ctx.restore();
 
         // Update HUD
         this._updateHud();
@@ -691,7 +709,7 @@ export class SkyEngine {
             ctx.arc(pt[0], pt[1], 5, 0, 2 * Math.PI);
             ctx.fill();
             ctx.fillStyle = "#ffcc00";
-            ctx.font = "bold 10px monospace";
+            ctx.font = "bold 15px monospace";
             ctx.textAlign = "left";
             ctx.fillText(planet.name.toUpperCase(), pt[0] + 8, pt[1] + 3);
         }
@@ -818,6 +836,16 @@ export class SkyEngine {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
             const lst = this._lstDegrees(new Date(), this.siteLng);
 
+            // Un-rotate screen drag by parallactic angle to get true horizontal/vertical
+            const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+            const cosG = Math.cos(gamma);
+            const sinG = Math.sin(gamma);
+            const sdx = d3.event.dx;
+            const sdy = d3.event.dy;
+            const hDrag = sdx * cosG + sdy * sinG;   // true horizontal (azimuth)
+            const vDrag = -sdx * sinG + sdy * cosG;   // true vertical   (altitude)
+
+            // Current center in alt/az
             const centerRA = lst - this._manualOffsetRA;
             const centerDEC = -this._decOffset;
             const current = this._radecToAltAz(centerRA, centerDEC, lst);
@@ -826,17 +854,20 @@ export class SkyEngine {
             let newAlt = current.alt;
 
             if (this._lockRA) {
-                if (!this._lockDEC) newAlt -= d3.event.dy * sensitivity;
+                // Zenith lock: only altitude (vertical)
+                if (!this._lockDEC) newAlt += vDrag * sensitivity;
             } else if (this._lockDEC) {
-                newAz += d3.event.dx * sensitivity;
+                // E/O lock: only azimuth (horizontal)
+                newAz += hDrag * sensitivity;
             } else {
-                newAz += d3.event.dx * sensitivity;
-                newAlt -= d3.event.dy * sensitivity;
+                newAz += hDrag * sensitivity;
+                newAlt += vDrag * sensitivity;
             }
 
             newAlt = Math.max(-90, Math.min(90, newAlt));
             newAz = ((newAz % 360) + 360) % 360;
 
+            // Convert back to RA/DEC and update offsets
             const newCenter = this._altAzToRadec(newAlt, newAz, lst);
             this._manualOffsetRA = lst - newCenter.ra;
             this._decOffset = -newCenter.dec;
@@ -928,7 +959,17 @@ export class SkyEngine {
             }
         } else {
             let coords = null;
-            try { coords = this._projection.invert([px, py]); } catch(e) {}
+            try {
+                const ugamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+                const ucG = Math.cos(ugamma);
+                const usG = Math.sin(ugamma);
+                const udx = px - this._width / 2;
+                const udy = py - this._height / 2;
+                coords = this._projection.invert([
+                    this._width / 2 + udx * ucG + udy * usG,
+                    this._height / 2 - udx * usG + udy * ucG
+                ]);
+            } catch(e) {}
             if (!coords || !isFinite(coords[0]) || !isFinite(coords[1])) return;
             raDeg = coords[0];
             decDeg = coords[1];
@@ -979,6 +1020,15 @@ export class SkyEngine {
     }
 
     _hitTest(px, py) {
+        // Un-rotate mouse coordinates by parallactic angle
+        const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+        const cosG = Math.cos(gamma);
+        const sinG = Math.sin(gamma);
+        const hdx = px - this._width / 2;
+        const hdy = py - this._height / 2;
+        px = this._width / 2 + hdx * cosG + hdy * sinG;
+        py = this._height / 2 - hdx * sinG + hdy * cosG;
+
         const hitRadius = 20;
         let best = null, bestDist = hitRadius;
 
@@ -1027,14 +1077,10 @@ export class SkyEngine {
     }
 
     _setCenter(raDeg, decDeg) {
-        this._manualOffsetRA = 0;
-        this._decOffset = 0;
         const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
-        const ha = lst - raDeg;
-        const gamma = -this._parallacticAngle(ha, decDeg) * 180 / Math.PI;
-        this._currentRotation = [-lst - raDeg, -decDeg, gamma];
-        this._projection.rotate(this._currentRotation);
-        this.render();
+        this._manualOffsetRA = lst - raDeg;
+        this._decOffset = -decDeg;
+        this._updateSiderealRotation();
     }
 
     highlightObject(raDeg, decDeg, id) {

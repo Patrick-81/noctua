@@ -13,6 +13,30 @@ const MAX_LOG = 500;
 let logEntries = [];
 let skyEngine = null;
 let currentMode = 'mount';
+let uiConfig = {};
+
+async function loadUiConfig() {
+    try {
+        const cfg = await fetch('/api/ui').then(r => r.json());
+        if (cfg && typeof cfg === 'object') uiConfig = cfg;
+    } catch (e) {
+        console.warn('UI config load failed:', e);
+    }
+}
+
+function saveUiConfig() {
+    fetch('/api/ui', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(uiConfig)
+    }).catch(e => console.warn('UI config save failed:', e));
+}
+
+function currentModeConfig() {
+    if (!uiConfig.modes) uiConfig.modes = {};
+    if (!uiConfig.modes[currentMode]) uiConfig.modes[currentMode] = {};
+    return uiConfig.modes[currentMode];
+}
 
 // ── Mode Manager ──────────────────────────────────────────────
 
@@ -60,6 +84,7 @@ function filterDriversByType(drivers, type) {
 function switchMode(mode) {
     if (!MODES[mode]) return;
     currentMode = mode;
+    uiConfig.mode = mode;
 
     document.querySelectorAll('.mode-specific').forEach(el => {
         el.style.display = 'none';
@@ -74,7 +99,16 @@ function switchMode(mode) {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 
+    // Serial port row: hidden for capture and astrometry (cameras use USB/network)
+    const serialRow = document.getElementById('conn-row-serial');
+    if (serialRow) {
+        const hideSerial = (mode === 'capture' || mode === 'astrometry');
+        serialRow.style.display = hideSerial ? 'none' : '';
+    }
+
     refreshDriverList();
+    loadAppletPositions();
+    saveUiConfig();
 }
 
 function initModeBar() {
@@ -114,8 +148,11 @@ function connectWS() {
             } else if (selectedDevice) {
                 try { renderProps(selectedDevice); } catch (e) { console.error('renderProps:', e); }
             }
+            renderCapturePanel();
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
+        } else if (msg.type === 'image') {
+            handleCameraImage(msg.data, msg.format);
         }
     };
 }
@@ -349,7 +386,7 @@ function renderProps(deviceName) {
     const dragHandle = container.querySelector('.applet-drag');
     if (dragHandle) dragHandle.remove();
 
-    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span></div>`;
+    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span><button class="applet-minimize" title="Réduire / étendre"></button></div>`;
     html += `<div class="device-panel">`;
     for (const [groupName, props] of Object.entries(groups)) {
         html += `<div class="prop-group"><div class="prop-group-header" onclick="this.parentElement.classList.toggle('collapsed')">${escapeHTML(groupName)}</div><div class="prop-group-body">`;
@@ -362,6 +399,15 @@ function renderProps(deviceName) {
     // Re-init drag for this panel
     const newHandle = container.querySelector('.applet-drag');
     if (newHandle) {
+        // Minimize button
+        const minBtn = container.querySelector('.applet-minimize');
+        if (minBtn) {
+            minBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleMinimize(container);
+            });
+        }
+
         newHandle.addEventListener('mousedown', (e) => {
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
             e.preventDefault();
@@ -389,6 +435,7 @@ function renderProps(deviceName) {
                 container.style.zIndex = '';
                 container.style.transition = '';
                 saveAppletPositions();
+                checkOverlap();
             }
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
@@ -607,7 +654,12 @@ function initButtons() {
     bind('log-copy', copyLog);
 
     document.querySelectorAll('.log-filters input[type="checkbox"]').forEach(cb => {
-        cb.addEventListener('change', applyLogFilters);
+        cb.addEventListener('change', () => {
+            applyLogFilters();
+            if (!uiConfig.log_levels) uiConfig.log_levels = {};
+            uiConfig.log_levels[cb.dataset.level] = cb.checked;
+            saveUiConfig();
+        });
     });
 }
 
@@ -902,6 +954,8 @@ function initTimeControls() {
             if (manualBtn) manualBtn.classList.remove('active');
             if (manualControls) manualControls.style.display = 'none';
             if (skyEngine) skyEngine.setRealTime();
+            currentModeConfig().time_mode = 'realtime';
+            saveUiConfig();
         });
     }
 
@@ -911,6 +965,8 @@ function initTimeControls() {
             if (realtimeBtn) realtimeBtn.classList.remove('active');
             if (manualControls) manualControls.style.display = 'flex';
             fillManualFields(new Date());
+            currentModeConfig().time_mode = 'manual';
+            saveUiConfig();
         });
     }
 
@@ -922,6 +978,10 @@ function initTimeControls() {
             const full = new Date(`${dateVal}T${timeVal || '00:00:00'}`);
             if (isNaN(full.getTime())) return;
             if (skyEngine) skyEngine.setManualTime(full);
+            const modeCfg = currentModeConfig();
+            modeCfg.manual_date = dateVal;
+            modeCfg.manual_time = timeVal || '00:00:00';
+            saveUiConfig();
         });
     }
 
@@ -930,7 +990,6 @@ function initTimeControls() {
 
 // ── Location update ───────────────────────────────────────────
 
-const DRIVER_STORAGE_KEY = 'indigo-selected-driver';
 let _allDrivers = [];
 
 async function refreshDriverList() {
@@ -942,7 +1001,8 @@ async function refreshDriverList() {
 
     const type = MODES[currentMode]?.driverType;
     const filtered = filterDriversByType(_allDrivers, type);
-    const prev = driverSelect.value || localStorage.getItem(DRIVER_STORAGE_KEY) || '';
+    const modeCfg = currentModeConfig();
+    const prev = driverSelect.value || modeCfg.driver || '';
 
     driverSelect.innerHTML = '';
     if (filtered.length === 0) {
@@ -1052,10 +1112,11 @@ function initConnectionBar() {
         });
     }
 
-    // Save driver selection to localStorage
+    // Save driver selection to UI config
     if (driverSelect) {
         driverSelect.addEventListener('change', () => {
-            localStorage.setItem(DRIVER_STORAGE_KEY, driverSelect.value);
+            currentModeConfig().driver = driverSelect.value;
+            saveUiConfig();
         });
     }
 
@@ -1084,7 +1145,13 @@ function initConnectionBar() {
                 refreshDriverList();
             }
             if (protoSelect && attachRow) {
-                attachRow.style.display = (protoSelect.value === 'attach' || isConnected) ? '' : 'none';
+                const showAttach = protoSelect.value === 'attach' || isConnected;
+                attachRow.style.display = showAttach ? '' : 'none';
+                const serialRow = document.getElementById('conn-row-serial');
+                if (serialRow) {
+                    const hideSerial = (currentMode === 'capture' || currentMode === 'astrometry');
+                    serialRow.style.display = (showAttach && !hideSerial) ? '' : 'none';
+                }
             }
         } catch (e) {}
     }, 3000);
@@ -1106,6 +1173,407 @@ function initLocationUpdate() {
             }
         });
     }
+}
+
+// ── Capture panel ─────────────────────────────────────────────
+
+let _captureFrameType = 'LIGHT';
+let _captureRunning = false;
+let _captureQueue = 0;
+let _captureTotal = 0;
+let _exposureStartMs = 0;
+let _exposureDurationMs = 0;
+let _countdownRaf = 0;
+
+function initCapturePanel() {
+    // Frame type buttons
+    document.querySelectorAll('.cap-ft-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.cap-ft-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _captureFrameType = btn.dataset.frame;
+        });
+    });
+
+    // Gain slider ↔ number sync
+    const gainSlider = document.getElementById('cap-gain-slider');
+    const gainInput = document.getElementById('cap-gain');
+    if (gainSlider && gainInput) {
+        gainSlider.addEventListener('input', () => {
+            gainInput.value = gainSlider.value;
+            sendCapNumber('CCD_GAIN', 'GAIN', parseInt(gainSlider.value));
+        });
+        gainInput.addEventListener('change', () => {
+            gainSlider.value = gainInput.value;
+            sendCapNumber('CCD_GAIN', 'GAIN', parseInt(gainInput.value));
+        });
+    }
+
+    // Offset slider ↔ number sync
+    const offsetSlider = document.getElementById('cap-offset-slider');
+    const offsetInput = document.getElementById('cap-offset');
+    if (offsetSlider && offsetInput) {
+        offsetSlider.addEventListener('input', () => {
+            offsetInput.value = offsetSlider.value;
+            sendCapNumber('CCD_OFFSET', 'OFFSET', parseInt(offsetSlider.value));
+        });
+        offsetInput.addEventListener('change', () => {
+            offsetSlider.value = offsetInput.value;
+            sendCapNumber('CCD_OFFSET', 'OFFSET', parseInt(offsetInput.value));
+        });
+    }
+
+    // Binning
+    const binningSelect = document.getElementById('cap-binning');
+    if (binningSelect) {
+        binningSelect.addEventListener('change', () => {
+            const v = parseInt(binningSelect.value);
+            if (!findCamera()) return;
+            apiPost('/api/property', {
+                device: findCamera().name,
+                property: 'CCD_BINNING',
+                items: [{ name: 'HOR_BIN', value: v }, { name: 'VER_BIN', value: v }]
+            });
+        });
+    }
+
+    // Temperature set button
+    const setTempBtn = document.getElementById('cap-set-temp');
+    if (setTempBtn) {
+        setTempBtn.addEventListener('click', () => {
+            const target = parseFloat(document.getElementById('cap-target-temp')?.value);
+            if (!isNaN(target)) apiPost('/api/camera/temperature', { target });
+        });
+    }
+
+    // Expose button
+    const exposeBtn = document.getElementById('cap-expose-btn');
+    if (exposeBtn) {
+        exposeBtn.addEventListener('click', () => {
+            if (_captureRunning) return;
+            const count = parseInt(document.getElementById('cap-count')?.value || '1');
+            const delay = parseFloat(document.getElementById('cap-delay')?.value || '0');
+            startSequence(count, delay);
+        });
+    }
+
+    // Abort button
+    const abortBtn = document.getElementById('cap-abort-btn');
+    if (abortBtn) {
+        abortBtn.addEventListener('click', () => {
+            _captureQueue = 0;
+            _captureRunning = false;
+            apiPost('/api/camera/abort');
+            updateCaptureProgress();
+        });
+    }
+}
+
+function findCamera() {
+    for (const [name, dev] of Object.entries(devices)) {
+        if (dev.type === 'camera') return { name, dev };
+    }
+    return null;
+}
+
+function sendCapNumber(prop, item, value) {
+    const cam = findCamera();
+    if (!cam) return;
+    apiPost('/api/property', { device: cam.name, property: prop, items: [{ name: item, value }] });
+}
+
+async function startSequence(count, delay) {
+    const cam = findCamera();
+    if (!cam) { addLog('error', 'capture', 'Pas de caméra connectée'); return; }
+    _captureTotal = count;
+    _captureQueue = count;
+    _captureRunning = true;
+    updateCaptureProgress();
+
+    for (let i = 0; i < count; i++) {
+        if (!_captureRunning) break;
+        const exposure = parseFloat(document.getElementById('cap-exposure')?.value || '1');
+        addLog('info', 'capture', `Pose ${i + 1}/${count} — ${exposure}s ${_captureFrameType}`);
+        apiPost('/api/camera/expose', { duration: exposure, frame_type: _captureFrameType });
+        _exposureDurationMs = exposure * 1000;
+        _exposureStartMs = Date.now();
+        startCountdown();
+        await waitExposureDone(cam.name, exposure * 1000 + 5000);
+        stopCountdown();
+        if (!_captureRunning) break;
+        _captureQueue--;
+        updateCaptureProgress();
+        if (i < count - 1 && delay > 0 && _captureRunning) {
+            await sleep(delay * 1000);
+        }
+    }
+    _captureRunning = false;
+    _captureQueue = 0;
+    updateCaptureProgress();
+    addLog('info', 'capture', 'Séquence terminée');
+}
+
+function waitExposureDone(camName, timeout) {
+    return new Promise(resolve => {
+        const start = Date.now();
+        const check = () => {
+            if (!_captureRunning) { resolve(); return; }
+            const cam = devices[camName];
+            if (!cam || cam.exposure_time <= 0 || (Date.now() - start > timeout)) { resolve(); return; }
+            setTimeout(check, 300);
+        };
+        setTimeout(check, 500);
+    });
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function startCountdown() {
+    const row = document.getElementById('cap-countdown-row');
+    if (row) row.style.display = '';
+    _tickCountdown();
+}
+
+function stopCountdown() {
+    const row = document.getElementById('cap-countdown-row');
+    if (row) row.style.display = 'none';
+    if (_countdownRaf) { cancelAnimationFrame(_countdownRaf); _countdownRaf = 0; }
+}
+
+function _tickCountdown() {
+    if (!_captureRunning) { stopCountdown(); return; }
+    const elapsed = Date.now() - _exposureStartMs;
+    const remaining = Math.max(0, _exposureDurationMs - elapsed);
+    const frac = _exposureDurationMs > 0 ? Math.min(1, elapsed / _exposureDurationMs) : 0;
+
+    const totalSec = remaining / 1000;
+    const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+    const ss = String(Math.floor(totalSec % 60)).padStart(2, '0');
+    const ds = String(Math.floor((totalSec % 1) * 10));
+
+    const el = document.getElementById('cap-countdown');
+    if (el) el.textContent = `${mm}:${ss}.${ds}`;
+
+    const fill = document.getElementById('cap-exp-fill');
+    if (fill) fill.style.width = (frac * 100) + '%';
+
+    _countdownRaf = requestAnimationFrame(_tickCountdown);
+}
+
+function updateCaptureProgress() {
+    const section = document.getElementById('cap-progress-section');
+    const fill = document.getElementById('cap-progress-fill');
+    const text = document.getElementById('cap-progress-text');
+    const exposeBtn = document.getElementById('cap-expose-btn');
+    if (!section) return;
+
+    if (_captureTotal > 0 && _captureRunning) {
+        section.style.display = '';
+        const done = _captureTotal - _captureQueue;
+        const pct = _captureTotal > 0 ? (done / _captureTotal * 100) : 0;
+        if (fill) fill.style.width = pct + '%';
+        if (text) text.textContent = `${done} / ${_captureTotal}`;
+        if (exposeBtn) exposeBtn.disabled = true;
+    } else {
+        section.style.display = 'none';
+        stopCountdown();
+        if (exposeBtn) exposeBtn.disabled = false;
+    }
+}
+
+function renderCapturePanel() {
+    const cam = findCamera();
+    const container = document.getElementById('applet-capture-settings');
+    if (!container) return;
+
+    // Camera LED
+    const led = document.getElementById('cam-led');
+    if (led) {
+        if (!cam) {
+            led.className = 'cam-led cam-off';
+            led.title = 'Caméra hors ligne';
+        } else if (cam.dev.connected) {
+            led.className = 'cam-led cam-on';
+            led.title = `Caméra en ligne — ${cam.name}`;
+        } else {
+            led.className = 'cam-led cam-off';
+            led.title = 'Caméra déconnectée';
+        }
+    }
+
+    if (!cam) {
+        container.querySelectorAll('input, select, button:not(.applet-minimize)').forEach(el => {
+            el.disabled = true;
+        });
+        return;
+    }
+
+    container.querySelectorAll('input, select, button:not(.applet-minimize)').forEach(el => {
+        el.disabled = false;
+    });
+
+    const d = cam.dev;
+
+    // Sensor info
+    const sensorInfo = document.getElementById('cap-sensor-info');
+    if (sensorInfo && d.width_px && d.height_px) {
+        sensorInfo.textContent = `${d.width_px}×${d.height_px} — ${d.pixel_size_um}µm`;
+    }
+
+    // Binning
+    const binSel = document.getElementById('cap-binning');
+    if (binSel && d.binning_x != null) {
+        binSel.value = d.binning_x;
+    }
+
+    // Gain
+    const gainInput = document.getElementById('cap-gain');
+    const gainSlider = document.getElementById('cap-gain-slider');
+    if (gainInput && d.gain != null && document.activeElement !== gainInput) {
+        gainInput.value = d.gain;
+        if (gainSlider) gainSlider.value = d.gain;
+    }
+
+    // Offset
+    const offsetInput = document.getElementById('cap-offset');
+    const offsetSlider = document.getElementById('cap-offset-slider');
+    if (offsetInput && d.offset != null && document.activeElement !== offsetInput) {
+        offsetInput.value = d.offset;
+        if (offsetSlider) offsetSlider.value = d.offset;
+    }
+
+    // Temperature
+    const tempEl = document.getElementById('cap-temp-current');
+    if (tempEl) {
+        tempEl.textContent = d.temperature != null ? `${d.temperature.toFixed(1)} °C` : '--- °C';
+    }
+    const targetTempInput = document.getElementById('cap-target-temp');
+    if (targetTempInput && d.target_temp != null && document.activeElement !== targetTempInput) {
+        targetTempInput.value = d.target_temp;
+    }
+
+    // Frame type
+    if (d.frame_type) {
+        _captureFrameType = d.frame_type;
+        document.querySelectorAll('.cap-ft-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.dataset.frame === d.frame_type);
+        });
+    }
+}
+
+// ── FITS image handling ──────────────────────────────────────
+
+function handleCameraImage(b64Data, fmt) {
+    const raw = atob(b64Data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+
+    if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
+        renderFITSImage(bytes);
+    } else {
+        const blob = new Blob([bytes], { type: fmt || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.getElementById('cap-preview-canvas');
+            if (canvas) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+            }
+            showPreviewInfo(`${img.width}×${img.height} — ${fmt}`);
+            URL.revokeObjectURL(url);
+        };
+        img.src = url;
+    }
+}
+
+function renderFITSImage(bytes) {
+    let headerStr = '';
+    let offset = 0;
+    const decoder = new TextDecoder('ascii');
+
+    while (offset < bytes.length) {
+        const block = decoder.decode(bytes.slice(offset, offset + 2880));
+        headerStr += block;
+        offset += 2880;
+        if (block.includes('END')) break;
+    }
+
+    const get = (key) => {
+        const m = headerStr.match(new RegExp(`${key}\\s*=\\s*(.+)`));
+        return m ? m[1].trim().replace(/['"]/g, '').split('/')[0].trim() : null;
+    };
+
+    const naxis = parseInt(get('NAXIS') || '0');
+    const w = parseInt(get('NAXIS1') || '0');
+    const h = parseInt(get('NAXIS2') || '0');
+    const bitpix = parseInt(get('BITPIX') || '32');
+
+    if (naxis < 2 || !w || !h) {
+        addLog('warning', 'capture', 'En-tête FITS invalide');
+        return;
+    }
+
+    const dataStart = offset;
+    const remaining = bytes.length - dataStart;
+    const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
+    const pixels = new Float64Array(w * h);
+
+    if (bitpix === 32 || bitpix === -32) {
+        for (let i = 0; i < w * h && i * 4 + 4 <= remaining; i++)
+            pixels[i] = view.getFloat32(i * 4, false);
+    } else if (bitpix === 16) {
+        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
+            pixels[i] = view.getInt16(i * 2, false);
+    } else if (bitpix === -16) {
+        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
+            pixels[i] = view.getUint16(i * 2, false);
+    } else if (bitpix === 64) {
+        for (let i = 0; i < w * h && i * 8 + 8 <= remaining; i++)
+            pixels[i] = view.getFloat64(i * 8, false);
+    } else if (bitpix === 8) {
+        for (let i = 0; i < w * h && i < remaining; i++)
+            pixels[i] = bytes[dataStart + i];
+    }
+
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < pixels.length; i++) {
+        if (pixels[i] < min) min = pixels[i];
+        if (pixels[i] > max) max = pixels[i];
+    }
+    const range = max - min || 1;
+
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!canvas) return;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(w, h);
+    const data = imgData.data;
+
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const val = Math.round(((pixels[y * w + x] - min) / range) * 255);
+            const dst = ((h - 1 - y) * w + x) * 4;
+            data[dst] = val;
+            data[dst + 1] = val;
+            data[dst + 2] = val;
+            data[dst + 3] = 255;
+        }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — min:${min.toFixed(1)} max:${max.toFixed(1)}`);
+    addLog('info', 'capture', `Image rendue: ${w}×${h} FITS ${Math.abs(bitpix)}bit`);
+}
+
+function showPreviewInfo(text) {
+    const empty = document.getElementById('cap-preview-empty');
+    const wrap = document.getElementById('cap-preview-wrap');
+    const info = document.getElementById('cap-preview-info');
+    if (empty) empty.style.display = 'none';
+    if (wrap) wrap.style.display = '';
+    if (info) info.textContent = text;
 }
 
 // ── Sky engine init ───────────────────────────────────────────
@@ -1151,14 +1619,19 @@ async function initSkyEngine() {
             const val = parseFloat(magSlider.value);
             if (magValue) magValue.textContent = val.toFixed(1);
             if (skyEngine) skyEngine.setMagnitudeLimit(val);
+            if (!uiConfig.sky) uiConfig.sky = {};
+            uiConfig.sky.magnitude_limit = val;
+            saveUiConfig();
         });
     }
 
     // Update station display
     const stationEl = document.getElementById('station-display');
     if (stationEl) stationEl.textContent = `Station : ${siteLat.toFixed(2)}°N / ${siteLng.toFixed(2)}°E`;
-    if (latInput) latInput.value = siteLat;
-    if (lonInput) lonInput.value = siteLng;
+    const latEl = document.getElementById('obs-lat');
+    const lonEl = document.getElementById('obs-lon');
+    if (latEl) latEl.value = siteLat;
+    if (lonEl) lonEl.value = siteLng;
 }
 
 // ── Layer toggles ─────────────────────────────────────────────
@@ -1179,6 +1652,10 @@ function initLayerToggles() {
     document.querySelectorAll('[data-layer]').forEach(cb => {
         cb.addEventListener('change', () => {
             if (skyEngine) skyEngine.setLayerVisibility(cb.dataset.layer, cb.checked);
+            if (!uiConfig.sky) uiConfig.sky = {};
+            if (!uiConfig.sky.layers) uiConfig.sky.layers = {};
+            uiConfig.sky.layers[cb.dataset.layer] = cb.checked;
+            saveUiConfig();
         });
     });
 
@@ -1186,6 +1663,10 @@ function initLayerToggles() {
     document.querySelectorAll('[data-catalog]').forEach(cb => {
         cb.addEventListener('change', () => {
             if (skyEngine) skyEngine.setCatalogVisibility(cb.dataset.catalog, cb.checked);
+            if (!uiConfig.sky) uiConfig.sky = {};
+            if (!uiConfig.sky.catalogs) uiConfig.sky.catalogs = {};
+            uiConfig.sky.catalogs[cb.dataset.catalog] = cb.checked;
+            saveUiConfig();
         });
     });
 
@@ -1201,6 +1682,8 @@ function initLayerToggles() {
                 skyEngine._lockDEC = false;
                 lockEW.classList.remove('active');
             }
+            currentModeConfig().rotation_lock = skyEngine._lockRA ? 'zenith' : (skyEngine._lockDEC ? 'ew' : 'none');
+            saveUiConfig();
         });
     }
     if (lockEW) {
@@ -1212,6 +1695,8 @@ function initLayerToggles() {
                 skyEngine._lockRA = false;
                 lockZenith.classList.remove('active');
             }
+            currentModeConfig().rotation_lock = skyEngine._lockDEC ? 'ew' : (skyEngine._lockRA ? 'zenith' : 'none');
+            saveUiConfig();
         });
     }
 }
@@ -1226,24 +1711,83 @@ window.setTextItem = setTextItem;
 
 // ── Drag system for applets ───────────────────────────────────
 
-const DRAG_STORAGE_KEY = 'indigo-applet-positions';
+function toggleMinimize(panel) {
+    const wasCollapsed = panel.classList.contains('collapsed');
+    panel.classList.toggle('collapsed');
+    const minBtn = panel.querySelector('.applet-minimize');
+    if (minBtn) minBtn.classList.toggle('collapsed-label', !wasCollapsed);
+    currentModeConfig().collapsed = currentModeConfig().collapsed || {};
+    currentModeConfig().collapsed[panel.id] = !wasCollapsed;
+    saveUiConfig();
+}
+
+function applyCollapsedState() {
+    const modeCfg = currentModeConfig();
+    const collapsed = modeCfg.collapsed || {};
+    for (const [id, isCollapsed] of Object.entries(collapsed)) {
+        if (!isCollapsed) continue;
+        const el = document.getElementById(id);
+        if (!el) continue;
+        el.classList.add('collapsed');
+        const btn = el.querySelector('.applet-minimize');
+        if (btn) btn.classList.add('collapsed-label');
+    }
+}
+
+function checkOverlap() {
+    const panels = [];
+    document.querySelectorAll('.glass-panel.applet').forEach(el => {
+        if (el.id === 'applet-mode-bar' || el.id === 'applet-connection') return;
+        if (el.offsetParent === null) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        panels.push({ el, rect });
+    });
+
+    for (let i = 0; i < panels.length; i++) {
+        for (let j = i + 1; j < panels.length; j++) {
+            const a = panels[i].rect;
+            const b = panels[j].rect;
+            const overlap = !(a.right <= b.left || b.right <= a.left ||
+                              a.bottom <= b.top || b.bottom <= a.top);
+            if (overlap) {
+                const el = panels[j].el;
+                let left = parseInt(el.style.left) || 0;
+                let top = parseInt(el.style.top) || 0;
+                el.style.left = (left + 20) + 'px';
+                el.style.top = (top + 20) + 'px';
+                el.style.right = 'auto';
+                el.style.bottom = 'auto';
+                el.style.transform = 'none';
+                panels[j].rect = el.getBoundingClientRect();
+            }
+        }
+    }
+}
 
 function loadAppletPositions() {
-    try {
-        const saved = JSON.parse(localStorage.getItem(DRAG_STORAGE_KEY) || '{}');
-        for (const [id, pos] of Object.entries(saved)) {
-            const el = document.getElementById(id);
-            if (!el || id === 'applet-mode-bar') continue;
-            el.style.left = pos.left || 'auto';
-            el.style.top = pos.top || 'auto';
-            el.style.right = pos.right || 'auto';
-            el.style.bottom = pos.bottom || 'auto';
-            el.style.transform = 'none';
-        }
-    } catch (e) {}
+    const modeCfg = currentModeConfig();
+    const positions = modeCfg.applets || {};
+    for (const [id, pos] of Object.entries(positions)) {
+        const el = document.getElementById(id);
+        if (!el || id === 'applet-mode-bar') continue;
+        if (pos.left != null) el.style.left = pos.left;
+        else el.style.left = 'auto';
+        if (pos.top != null) el.style.top = pos.top;
+        else el.style.top = 'auto';
+        if (pos.right != null) el.style.right = pos.right;
+        else el.style.right = 'auto';
+        if (pos.bottom != null) el.style.bottom = pos.bottom;
+        else el.style.bottom = 'auto';
+        if (pos.transform) el.style.transform = pos.transform;
+        else el.style.transform = 'none';
+    }
+    applyCollapsedState();
+    requestAnimationFrame(() => checkOverlap());
 }
 
 function saveAppletPositions() {
+    const modeCfg = currentModeConfig();
     const positions = {};
     document.querySelectorAll('.glass-panel.applet').forEach(el => {
         if (el.id === 'applet-mode-bar') return;
@@ -1252,23 +1796,33 @@ function saveAppletPositions() {
         const hasTop = s.top && s.top !== 'auto';
         const hasRight = s.right && s.right !== 'auto';
         const hasBottom = s.bottom && s.bottom !== 'auto';
+        const hasTransform = s.transform && s.transform !== 'none';
         if (hasLeft || hasTop || hasRight || hasBottom) {
             positions[el.id] = {
-                left: hasLeft ? s.left : 'auto',
-                top: hasTop ? s.top : 'auto',
-                right: hasRight ? s.right : 'auto',
-                bottom: hasBottom ? s.bottom : 'auto'
+                left: hasLeft ? s.left : null,
+                top: hasTop ? s.top : null,
+                right: hasRight ? s.right : null,
+                bottom: hasBottom ? s.bottom : null,
             };
+            if (hasTransform) positions[el.id].transform = s.transform;
         }
     });
-    try {
-        localStorage.setItem(DRAG_STORAGE_KEY, JSON.stringify(positions));
-    } catch (e) {}
+    modeCfg.applets = positions;
+    saveUiConfig();
 }
 
 function initDraggableApplets() {
     document.querySelectorAll('.glass-panel.applet').forEach(panel => {
         if (panel.id === 'applet-mode-bar' || panel.id === 'applet-connection') return;
+
+        // Minimize button
+        const minBtn = panel.querySelector('.applet-minimize');
+        if (minBtn) {
+            minBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                toggleMinimize(panel);
+            });
+        }
 
         const handle = panel.querySelector('.applet-drag');
         if (!handle) return;
@@ -1307,6 +1861,7 @@ function initDraggableApplets() {
                 panel.style.zIndex = '';
                 panel.style.transition = '';
                 saveAppletPositions();
+                checkOverlap();
             }
 
             document.addEventListener('mousemove', onMove);
@@ -1315,7 +1870,10 @@ function initDraggableApplets() {
     });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load UI config first
+    await loadUiConfig();
+
     initModeBar();
     initConnectionBar();
     initButtons();
@@ -1325,10 +1883,86 @@ document.addEventListener('DOMContentLoaded', () => {
     initSitePopup();
     initTimeControls();
     initLocationUpdate();
-    initSkyEngine();
+    initCapturePanel();
+    await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();
-    loadAppletPositions();
     connectWS();
-    switchMode('mount');
+
+    // Re-check overlap on resize
+    window.addEventListener('resize', () => {
+        requestAnimationFrame(() => checkOverlap());
+    });
+
+    // Apply UI config: mode
+    switchMode(uiConfig.mode || 'mount');
+    loadAppletPositions();
+
+    // Apply UI config: log levels
+    if (uiConfig.log_levels) {
+        document.querySelectorAll('.log-filters input[type="checkbox"]').forEach(cb => {
+            const level = cb.dataset.level;
+            if (level in uiConfig.log_levels) {
+                cb.checked = uiConfig.log_levels[level];
+            }
+        });
+        applyLogFilters();
+    }
+
+    // Apply UI config: sky layers
+    if (uiConfig.sky?.layers) {
+        for (const [layer, on] of Object.entries(uiConfig.sky.layers)) {
+            const cb = document.querySelector(`[data-layer="${layer}"]`);
+            if (cb) { cb.checked = on; if (skyEngine) skyEngine.setLayerVisibility(layer, on); }
+        }
+    }
+    if (uiConfig.sky?.catalogs) {
+        for (const [cat, on] of Object.entries(uiConfig.sky.catalogs)) {
+            const cb = document.querySelector(`[data-catalog="${cat}"]`);
+            if (cb) { cb.checked = on; if (skyEngine) skyEngine.setCatalogVisibility(cat, on); }
+        }
+    }
+
+    // Apply UI config: magnitude
+    if (uiConfig.sky?.magnitude_limit != null) {
+        const magSlider = document.getElementById('mag-slider');
+        const magValue = document.getElementById('mag-value');
+        if (magSlider) { magSlider.value = uiConfig.sky.magnitude_limit; }
+        if (magValue) { magValue.textContent = parseFloat(uiConfig.sky.magnitude_limit).toFixed(1); }
+        if (skyEngine) skyEngine.setMagnitudeLimit(uiConfig.sky.magnitude_limit);
+    }
+
+    // Apply UI config: rotation lock
+    const modeCfg = currentModeConfig();
+    const lock = modeCfg.rotation_lock || 'none';
+    if (skyEngine) {
+        skyEngine._lockRA = lock === 'zenith';
+        skyEngine._lockDEC = lock === 'ew';
+    }
+    const lockZenith = document.getElementById('btn-lock-zenith');
+    const lockEW = document.getElementById('btn-lock-ew');
+    if (lockZenith) lockZenith.classList.toggle('active', lock === 'zenith');
+    if (lockEW) lockEW.classList.toggle('active', lock === 'ew');
+
+    // Apply UI config: time mode
+    if (modeCfg.time_mode === 'manual' && skyEngine) {
+        const realtimeBtn = document.getElementById('btn-mode-realtime');
+        const manualBtn = document.getElementById('btn-mode-manual');
+        const manualControls = document.getElementById('manual-controls');
+        if (manualBtn) manualBtn.classList.add('active');
+        if (realtimeBtn) realtimeBtn.classList.remove('active');
+        if (manualControls) manualControls.style.display = 'flex';
+        if (modeCfg.manual_date && modeCfg.manual_time) {
+            const full = new Date(`${modeCfg.manual_date}T${modeCfg.manual_time}`);
+            if (!isNaN(full.getTime())) skyEngine.setManualTime(full);
+        }
+    }
+
+    // Apply UI config: driver selection
+    if (modeCfg.driver) {
+        const driverSelect = document.getElementById('indigo-driver');
+        if (driverSelect && driverSelect.querySelector(`option[value="${modeCfg.driver}"]`)) {
+            driverSelect.value = modeCfg.driver;
+        }
+    }
 });

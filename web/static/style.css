@@ -71,6 +71,36 @@ body {
     font-size: 0.6rem;
     letter-spacing: 2px;
 }
+.applet-drag .hud-title { flex: 1; }
+
+/* ── Minimize button ─────────────────────────────────────────── */
+
+.applet-minimize {
+    background: none;
+    border: 1px solid rgba(0, 255, 204, 0.15);
+    border-radius: 4px;
+    color: rgba(0, 255, 204, 0.4);
+    font-size: 0.65rem;
+    line-height: 1;
+    padding: 1px 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    pointer-events: auto;
+    flex-shrink: 0;
+    margin-left: auto;
+}
+.applet-minimize:hover {
+    color: rgba(0, 255, 204, 0.9);
+    border-color: rgba(0, 255, 204, 0.5);
+    background: rgba(0, 255, 204, 0.08);
+}
+.applet-minimize.collapsed-label::after { content: '+'; }
+.applet-minimize:not(.collapsed-label)::after { content: '−'; }
+
+/* ── Collapsed state ─────────────────────────────────────────── */
+
+.glass-panel.collapsed > *:not(.applet-drag) { display: none !important; }
+.glass-panel.collapsed > .applet-drag { margin-bottom: -12px; padding-bottom: 6px; }
 
 #applet-mode-bar {
     position: absolute;
@@ -89,16 +119,9 @@ body {
     font-size: 0.75rem;
     z-index: 30;
 }
-#conn-row-top, #conn-row-attach, #conn-row-location {
+#conn-row-top, #conn-row-attach, #conn-row-serial, #conn-row-location {
     display: flex; gap: 6px; align-items: center; justify-content: center;
     flex-wrap: wrap;
-}
-
-#applet-coords {
-    position: absolute;
-    top: 70px; left: 16px;
-    z-index: 18;
-    pointer-events: none;
 }
 
 #applet-status {
@@ -356,27 +379,6 @@ body {
     cursor: pointer;
 }
 
-/* ── Telescope coords ───────────────────────────────────────── */
-
-#applet-coords {
-    font-size: 0.75rem;
-    color: #ff8800;
-    font-family: monospace;
-    background: rgba(8, 8, 25, 0.5);
-    backdrop-filter: blur(4px);
-    padding: 6px 12px;
-    border-radius: 8px;
-    border: 1px solid rgba(255, 136, 0, 0.2);
-    display: flex; flex-direction: column; gap: 2px;
-}
-#applet-coords .label {
-    color: #ff8800; font-weight: bold;
-    font-size: 0.6rem; text-transform: uppercase; letter-spacing: 1px;
-}
-#applet-coords .value {
-    color: #ffaa44; font-size: 0.85rem;
-}
-
 /* ── Joystick ───────────────────────────────────────────────── */
 
 .joy-grid {
@@ -431,6 +433,189 @@ body {
     outline: none;
 }
 .joy-speed-row .btn-glass { font-size: 0.65rem; padding: 3px 10px; }
+
+/* ── Capture panel ───────────────────────────────────────────── */
+
+.cam-led {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-left: auto;
+    margin-right: 4px;
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+}
+.cam-led.cam-on {
+    background: #00ff66;
+    box-shadow: 0 0 6px #00ff6688;
+}
+.cam-led.cam-off {
+    background: #ff4444;
+    box-shadow: 0 0 6px #ff444488;
+}
+.cam-led.cam-busy {
+    background: #ffaa00;
+    box-shadow: 0 0 6px #ffaa0088;
+    animation: cam-blink 1s ease-in-out infinite;
+}
+@keyframes cam-blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+.cap-section {
+    margin-bottom: 8px;
+}
+.cap-section:last-child { margin-bottom: 0; }
+.cap-label {
+    font-size: 0.6rem;
+    color: rgba(0, 255, 204, 0.5);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+}
+.cap-row {
+    display: flex; align-items: center; gap: 6px;
+}
+.cap-input {
+    background: rgba(10, 10, 30, 0.8);
+    color: #00ffcc;
+    border: 1px solid rgba(0, 255, 204, 0.2);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.7rem;
+    padding: 4px 6px;
+    width: 60px;
+    outline: none;
+    text-align: center;
+}
+.cap-input:focus { border-color: rgba(0, 255, 204, 0.5); }
+.cap-input-sm { width: 50px; font-size: 0.65rem; padding: 3px 4px; }
+.cap-unit { font-size: 0.65rem; color: #666; }
+.cap-select {
+    background: rgba(10, 10, 30, 0.8);
+    color: #00ffcc;
+    border: 1px solid rgba(0, 255, 204, 0.2);
+    border-radius: 4px;
+    font-family: monospace;
+    font-size: 0.65rem;
+    padding: 3px 6px;
+    outline: none;
+}
+.cap-info { font-size: 0.6rem; color: #666; margin-left: auto; }
+.cap-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    background: rgba(0, 255, 204, 0.15);
+    border-radius: 2px;
+    outline: none;
+}
+.cap-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(0, 255, 204, 0.6);
+    border: 1px solid rgba(0, 255, 204, 0.8);
+    cursor: pointer;
+}
+.cap-slider::-moz-range-thumb {
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: rgba(0, 255, 204, 0.6);
+    border: 1px solid rgba(0, 255, 204, 0.8);
+    cursor: pointer;
+}
+
+/* Frame type buttons */
+.cap-frame-type {
+    display: flex; gap: 4px;
+}
+.cap-ft-btn {
+    flex: 1;
+    font-size: 0.6rem;
+    padding: 4px 2px;
+    text-align: center;
+}
+.cap-ft-btn.active {
+    background: rgba(0, 255, 204, 0.2);
+    border-color: rgba(0, 255, 204, 0.6);
+    color: #00ffcc;
+}
+
+/* Temperature */
+.cap-temp-current {
+    font-family: monospace;
+    font-size: 0.7rem;
+    color: #ff8800;
+    min-width: 60px;
+    text-align: center;
+}
+.cap-temp-arrow { font-size: 0.6rem; color: #555; }
+.cap-btn-sm {
+    font-size: 0.7rem;
+    padding: 3px 6px;
+    min-width: 24px;
+}
+
+/* Sequence */
+.cap-seq-label { font-size: 0.6rem; color: #888; }
+
+/* Progress */
+.cap-progress-bar {
+    height: 6px;
+    background: rgba(0, 255, 204, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+.cap-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, rgba(0, 255, 204, 0.4), rgba(0, 255, 204, 0.8));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+}
+.cap-progress-text {
+    font-size: 0.6rem;
+    color: #888;
+    text-align: center;
+}
+
+/* Exposure countdown */
+.cap-countdown-row {
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(0,255,204,0.08);
+}
+.cap-countdown-label {
+    font-size: 0.55rem;
+    color: #666;
+    margin-right: 4px;
+}
+.cap-countdown-value {
+    font-family: monospace;
+    font-size: 0.75rem;
+    color: var(--accent);
+    font-weight: bold;
+    letter-spacing: 0.5px;
+}
+.cap-exp-fill {
+    transition: width 0.1s linear;
+}
+
+/* Action buttons */
+.cap-actions {
+    display: flex; gap: 6px; margin-top: 4px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(0, 255, 204, 0.08);
+}
+.cap-action-btn {
+    flex: 1;
+    font-size: 0.7rem;
+    padding: 6px 0;
+    text-align: center;
+}
 
 /* ── Control panel (commandes) ──────────────────────────────── */
 
@@ -866,7 +1051,6 @@ body {
     .mode-btn { font-size: 0.55rem; padding: 3px 6px; }
     #applet-connection { top: 6px; padding: 6px 10px; gap: 3px; font-size: 0.6rem; }
     #applet-connection input, #applet-connection select { font-size: 0.6rem; padding: 2px 5px; max-width: 80px; }
-    #applet-coords { top: 55px; left: 8px; font-size: 0.65rem; padding: 4px 8px; }
     #applet-joystick { top: 55px; right: 8px; width: 160px; }
     .joy-grid { width: 120px; gap: 4px; }
     .joy-btn { padding: 8px 0; font-size: 1.2rem; }

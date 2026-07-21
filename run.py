@@ -84,7 +84,8 @@ def main():
     # Create web server
     site_cfg = config.get("site", {})
     config_path = Path(__file__).parent / "config.yaml"
-    web = WebServer(registry, site_config=site_cfg, config_path=config_path)
+    ui_path = Path(__file__).parent / "ui.yaml"
+    web = WebServer(registry, site_config=site_cfg, config_path=config_path, ui_path=ui_path)
 
     # Run everything
     async def run_all():
