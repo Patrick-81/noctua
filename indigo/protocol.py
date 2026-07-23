@@ -48,6 +48,7 @@ class Item:
     name: str
     value: Any = None
     label: str = ""
+    target: Any = None
     min: float = 0.0
     max: float = 0.0
     step: float = 0.0
@@ -90,14 +91,22 @@ VECTOR_TYPE_MAP = {
     "defSwitchVector": VectorType.SWITCH,
     "defTextVector": VectorType.TEXT,
     "defBlobVector": VectorType.BLOB,
+    "defBLOBVector": VectorType.BLOB,
     "setNumberVector": VectorType.NUMBER,
     "setSwitchVector": VectorType.SWITCH,
     "setTextVector": VectorType.TEXT,
     "setBlobVector": VectorType.BLOB,
+    "setBLOBVector": VectorType.BLOB,
+    "statusNumberVector": VectorType.NUMBER,
+    "statusSwitchVector": VectorType.SWITCH,
+    "statusTextVector": VectorType.TEXT,
+    "statusBlobVector": VectorType.BLOB,
+    "statusBLOBVector": VectorType.BLOB,
     "newNumberVector": VectorType.NUMBER,
     "newSwitchVector": VectorType.SWITCH,
     "newTextVector": VectorType.TEXT,
     "newBlobVector": VectorType.BLOB,
+    "newBLOBVector": VectorType.BLOB,
 }
 
 
@@ -115,6 +124,12 @@ def _parse_xml_item(el: ET.Element, vector_type: VectorType) -> Item:
             item.value = float(text) if text else 0.0
         except ValueError:
             item.value = 0.0
+        target_attr = el.get("target")
+        if target_attr is not None:
+            try:
+                item.target = float(target_attr)
+            except ValueError:
+                pass
         item.min = float(el.get("min", "0") or "0")
         item.max = float(el.get("max", "0") or "0")
         item.step = float(el.get("step", "0") or "0")
@@ -226,7 +241,7 @@ def parse_xml_message(xml_str: str) -> tuple[str, PropertyVector | dict | None]:
         VectorType.NUMBER: "defNumber" if is_def else "oneNumber",
         VectorType.SWITCH: "defSwitch" if is_def else "oneSwitch",
         VectorType.TEXT: "defText" if is_def else "oneText",
-        VectorType.BLOB: "defBlob" if is_def else "oneBlob",
+        VectorType.BLOB: "defBLOB" if is_def else "oneBlob",
     }.get(vtype, "defNumber")
 
     for child in root.findall(item_tag):
@@ -293,7 +308,7 @@ def _xml_attr_str(s: str) -> str:
 def build_get_properties(device: str | None = None,
                          prop_name: str | None = None) -> str:
     """Build a getProperties XML message."""
-    parts = ['<getProperties version="1.7"']
+    parts = ['<getProperties version="2.0"']
     if device:
         parts.append(f' device="{_xml_attr_str(device)}"')
     if prop_name:

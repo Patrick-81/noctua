@@ -112,6 +112,15 @@ class BaseDevice:
     def get_prop(self, name: str) -> PropertyVector | None:
         return self._properties.get(name)
 
+    def get_item_name(self, prop_name: str, *candidates: str) -> str:
+        """Return the actual item name from the stored def, trying candidates in order."""
+        pv = self.get_prop(prop_name)
+        if pv and pv.items:
+            return pv.items[0].name
+        for c in candidates:
+            return c
+        return candidates[0] if candidates else ""
+
     def get_item_value(self, prop_name: str, item_name: str, default=None):
         pv = self.get_prop(prop_name)
         if pv is None:

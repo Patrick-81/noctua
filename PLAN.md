@@ -27,7 +27,7 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser) via une interf
 | `indigo/registry.py` | Découverte des devices, auto-connect, upgrade type |
 | `indigo/devices/base.py` | BaseDevice + GenericDevice, sérialisation propriétés |
 | `indigo/devices/mount.py` | Monture — résolution noms INDIGO↔INDI, commands |
-| `indigo/devices/camera.py` | Caméra CCD |
+| `indigo/devices/camera.py` | Caméra CCD — expose(), abort(), is_ready, BLOB handling |
 | `indigo/devices/focuser.py` | Focuser |
 | `web/server.py` | FastAPI REST/WS, static files, endpoints monture/site |
 | `web/weblog.py` | Handler Python → WebSocket (logs temps réel) |
@@ -56,11 +56,22 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser) via une interf
 | POST | `/api/mount/tracking` | Tracking on/off |
 | POST | `/api/mount/park` | Park |
 | POST | `/api/mount/unpark` | Unpark |
+| GET | `/api/camera` | État caméra (inclut `is_ready`) |
+| POST | `/api/camera/expose` | Lancer exposition (duration, frame_type) — vérifie `is_ready` |
+| POST | `/api/camera/abort` | Stopper exposition |
+| POST | `/api/camera/temperature` | Régler température CCD |
+| GET | `/api/focuser` | État focuser |
+| POST | `/api/focuser/move` | Déplacer focuser (position) |
+| POST | `/api/focuser/halt` | Stopper focuser |
 | POST | `/api/property` | Setter générique (switch/number/text) |
 | GET | `/api/site` | Lire site d'observation (config.yaml) |
 | POST | `/api/site` | Sauvegarder site d'observation |
 | GET | `/api/site/cities?q=` | Recherche fuzzy de villes (122 villes) |
 | GET | `/api/config` | Configuration complète |
+| GET | `/api/drivers` | Liste des drivers INDIGO disponibles |
+| POST | `/api/drivers/attach` | Attacher (charger) un driver sur le serveur |
+| GET | `/api/connection` | État connexion INDIGO |
+| POST | `/api/connection` | Changer host/port/protocol et reconnexion |
 | GET | `/ws` | WebSocket état temps réel + logs |
 
 ## Données catalogue

@@ -63,18 +63,101 @@ class WebServer:
         self.app = FastAPI(title="INDIGO Devices")
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
+        self._last_image_data: bytes = b""
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
-
-        # Enable BLOB upload on cameras so the INDIGO server sends images
-        self._setup_camera_blobs()
 
         # Install weblog handler on the root logger
         weblog_handler.setLevel(logging.DEBUG)
         logging.getLogger().addHandler(weblog_handler)
 
         self._setup_routes()
+
+    async def _enable_blob_upload(self):
+        """Wait for cameras to appear, request BLOB properties, enable BLOB delivery."""
+        blob_requested: set[str] = set()      # cameras we sent getProperties for
+        blob_enabled: set[str] = set()         # cameras we sent <enableBLOB> for (property-level)
+        blob_enabled_dev: set[str] = set()     # cameras we sent device-level <enableBLOB> for
+        format_set: set[str] = set()           # cameras we set CCD_IMAGE_FORMAT for
+        retry_count: dict[str, int] = {}       # per-camera getProperties retry count
+
+        while True:
+            await asyncio.sleep(2)
+            if not self.registry.client.connected:
+                blob_requested.clear()
+                blob_enabled.clear()
+                blob_enabled_dev.clear()
+                format_set.clear()
+                retry_count.clear()
+                continue
+
+            for name, dev in self.registry.all_devices().items():
+                if not hasattr(dev, 'on_image'):
+                    continue
+
+                # Wire the image callback if not already done
+                if dev.on_image is None:
+                    dev.on_image = self._make_image_callback(name)
+                    log.debug("Wired image callback for camera: %s", name)
+
+                # Step 1: Request CCD_IMAGE blob property definition (retry up to 5 times)
+                retries = retry_count.get(name, 0)
+                if name not in blob_requested or (not dev.blob_prop_name and retries < 5):
+                    if name not in blob_requested:
+                        blob_requested.add(name)
+                    retry_count[name] = retries + 1
+                    await self.registry.client.send_get_properties(
+                        device=name, prop_name="CCD_IMAGE")
+
+                # Step 2a: Send property-level <enableBLOB> if we know the blob prop name
+                if dev.blob_prop_name and name not in blob_enabled:
+                    blob_enabled.add(name)
+                    await self.registry.client.send_enable_blob(
+                        device=name, prop_name=dev.blob_prop_name, mode="Also")
+
+                # Step 2b: Send device-level <enableBLOB> as fallback
+                if name not in blob_enabled_dev:
+                    blob_enabled_dev.add(name)
+                    await self.registry.client.send_enable_blob(
+                        device=name, mode="Also")
+
+                # Step 3: Set CCD_IMAGE_FORMAT to FITS
+                if name not in format_set:
+                    fmt_pv = dev.get_prop("CCD_IMAGE_FORMAT")
+                    if fmt_pv:
+                        format_set.add(name)
+                        fits_on = any(
+                            item.name == "FITS" and item.value
+                            for item in fmt_pv.items
+                        )
+                        if not fits_on:
+                            items = [
+                                {"name": item.name,
+                                 "value": item.name == "FITS"}
+                                for item in fmt_pv.items
+                            ]
+                            await dev.send_switch("CCD_IMAGE_FORMAT", items)
+
+    async def _auto_connect_retry_loop(self):
+        """Periodically check for devices stuck in auto-connect state and retry."""
+        while True:
+            await asyncio.sleep(10)
+            if not self.registry.client.connected:
+                continue
+            for device_name in list(self.registry._auto_connecting):
+                dev = self.registry.get(device_name)
+                if not dev:
+                    continue
+                # If device is still not connected after 10s, retry
+                if not dev.connected:
+                    retries = self.registry._connect_retries.get(device_name, 0)
+                    if retries < 3:
+                        item_name = self.registry._connect_item_names.get(device_name, "CONNECT")
+                        self.registry._connect_retries[device_name] = retries + 1
+                        log.info("Retry auto-connect: %s (attempt %d/3, item=%s)",
+                                 device_name, retries + 1, item_name)
+                        self.registry._schedule_connect(device_name, item_name)
 
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
@@ -91,6 +174,8 @@ class WebServer:
         @app.on_event("startup")
         async def startup():
             weblog_handler.set_loop(asyncio.get_event_loop())
+            asyncio.create_task(self._enable_blob_upload())
+            asyncio.create_task(self._auto_connect_retry_loop())
             log.info("Web server started")
 
         # ── REST API ─────────────────────────────────────────────
@@ -118,6 +203,29 @@ class WebServer:
             await c.send_attach_driver(driver_name)
             log.info("Attach driver: %s", driver_name)
             return {"ok": True, "driver": driver_name}
+
+        @app.post("/api/device/connect")
+        async def connect_device(body: dict):
+            """Manually send CONNECT=On to a device."""
+            device_name = body.get("device", "")
+            if not device_name:
+                return {"error": "no device specified"}
+            dev = self.registry.get(device_name)
+            if not dev:
+                return {"error": f"device '{device_name}' not found"}
+            # Determine the correct item name for CONNECT
+            item_name = self.registry._connect_item_names.get(device_name, "CONNECT")
+            conn_prop = dev.get_prop("CONNECTION")
+            if conn_prop:
+                connect_item = conn_prop.get_item("CONNECT") or conn_prop.get_item("CONNECTED")
+                if connect_item:
+                    item_name = connect_item.name
+            # Reset retry state and send CONNECT
+            self.registry._auto_connecting.discard(device_name)
+            self.registry._connect_retries.pop(device_name, None)
+            log.info("Manual connect: %s (item=%s)", device_name, item_name)
+            self.registry._schedule_connect(device_name, item_name)
+            return {"ok": True, "device": device_name}
 
         @app.get("/api/config")
         async def get_config():
@@ -208,6 +316,7 @@ class WebServer:
             if c.connected:
                 await c.disconnect()
             c._reconnect_try = 0
+            c._connecting = False
             loop = asyncio.get_event_loop()
             loop.create_task(c.connect())
             return {"ok": True, "host": host, "port": port, "protocol": protocol}
@@ -282,23 +391,55 @@ class WebServer:
 
         @app.post("/api/camera/expose")
         async def camera_expose(body: dict):
-            c = self.registry.get_camera()
+            c = self.registry.get_camera(body.get("device"))
             if not c:
                 return {"error": "no camera"}
+            if not c.is_ready:
+                return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
             await c.expose(body["duration"], body.get("frame_type", "LIGHT"))
             return {"ok": True}
 
         @app.post("/api/camera/abort")
-        async def camera_abort():
-            c = self.registry.get_camera()
+        async def camera_abort(body: dict = {}):
+            c = self.registry.get_camera(body.get("device"))
             if not c:
                 return {"error": "no camera"}
             await c.abort()
             return {"ok": True}
 
+        @app.post("/api/camera/save")
+        async def camera_save(body: dict):
+            """Save the last captured image to a directory."""
+            import base64
+            import os
+            from datetime import datetime
+            save_dir = body.get("dir", "")
+            if not save_dir:
+                return {"error": "no directory specified"}
+            # Expand ~ and create dir if needed
+            save_dir = os.path.expanduser(save_dir)
+            os.makedirs(save_dir, exist_ok=True)
+            # Build filename from timestamp
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"capture_{ts}.fits"
+            filepath = os.path.join(save_dir, filename)
+            # Get last image data from the camera
+            c = self.registry.get_camera()
+            if not c:
+                return {"error": "no camera"}
+            # We need the raw image data — check if we can get it from the client
+            # The image was already sent to WS clients, we need to re-fetch or store it
+            # For now, we'll store the last image in the server
+            if not hasattr(self, '_last_image_data') or not self._last_image_data:
+                return {"error": "no image data available — capture first"}
+            with open(filepath, "wb") as f:
+                f.write(self._last_image_data)
+            log.info("Image saved: %s (%d bytes)", filepath, len(self._last_image_data))
+            return {"ok": True, "path": filepath, "size": len(self._last_image_data)}
+
         @app.post("/api/camera/temperature")
         async def camera_temperature(body: dict):
-            c = self.registry.get_camera()
+            c = self.registry.get_camera(body.get("device"))
             if not c:
                 return {"error": "no camera"}
             await c.set_temperature(body["target"])
@@ -363,7 +504,7 @@ class WebServer:
             await ws.accept()
             self._ws_clients.append(ws)
             weblog_handler.add_client(ws)
-            log.info("WS client connected (%d total)", len(self._ws_clients))
+            log.debug("WS client connected (%d total)", len(self._ws_clients))
             try:
                 # Send current state immediately
                 state = {
@@ -381,7 +522,7 @@ class WebServer:
             finally:
                 self._ws_clients.remove(ws)
                 weblog_handler.remove_client(ws)
-                log.info("WS client disconnected (%d remaining)", len(self._ws_clients))
+                log.debug("WS client disconnected (%d remaining)", len(self._ws_clients))
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────
 
@@ -423,7 +564,7 @@ class WebServer:
             if m:
                 await m.home()
         elif cmd == "camera/expose":
-            c = self.registry.get_camera()
+            c = self.registry.get_camera(msg.get("device"))
             if c:
                 await c.expose(msg["duration"], msg.get("frame_type", "LIGHT"))
 
@@ -449,56 +590,81 @@ class WebServer:
         except ValueError:
             pass
 
-    def _setup_camera_blobs(self) -> None:
-        """Enable BLOB upload on cameras and wire image forwarding."""
-        import asyncio as _asyncio
+    def _make_image_callback(self, device_name: str):
+        """Create an image callback that captures the device name."""
+        def _cb(data: bytes, fmt: str, url: str = "") -> None:
+            self._on_camera_image(device_name, data, fmt, url)
+        return _cb
 
-        async def _enable_blob_upload():
-            """Wait for cameras to appear and enable their BLOB upload."""
-            while True:
-                await _asyncio.sleep(2)
-                for name, dev in self.registry.all_devices().items():
-                    if not hasattr(dev, 'on_image'):
-                        continue
-                    # Wire the image callback if not already done
-                    if dev.on_image is None:
-                        dev.on_image = self._on_camera_image
-                        log.info("Wired image callback for camera: %s", name)
-                    # Enable CCD_UPLOAD if the camera has this property
-                    if hasattr(dev, '_properties') and 'CCD_UPLOAD' in dev._properties:
-                        pv = dev._properties['CCD_UPLOAD']
-                        # Only send if not already enabled
-                        upload_on = any(
-                            item.name == 'UPLOAD' and item.value for item in pv.items
-                        )
-                        if not upload_on:
-                            log.info("Enabling CCD_UPLOAD on %s", name)
-                            await dev.send_switch('CCD_UPLOAD', [
-                                {'name': 'UPLOAD', 'value': True},
-                                {'name': 'UPLOAD_CLIENT', 'value': True},
-                            ])
-
-        loop = asyncio.get_event_loop()
-        loop.create_task(_enable_blob_upload())
-
-    def _on_camera_image(self, data: bytes, fmt: str) -> None:
+    def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
-        if not self._ws_clients:
-            return
-        b64 = base64.b64encode(data).decode("ascii")
-        payload = json.dumps({
-            "type": "image",
-            "format": fmt,
-            "data": b64,
-        })
-        loop = asyncio.get_running_loop()
+        if url:
+            log.debug("Camera image URL from %s: %s", device_name, url)
+            asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
+        else:
+            if not data:
+                log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
+                return
+            # Store last image for save endpoint
+            self._last_image_data = data
+            if not self._ws_clients:
+                return
+            b64 = base64.b64encode(data).decode("ascii")
+            payload = json.dumps({
+                "type": "image",
+                "device": device_name,
+                "format": fmt,
+                "data": b64,
+            })
+            loop = asyncio.get_running_loop()
 
-        async def _safe_send(ws):
-            try:
-                await ws.send_text(payload)
-            except Exception:
-                self._safe_remove_client(ws)
+            async def _safe_send(ws):
+                try:
+                    await ws.send_text(payload)
+                except Exception:
+                    self._safe_remove_client(ws)
 
-        for ws in self._ws_clients[:]:
-            loop.create_task(_safe_send(ws))
+            for ws in self._ws_clients[:]:
+                loop.create_task(_safe_send(ws))
+
+    async def _fetch_and_broadcast(self, device_name: str, url: str, fmt: str) -> None:
+        """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""
+        import base64
+        import aiohttp
+        try:
+            # The INDIGO server runs on the same host as the INDIGO TCP connection
+            # URL may be relative like /blob/0x... or absolute http://host:port/blob/...
+            if url.startswith("/"):
+                fetch_url = f"http://{self.registry.client._host}:7624{url}"
+            elif not url.startswith("http"):
+                fetch_url = f"http://{self.registry.client._host}:7624/{url}"
+            else:
+                fetch_url = url
+
+            log.debug("Fetching BLOB from: %s", fetch_url)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(fetch_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        log.error("BLOB fetch failed: HTTP %d from %s", resp.status, fetch_url)
+                        return
+                    data = await resp.read()
+                    log.debug("BLOB fetched: %d bytes from %s", len(data), fetch_url)
+                    # Store last image for save endpoint
+                    self._last_image_data = data
+
+                    if not self._ws_clients:
+                        return
+                    b64 = base64.b64encode(data).decode("ascii")
+                    payload = json.dumps({
+                        "type": "image",
+                        "format": fmt,
+                        "data": b64,
+                    })
+                    for ws in self._ws_clients[:]:
+                        try:
+                            await ws.send_text(payload)
+                        except Exception:
+                            self._safe_remove_client(ws)
+        except Exception as e:
+            log.error("Failed to fetch BLOB from %s: %s", url, e)

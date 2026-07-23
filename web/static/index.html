@@ -276,7 +276,20 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:260px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Paramètres</span><span id="cam-led" class="cam-led cam-off" title="Caméra hors ligne"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <!-- Camera status indicator -->
+            <div class="cam-status-bar" id="cam-status-bar">
+                <span class="cam-status-led" id="cam-status-led"></span>
+                <span class="cam-status-label" id="cam-status-label">Pas de caméra</span>
+                <button id="btn-cam-connect" class="btn-glass success" style="font-size:0.55rem; display:none; margin-left:6px;">CONNECTER</button>
+            </div>
+
+            <!-- Camera selector (only shown when >1 camera) -->
+            <div class="cap-section" id="cap-camera-section" style="display:none;">
+                <div class="cap-label">Caméra</div>
+                <select id="cap-camera-select" class="cap-select" style="width:100%;"></select>
+            </div>
 
             <!-- Frame type -->
             <div class="cap-section">
@@ -364,7 +377,7 @@
                     <span class="cap-countdown-label">Exposition</span>
                     <span class="cap-countdown-value" id="cap-countdown">00:00.0</span>
                     <div class="cap-progress-bar" style="height:4px; margin-top:3px;">
-                        <div class="cap-progress-fill cap-exp-fill" id="cap-exp-fill" style="width:0%; background:var(--accent);"></div>
+                        <div class="cap-progress-fill cap-exp-fill" id="cap-exp-fill" style="width:0%;"></div>
                     </div>
                 </div>
             </div>
@@ -374,14 +387,34 @@
                 <button id="cap-expose-btn" class="btn-glass success cap-action-btn">▶ EXPOSER</button>
                 <button id="cap-abort-btn" class="btn-glass danger cap-action-btn">⏹ STOP</button>
             </div>
+
+            <!-- Save -->
+            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
+                <div class="cap-label">Sauvegarde</div>
+                <div class="cap-row">
+                    <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
+                    <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;">💾 Sauver</button>
+                </div>
+            </div>
         </div>
 
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>
-            <div id="cap-preview-wrap" style="display:none; text-align:center;">
+            <div id="cap-preview-wrap" style="display:none; text-align:center; position:relative;">
                 <canvas id="cap-preview-canvas" style="max-width:100%; border-radius:4px;"></canvas>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
+                <div class="cap-histo-row">
+                    <button id="cap-histo-auto" class="cap-histo-auto-btn active" title="Extension auto/manuelle">AUTO</button>
+                    <span class="cap-histo-label">Noir</span>
+                    <input type="range" id="cap-histo-slider" class="cap-slider" min="0" max="100" value="0" style="flex:1;">
+                    <span id="cap-histo-val" class="cap-histo-val">AUTO</span>
+                </div>
+                <div class="cap-histo-row" style="margin-top:2px;">
+                    <span class="cap-histo-minmax"><span id="cap-histo-min">0</span> — <span id="cap-histo-max">255</span></span>
+                </div>
+                <canvas id="cap-histo-canvas" class="cap-histo-canvas"></canvas>
+                <div id="cap-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
             </div>
         </div>
 

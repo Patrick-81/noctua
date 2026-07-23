@@ -148,7 +148,7 @@ modes:
         right: 16px
         bottom: null
   capture:
-    driver: indigo_ccd_simulator
+    driver: indigo_ccd_svb
     collapsed:
       applet-log: false
     applets:
@@ -185,8 +185,8 @@ modes:
         right: 16px
         bottom: null
       applet-capture-preview:
-        left: 43px
-        top: 144px
+        left: 50px
+        top: 155px
         right: null
         bottom: null
       applet-solver:

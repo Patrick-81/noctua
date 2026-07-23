@@ -37,6 +37,8 @@ class DeviceRegistry:
         self._devices: dict[str, GenericDevice] = {}  # name → device
         self._drivers: list[dict] = []  # DRIVERS switch items
         self._auto_connecting: set[str] = set()  # devices we sent CONNECT to
+        self._connect_retries: dict[str, int] = {}  # device → retry count
+        self._connect_item_names: dict[str, str] = {}  # device → item name for CONNECT
 
         # Register callbacks on the client
         client.on_property_def = self._on_def
@@ -44,6 +46,7 @@ class DeviceRegistry:
         client.on_property_new = self._on_new
         client.on_property_del = self._on_del
         client.on_blob = self._on_blob
+        client.on_blob_url = self._on_blob_url
         client.on_connected = self._on_connected
 
         # External notification callback
@@ -62,10 +65,11 @@ class DeviceRegistry:
                 return dev
         return None
 
-    def get_camera(self) -> Camera | None:
+    def get_camera(self, name: str | None = None) -> Camera | None:
         for dev in self._devices.values():
             if isinstance(dev, Camera):
-                return dev
+                if name is None or dev.name == name:
+                    return dev
         return None
 
     def get_focuser(self) -> Focuser | None:
@@ -86,8 +90,15 @@ class DeviceRegistry:
         if not connected:
             self._devices.clear()
             self._auto_connecting.clear()
+            self._connect_retries.clear()
+            self._connect_item_names.clear()
             log.info("All devices cleared (disconnected)")
             self._emit_state()
+        else:
+            # Reset retry state on fresh connection — auto-connect will re-fire from defConnection
+            self._auto_connecting.clear()
+            self._connect_retries.clear()
+            self._connect_item_names.clear()
 
     def _on_def(self, tag: str, pv: PropertyVector) -> None:
         """Handle a def*Vector — discover or update device."""
@@ -101,23 +112,33 @@ class DeviceRegistry:
                 {"name": item.name, "label": item.label}
                 for item in pv.items
             ]
-            log.info("DRIVERS: %s", [d["name"] for d in self._drivers])
+            log.debug("DRIVERS: %s", [d["name"] for d in self._drivers])
             return
 
         # CONNECTION def — detect connection status + auto-connect
         if pv.name.upper() == "CONNECTION":
             dev = self._ensure_device(device_name)
             if dev:
+                if type(dev) is GenericDevice:
+                    dev = self._upgrade_device(device_name, pv.name)
+
+                # Store the CONNECTION property (needed for UI)
+                dev._properties[pv.name] = pv
+
                 connect_item = pv.get_item("CONNECT") or pv.get_item("CONNECTED")
                 if connect_item:
                     connected = str(connect_item.value).lower() in ("on", "true", "1")
                     dev.on_connection_status(connected)
 
+                    # Remember the item name for retries
+                    self._connect_item_names[device_name] = connect_item.name
+
                     # Auto-connect: if device is not connected, send CONNECT=On
                     if not connected and device_name not in self._auto_connecting:
                         self._auto_connecting.add(device_name)
-                        log.info("Auto-connecting device: %s", device_name)
-                        self._schedule_connect(device_name)
+                        self._connect_retries[device_name] = 0
+                        log.info("Auto-connecting device: %s (item=%s)", device_name, connect_item.name)
+                        self._schedule_connect(device_name, connect_item.name)
 
                 self._emit_state()
             return
@@ -138,7 +159,7 @@ class DeviceRegistry:
             return
 
         if pv.name.upper() == "CONNECTION":
-            log.info("[%s] CONNECTION set received: %s",
+            log.debug("[%s] CONNECTION set received: %s",
                      device_name,
                      [(it.name, it.value) for it in pv.items])
 
@@ -154,6 +175,29 @@ class DeviceRegistry:
                 if connect_item:
                     connected = str(connect_item.value).lower() in ("on", "true", "1")
                     dev.on_connection_status(connected)
+
+                    # Update stored property
+                    dev._properties[pv.name] = pv
+
+                    if connected:
+                        # Connection succeeded — clear retries
+                        self._auto_connecting.discard(device_name)
+                        self._connect_retries.pop(device_name, None)
+                        log.info("[%s] Connected successfully", device_name)
+                    elif pv.state == "Alert":
+                        # Connection failed — schedule retry
+                        retries = self._connect_retries.get(device_name, 0)
+                        if retries < 3:
+                            self._connect_retries[device_name] = retries + 1
+                            item_name = self._connect_item_names.get(device_name, "CONNECT")
+                            log.warning("[%s] Connection failed (Alert), retry %d/3 in 5s",
+                                        device_name, retries + 1)
+                            if self.client._loop:
+                                self.client._loop.call_later(
+                                    5.0, lambda: self._schedule_connect(device_name, item_name))
+                        else:
+                            log.error("[%s] Connection failed after 3 retries", device_name)
+                            self._auto_connecting.discard(device_name)
 
             dev.on_set(tag, pv)
             self._emit_state()
@@ -182,9 +226,20 @@ class DeviceRegistry:
     def _on_blob(self, device_name: str, prop_name: str,
                  item_name: str, fmt: str, data: bytes) -> None:
         """Handle binary BLOB data (FITS image)."""
+        log.debug("REGISTRY BLOB: device=%s prop=%s item=%s fmt=%s size=%d",
+                 device_name, prop_name, item_name, fmt, len(data))
         dev = self._devices.get(device_name)
         if dev and isinstance(dev, Camera):
             dev.on_blob_data(prop_name, item_name, fmt, data)
+        else:
+            log.warning("REGISTRY BLOB: no Camera device '%s' found (dev=%s)", device_name, dev)
+
+    def _on_blob_url(self, device_name: str, prop_name: str,
+                     item_name: str, url: str) -> None:
+        """Handle URL-based BLOB (INDIGO v2)."""
+        dev = self._devices.get(device_name)
+        if dev and isinstance(dev, Camera):
+            dev.on_blob_url(prop_name, item_name, url)
 
     # ── Device creation ──────────────────────────────────────────
 
@@ -216,16 +271,35 @@ class DeviceRegistry:
                     self.on_device_added(real)
                 return real
 
+        name_lower = name.lower()
+        camera_keywords = ['svbony', 'asi', 'qhy', 'zwo', 'sbig', 'atik',
+                           'toup', 'playerone', ' Mallin', 'fli', 'omegon',
+                           'ogma', 'bresser', 'bresser', 'rising', 'ptp',
+                           'uvc', 'sony', 'canon', 'nikon', 'olympus']
+        for kw in camera_keywords:
+            if kw in name_lower:
+                real = Camera(name, self.client)
+                real._properties = dev._properties
+                real.connected = dev.connected
+                self._devices[name] = real
+                log.info("Device '%s' upgraded to Camera (by name: '%s')", name, kw)
+                if self.on_device_added:
+                    self.on_device_added(real)
+                return real
+
         return dev
 
     # ── Auto-connect ─────────────────────────────────────────────
 
-    def _schedule_connect(self, device_name: str) -> None:
-        """Schedule sending CONNECT=On to a device on the event loop."""
+    def _schedule_connect(self, device_name: str, item_name: str = "CONNECT") -> None:
+        """Schedule sending CONNECT=On to a device on the event loop.
+
+        item_name: the actual switch item name from the def (CONNECT or CONNECTED).
+        """
         if self.client._loop:
             asyncio.run_coroutine_threadsafe(
                 self.client.send_new_switch(device_name, "CONNECTION", [
-                    {"name": "CONNECT", "value": True},
+                    {"name": item_name, "value": True},
                 ]),
                 self.client._loop,
             )

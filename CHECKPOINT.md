@@ -1,80 +1,40 @@
-# CHECKPOINT — 21 juillet 2026
+# CHECKPOINT — 23 juillet 2026
 
 ## État actuel
-BLOB pipeline corrigée — regex quotes + arity mismatch + XML robustness. Capture timer ajouté (compteur MM:SS.d + barre exposition). Prêt pour test end-to-end avec CCD Imager Simulator.
+SVBONY SV305PRO **connectée et fonctionnelle** : `connected=True`, `is_ready=True`, 1920×1080, 2.9µm pixel. 30 propriétés CCD reçues.
 
-## Changements majeurs (21 juillet)
+## Changements majeurs (session 23 juillet)
 
-### BLOB pipeline (critique)
+### Fix auto-connect SVBONY SV305PRO
+- **Bug racine** : `_schedule_connect()` envoyait toujours `{"name": "CONNECT"}` mais le driver SVBONY utilise `CONNECTED` comme nom d'item
+- **Fix** : récupère le vrai nom d'item depuis `defConnection` et le passe à `_schedule_connect`
+- **Stockage** : propriété CONNECTION stockée dans `_properties` avant le return précoce
+- **Retry** : `_auto_connect_retry_loop()` toutes les 10s (max 3), gestion des Alert
+- **UI** : bouton "CONNECTER" manuel + endpoint `POST /api/device/connect`
 
-#### Bug 1 : Regex quotes dans `_extract_blob`
-- **Problème** : les regex utilisaient `name="..."` (double quotes) mais INDIGO envoie `name='...'` (single quotes). Résultat : aucun BLOB n'était jamais extrait.
-- **Fix** : toutes les regex dans `_extract_blob` (`client.py:349`) acceptent désormais `['"]` pour les attributs. Extraction du `prop_name` (vecteur parent) + `item_name` (oneBlob) + `device` + `fmt` + `binary_data`.
+### Logs épurés
+- 15 logs INFO downgrade vers DEBUG (BLOB, CONNECTION, def property, exposure, WS events)
+- Les logs INFO ne polluent plus le terminal
 
-#### Bug 2 : Arity mismatch `_on_blob`
-- **Problème** : `client.py` dispatchait 4 args `(device, name, fmt, binary_data)` mais `registry._on_blob` attendait 5 `(device_name, prop_name, item_name, fmt, data)`. TypeError à l'arrivée du premier BLOB.
-- **Fix** : `_extract_blob` retourne maintenant 6 valeurs (dont `prop_name` extrait du tag parent). Dispatch 5 args. Chaîne complète : `client.on_blob → registry._on_blob → camera.on_blob_data → on_image → server._on_camera_image → WebSocket → frontend`.
+### Fix config UI
+- Flag `_initDone` empêche `saveUiConfig()` pendant l'initialisation
+- La config n'est plus écrasée par `switchMode()` au chargement
 
-### XML parsing robustness
+### Preview redimensionnable
+- Poignée `⣿` bas-droite, drag horizontal pour ajuster la largeur
+- Positions sauvegardées dans `ui.yaml`
 
-- **`_re_vector`** : regex élargie `[\s/>]` pour matcher les vecteurs self-closing.
-- **Validation nesting** : avant d'accepter un close tag, on compte les open tags du même type. Si >1, le close tag appartient au 2e vecteur → on attend (évite 2 vecteurs concaténés en 1 XML invalide).
-- **`delProperty` non-self-closing** : gestion explicite des `<delProperty>...</delProperty>` au lieu de skip une ligne.
-- **`parse_xml_message`** : regex attrs self-closing corrigée pour single quotes via `(\w+)=(['"])(.*?)\2`.
+### Histogramme
+- Canvas histogramme 256 bins (log scale) sous l'image
+- Slider "Noir" pour le point noir (0-100%)
+- Bouton AUTO toggle extension auto vs manuelle
+- Stretch appliqué en temps réel sur le canvas
+- État persisté dans `ui.yaml` par mode
 
-### Capture timer
-
-- **HTML** (`index.html`) : nouvelle row `cap-countdown-row` dans la section progression — label "Exposition", affichage `MM:SS.d` en monospace cyan, barre fine d'exposition.
-- **JS** (`app.js`) :
-  - Variables `_exposureStartMs`, `_exposureDurationMs`, `_countdownRaf`
-  - `startCountdown()` / `stopCountdown()` — `requestAnimationFrame` pour 60fps
-  - `_tickCountdown()` : calcule remaining = duration - elapsed, affiche MM:SS.d + pourcentage barre
-  - `startSequence()` : lance le compteur au début de chaque pose
-  - `updateCaptureProgress()` : appelle `stopCountdown()` à l'arrêt
-  - Bouton STOP : reset propre via `updateCaptureProgress()`
-- **CSS** (`style.css`) : `.cap-countdown-row`, `.cap-countdown-value` (monospace cyan bold), `.cap-exp-fill` (transition 100ms)
-
-### Chaîne BLOB complète vérifiée
-```
-INDIGO server → TCP raw bytes
-→ _process_buffer() (bytes-based, regex quotes OK)
-→ _extract_blob() (prop_name + item_name + fmt + binary_data)
-→ dispatch on_blob(device, prop_name, item_name, fmt, data)
-→ registry._on_blob()
-→ camera.on_blob_data()
-→ camera.on_image(data, fmt)
-→ server._on_camera_image()
-→ WebSocket {"type":"image", "format":"image/fits", "data":"base64..."}
-→ frontend handleCameraImage()
-→ renderFITSImage() → canvas
-```
-
-### Fichiers modifiés
-- `indigo/client.py` — _extract_blob rewrite (quotes + prop_name + 6 returns), dispatch 5 args, _re_vector broadened, nesting validation, delProperty content handling
-- `indigo/protocol.py` — parse_xml_message self-close attrs regex single/double quotes
-- `web/static/app.js` — capture countdown timer (startCountdown/stopCountdown/_tickCountdown), exposure tracking vars
-- `web/static/index.html` — cap-countdown-row HTML
-- `web/static/style.css` — countdown + exp-fill styles
-
-## Ce qui reste à faire
-
-### Test end-to-end (PRIORITÉ)
-- [ ] Lancer INDIGO server + CCD Imager Simulator
-- [ ] Vérifier `BLOB: device.prop [item] size=N format=image/fits` dans les logs
-- [ ] Vérifier image rendue dans le canvas de preview capture
-- [ ] Vérifier countdown pendant l'exposition
-
-### Applets placeholder (à implémenter)
-- [ ] **Autoguidage** : graphique dérive, paramètres, stats
-- [ ] **Astrométrie** : solver, mise en station polaire
-
-### Bugs ouverts
-- [ ] **Drag rotation** — les verrous Zénith/E/O ne fonctionnent pas (voir historique tentatives)
-
-### Fonctionnalités existantes à vérifier
-- [ ] Tester D-pad avec le serveur réel
-- [ ] Tester GOTO depuis la carte
-- [ ] Vérifier le panneau propriétés pour caméra/focuser
+### Sauvegarde images
+- Input répertoire + bouton "Sauver" dans le panneau capture
+- Endpoint `POST /api/camera/save` — crée le dossier, fichier `capture_YYYYMMDD_HHMMSS.fits`
+- Dernière image stockée côté serveur (`_last_image_data`)
 
 ## Architecture cible
 
@@ -93,7 +53,7 @@ MODE: AUTOGUIDAGE
 
 MODE: CAPTURE
   [commun] connection, coords, legend, log
-  [capture] settings, preview, sequence, countdown
+  [capture] settings, preview (resize + histogram), sequence, countdown, save
 
 MODE: ASTROMÉTRIE
   [commun] connection, coords, legend, log

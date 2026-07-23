@@ -56,6 +56,7 @@ class IndigoClient:
         self._reconnect_try = 0
         self._probe_count = 0
         self._recv_buffer = b""
+        self._connecting = False
 
         # Stats
         self._def_count = 0
@@ -68,6 +69,7 @@ class IndigoClient:
         self.on_property_new: VectorHandler | None = None
         self.on_property_del: DelHandler | None = None
         self.on_blob: BlobHandler | None = None
+        self.on_blob_url: Callable[[str, str, str, str], Any] | None = None
         self.on_message: Callable[[str], Any] | None = None
         self.on_probes_done: Callable[[int, int], None] | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -80,6 +82,10 @@ class IndigoClient:
 
     async def connect(self) -> None:
         """Connect to the INDIGO server with auto-reconnect."""
+        if self._connecting:
+            log.warning("connect() already in progress, ignoring duplicate call")
+            return
+        self._connecting = True
         self._loop = asyncio.get_running_loop()
         while self._reconnect_try < MAX_RECONNECT:
             try:
@@ -104,9 +110,6 @@ class IndigoClient:
                 # Start receive loop in a thread (blocking recv)
                 recv_thread = threading.Thread(target=self._recv_thread, daemon=True)
                 recv_thread.start()
-
-                # Log raw messages for debugging
-                self.on_message = lambda msg: log.debug("RAW: %s", msg[:300])
 
                 # Start probe loop
                 probe_task = asyncio.create_task(self._probe_loop())
@@ -141,13 +144,19 @@ class IndigoClient:
             delay = RECONNECT_DELAY * min(self._reconnect_try, 5)
             log.info("Reconnecting in %.1fs (attempt %d/%d)...",
                      delay, self._reconnect_try, MAX_RECONNECT)
-            await asyncio.sleep(delay)
+            # Sleep in small steps so we can break early if disconnect() is called
+            elapsed = 0.0
+            while elapsed < delay and self._reconnect_try < MAX_RECONNECT:
+                await asyncio.sleep(min(0.5, delay - elapsed))
+                elapsed += 0.5
 
         log.warning("Max reconnect attempts reached, giving up.")
+        self._connecting = False
 
     async def disconnect(self) -> None:
         self._reconnect_try = MAX_RECONNECT
         self._connected = False
+        self._connecting = False
         if self._sock:
             try:
                 self._sock.close()
@@ -158,7 +167,7 @@ class IndigoClient:
 
     async def _send(self, msg: str) -> None:
         if self._sock and self._connected:
-            log.debug("send: %s", msg[:200])
+            log.debug("SEND: %s", msg.replace("\n", "\\n")[:200])
             try:
                 self._sock.sendall((msg + "\n").encode())
             except Exception as e:
@@ -181,6 +190,22 @@ class IndigoClient:
                             items: list[dict]) -> None:
         await self._send(build_new_text_vector(device, prop_name, items))
 
+    async def send_enable_blob(self, device: str | None = None,
+                               prop_name: str | None = None,
+                               mode: str = "URL") -> None:
+        """Send <enableBLOB> message to request BLOB delivery.
+
+        mode: 'URL' (v2, default) sends BLOBs as URLs to fetch.
+              'Also' (legacy INDI) sends inline binary BLOBs.
+        """
+        if device and prop_name:
+            msg = f'<enableBLOB device="{device}" name="{prop_name}">{mode}</enableBLOB>'
+        elif device:
+            msg = f'<enableBLOB device="{device}">{mode}</enableBLOB>'
+        else:
+            msg = f"<enableBLOB>{mode}</enableBLOB>"
+        await self._send(msg)
+
     async def send_attach_driver(self, driver_name: str) -> None:
         await self._send(build_attach_driver(driver_name))
 
@@ -196,13 +221,18 @@ class IndigoClient:
                     self._connected = False
                     break
                 self._recv_buffer += data
-                self._process_buffer()
+                try:
+                    self._process_buffer()
+                except Exception as e:
+                    log.error("Error processing buffer: %s", e, exc_info=True)
+                    # Don't kill the connection for parse errors — skip bad data
+                    self._recv_buffer = b""
             except socket.timeout:
                 continue
             except Exception as e:
                 if self._connected:
                     log.warning("Receive error: %s", e)
-                    self._connected = False
+                self._connected = False
                 break
 
     def _process_buffer(self) -> None:
@@ -222,8 +252,10 @@ class IndigoClient:
         import re as _re
 
         # Regex for vector-level elements (works on both str and bytes)
+        # Note: INDIGO uses both BLOB and Blob in tag names
         _re_vector = _re.compile(
-            rb'<(def|set|new)(Number|Switch|Text|Blob)Vector[\s/>]')
+            rb'<(def|set|status|new)(Number|Switch|Text|[Bb][Ll][Oo][Bb])Vector[\s/>]',
+            _re.IGNORECASE)
         _re_selfclose = _re.compile(
             rb'<(?:getProperties|delProperty)\s[^>]*/>')
 
@@ -283,7 +315,9 @@ class IndigoClient:
             close_tag = b"</" + tag_type + b">"
 
             # BLOB vector: extract binary payload inline
-            if b"Blob" in m.group(2):
+            # Only set/new Blob vectors contain binary data;
+            # def Blob vectors are pure XML and handled as regular vectors.
+            if b"lob" in m.group(2).lower() and not tag_type.startswith(b"def"):
                 device, prop_name, item_name, fmt, binary_data, consumed = (
                     self._extract_blob(tag_type, close_tag))
                 if consumed < 0:
@@ -353,68 +387,113 @@ class IndigoClient:
         consumed_bytes).  consumed_bytes is -1 if the message is incomplete.
 
         INDIGO uses single quotes for attributes (device='...' name='...').
+
+        Supports three modes:
+        - URL-based (v2): oneBLOB with url attribute → dispatches on_blob_url
+        - Inline base64 (v1.7/v2): oneBLOB with base64 text between tags → decodes
+        - Inline binary (legacy): oneBLOB with raw binary after '>' (size bytes)
         """
         idx = self._recv_buffer.find(close_tag)
         if idx < 0:
             return None, None, None, "", b"", -1
 
-        # Extract the XML part before the binary payload
+        # Everything before </setBlobVector>
         blob_section = self._recv_buffer[:idx]
 
-        # Parse metadata from the oneBlob/defBlob element
-        # Accept both single and double quotes for INDIGO compatibility
-        blob_match = re.search(
-            rb"""<(?:oneBlob|defBlob)\s[^>]*?name=['"]([^'"]*)['"][^>]*?"""
-            rb"""size=['"](\d+)['"][^>]*?format=['"]([^'"]*)['"]""",
-            blob_section)
-        if not blob_match:
-            blob_match = re.search(
-                rb"""<(?:oneBlob|defBlob)\s[^>]*?format=['"]([^'"]*)['"][^>]*?"""
-                rb"""name=['"]([^'"]*)['"][^>]*?size=['"](\d+)['"]""",
-                blob_section)
-            if blob_match:
-                fmt = blob_match.group(1).decode("ascii", errors="replace")
-                name = blob_match.group(2).decode("utf-8", errors="replace")
-                size = int(blob_match.group(3))
-            else:
-                size_match = re.search(rb"""size=['"](\d+)['"]""", blob_section)
-                size = int(size_match.group(1)) if size_match else 0
-                name = ""
-                fmt = ""
-        else:
-            name = blob_match.group(1).decode("utf-8", errors="replace")
-            size = int(blob_match.group(2))
-            fmt = blob_match.group(3).decode("ascii", errors="replace")
-
-        # Extract device name and property name from the parent vector tag
+        # Extract device/property from parent vector tag
         header = self._recv_buffer[:idx + 200]
         dev_match = re.search(rb"""device=['"]([^'"]*)['"]""", header)
         device = dev_match.group(1).decode("utf-8", errors="replace") if dev_match else ""
         prop_match = re.search(rb"""name=['"]([^'"]*)['"]""", header)
-        prop_name = prop_match.group(1).decode("utf-8", errors="replace") if prop_match else name
+        prop_name = prop_match.group(1).decode("utf-8", errors="replace") if prop_match else ""
 
-        # The binary payload sits between the last '>' of the XML part and the close tag
-        last_gt = blob_section.rfind(b">")
-        if last_gt < 0:
-            return device, prop_name, name, fmt, b"", -1
+        # Find the <oneBlob>/<oneBLOB>/<defBlob> element
+        one_blob_match = re.search(
+            rb"""<(?:oneBlob|oneBLOB|defBlob|defBLOB)\s([^>]*?)>""",
+            blob_section)
+        if not one_blob_match:
+            # No blob element found — skip this message
+            consumed = idx + len(close_tag)
+            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+                consumed += 1
+            return device, prop_name, "", "", b"", consumed
 
-        bin_start = last_gt + 1
+        blob_attrs = one_blob_match.group(1)
+        blob_tag_end = one_blob_match.end()  # position in blob_section
+
+        # Parse attributes from the oneBlob element
+        name_m = re.search(rb"""name=['"]([^'"]*)['"]""", blob_attrs)
+        name = name_m.group(1).decode("utf-8", errors="replace") if name_m else ""
+        fmt_m = re.search(rb"""format=['"]([^'"]*)['"]""", blob_attrs)
+        fmt = fmt_m.group(1).decode("ascii", errors="replace") if fmt_m else ""
+        size_m = re.search(rb"""size=['"](\d+)['"]""", blob_attrs)
+        size = int(size_m.group(1)) if size_m else 0
+
+        if not prop_name:
+            prop_name = name
+
+        # MODE 1: URL/Path-based BLOB (INDIGO v2)
+        url_m = re.search(rb"""(?:url|path)=['"]([^'"]*)['"]""", blob_attrs)
+        if url_m:
+            blob_url = url_m.group(1).decode("utf-8", errors="replace")
+            consumed = idx + len(close_tag)
+            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+                consumed += 1
+            log.debug("BLOB URL: %s.%s [%s] url=%s", device, prop_name, name, blob_url)
+            if device and self.on_blob_url:
+                self._dispatch(self.on_blob_url, device, prop_name, name, blob_url)
+            return device, prop_name, name, fmt, b"", consumed
+
+        # MODE 2: Inline base64 — data between <oneBLOB ...> and </oneBLOB>
+        # MODE 3: Inline binary — raw bytes after >, size attribute tells length
+        #
+        # We detect by checking for </oneBLOB> before the vector close tag.
+        # If present → base64 text between tags.
+        # If absent → raw binary after > for 'size' bytes.
+
+        # Check for </oneBLOB> / </oneBlob> before </setBlobVector>
+        one_blob_close = re.search(rb"</one[Bb][Ll][Oo][Bb]>", blob_section[blob_tag_end:])
+        if one_blob_close:
+            # Base64 inline: data is between <oneBLOB> closing '>' and </oneBLOB>
+            b64_start = blob_tag_end
+            b64_end = blob_tag_end + one_blob_close.start()
+            b64_text = blob_section[b64_start:b64_end]
+
+            import base64
+            # Strip whitespace/newlines from base64 text
+            b64_text = re.sub(rb'\s+', b'', b64_text)
+            try:
+                binary_data = base64.b64decode(b64_text)
+            except Exception as e:
+                log.error("BLOB base64 decode error for %s.%s: %s",
+                          device, prop_name, e)
+                consumed = idx + len(close_tag)
+                while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+                    consumed += 1
+                return device, prop_name, name, fmt, b"", consumed
+
+            consumed = idx + len(close_tag)
+            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+                consumed += 1
+
+            log.debug("BLOB base64: %s.%s [%s] size=%d decoded=%d format=%s",
+                     device, prop_name, name, size, len(binary_data), fmt)
+            return device, prop_name, name, fmt, binary_data, consumed
+
+        # Raw binary after '>' for 'size' bytes (legacy mode)
+        bin_start = blob_tag_end  # blob_tag_end is right after '>'
         bin_end = bin_start + size
 
-        # Ensure we have enough data
         if len(self._recv_buffer) < bin_end:
             return None, None, None, "", b"", -1  # incomplete
 
         binary_data = self._recv_buffer[bin_start:bin_end]
-        consumed = bin_end + len(close_tag)  # past the close tag
-
-        # Skip any trailing newlines after the close tag
+        consumed = idx + len(close_tag)
         while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
             consumed += 1
 
-        log.info("BLOB: %s.%s [%s] size=%d format=%s (%d bytes)",
+        log.debug("BLOB raw: %s.%s [%s] size=%d format=%s (%d bytes)",
                  device, prop_name, name, size, fmt, len(binary_data))
-
         return device, prop_name, name, fmt, binary_data, consumed
 
     def _handle_xml(self, xml_str: str) -> None:
@@ -432,7 +511,7 @@ class IndigoClient:
                 self._def_count += 1
                 if self.on_property_def:
                     self._dispatch(self.on_property_def, tag, parsed)
-            elif tag.startswith("set"):
+            elif tag.startswith("set") or tag.startswith("status"):
                 self._set_count += 1
                 if self.on_property_set:
                     self._dispatch(self.on_property_set, tag, parsed)

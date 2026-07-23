@@ -9,11 +9,13 @@ import { SkyEngine } from '/sky-engine.js';
 let ws = null;
 let devices = {};
 let selectedDevice = null;
+let selectedCamera = null;
 const MAX_LOG = 500;
 let logEntries = [];
 let skyEngine = null;
 let currentMode = 'mount';
 let uiConfig = {};
+let _initDone = false;
 
 async function loadUiConfig() {
     try {
@@ -25,6 +27,7 @@ async function loadUiConfig() {
 }
 
 function saveUiConfig() {
+    if (!_initDone) return;
     fetch('/api/ui', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1185,7 +1188,30 @@ let _exposureStartMs = 0;
 let _exposureDurationMs = 0;
 let _countdownRaf = 0;
 
+// Histogram / preview
+let _histPixels = null;     // Float64Array of raw pixel data
+let _histWidth = 0;
+let _histHeight = 0;
+let _histAuto = true;
+let _histBlackPct = 0;      // manual black point (0-100)
+let _histMin = 0;
+let _histMax = 0;
+let _histDataMin = 0;
+let _histDataMax = 0;
+
+// Save
+let _saveDir = '';
+
 function initCapturePanel() {
+    // Camera selector
+    const camSelect = document.getElementById('cap-camera-select');
+    if (camSelect) {
+        camSelect.addEventListener('change', () => {
+            selectedCamera = camSelect.value || null;
+            renderCapturePanel();
+        });
+    }
+
     // Frame type buttons
     document.querySelectorAll('.cap-ft-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -1242,7 +1268,7 @@ function initCapturePanel() {
     if (setTempBtn) {
         setTempBtn.addEventListener('click', () => {
             const target = parseFloat(document.getElementById('cap-target-temp')?.value);
-            if (!isNaN(target)) apiPost('/api/camera/temperature', { target });
+            if (!isNaN(target)) apiPost('/api/camera/temperature', { device: findCamera()?.name, target });
         });
     }
 
@@ -1263,17 +1289,31 @@ function initCapturePanel() {
         abortBtn.addEventListener('click', () => {
             _captureQueue = 0;
             _captureRunning = false;
-            apiPost('/api/camera/abort');
+            apiPost('/api/camera/abort', { device: findCamera()?.name });
             updateCaptureProgress();
         });
     }
 }
 
 function findCamera() {
-    for (const [name, dev] of Object.entries(devices)) {
-        if (dev.type === 'camera') return { name, dev };
+    const cams = Object.entries(devices).filter(([, d]) => d.type === 'camera');
+    if (cams.length === 0) { selectedCamera = null; return null; }
+
+    // Check dropdown selection first (user choice)
+    const sel = document.getElementById('cap-camera-select');
+    if (sel && sel.value && devices[sel.value] && devices[sel.value].type === 'camera') {
+        selectedCamera = sel.value;
+        return { name: sel.value, dev: devices[sel.value] };
     }
-    return null;
+
+    // Prefer previously selected camera if it still exists
+    if (selectedCamera && devices[selectedCamera] && devices[selectedCamera].type === 'camera') {
+        return { name: selectedCamera, dev: devices[selectedCamera] };
+    }
+
+    // Fallback: first camera found
+    selectedCamera = cams[0][0];
+    return { name: cams[0][0], dev: cams[0][1] };
 }
 
 function sendCapNumber(prop, item, value) {
@@ -1294,7 +1334,7 @@ async function startSequence(count, delay) {
         if (!_captureRunning) break;
         const exposure = parseFloat(document.getElementById('cap-exposure')?.value || '1');
         addLog('info', 'capture', `Pose ${i + 1}/${count} — ${exposure}s ${_captureFrameType}`);
-        apiPost('/api/camera/expose', { duration: exposure, frame_type: _captureFrameType });
+        apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType });
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
@@ -1316,13 +1356,21 @@ async function startSequence(count, delay) {
 function waitExposureDone(camName, timeout) {
     return new Promise(resolve => {
         const start = Date.now();
+        let started = false;
         const check = () => {
             if (!_captureRunning) { resolve(); return; }
             const cam = devices[camName];
-            if (!cam || cam.exposure_time <= 0 || (Date.now() - start > timeout)) { resolve(); return; }
-            setTimeout(check, 300);
+            const elapsed = Date.now() - start;
+            if (!cam || elapsed > timeout) { resolve(); return; }
+            if (!started) {
+                if (cam.exposure_time > 0) started = true;
+                setTimeout(check, 100);
+            } else {
+                if (cam.exposure_time <= 0) { resolve(); return; }
+                setTimeout(check, 200);
+            }
         };
-        setTimeout(check, 500);
+        setTimeout(check, 200);
     });
 }
 
@@ -1382,22 +1430,78 @@ function updateCaptureProgress() {
 }
 
 function renderCapturePanel() {
-    const cam = findCamera();
     const container = document.getElementById('applet-capture-settings');
     if (!container) return;
 
-    // Camera LED
-    const led = document.getElementById('cam-led');
-    if (led) {
-        if (!cam) {
-            led.className = 'cam-led cam-off';
-            led.title = 'Caméra hors ligne';
-        } else if (cam.dev.connected) {
-            led.className = 'cam-led cam-on';
-            led.title = `Caméra en ligne — ${cam.name}`;
+    const cam = findCamera();
+    const statusBar = document.getElementById('cam-status-bar');
+    const statusLed = document.getElementById('cam-status-led');
+    const statusLabel = document.getElementById('cam-status-label');
+
+    // Determine state
+    let state, label;
+    if (!cam) {
+        state = 'none';
+        label = 'Pas de caméra';
+    } else if (!cam.dev.is_ready) {
+        state = 'attaching';
+        label = `${cam.name} — attachement...`;
+    } else if (!cam.dev.connected) {
+        state = 'disconnected';
+        label = `${cam.name} — déconnectée`;
+    } else {
+        state = 'ready';
+        label = cam.name;
+    }
+
+    if (statusBar) statusBar.dataset.state = state;
+    if (statusLabel) statusLabel.textContent = label;
+
+    // Show connect button when camera is discovered but not connected/ready
+    const btnCamConnect = document.getElementById('btn-cam-connect');
+    if (btnCamConnect) {
+        const showConnect = cam && !cam.dev.connected && !cam.dev.is_ready;
+        btnCamConnect.style.display = showConnect ? '' : 'none';
+        btnCamConnect.onclick = async () => {
+            if (!cam) return;
+            addLog('info', 'ws', `Connexion manuelle: ${cam.name}...`);
+            try {
+                const res = await fetch('/api/device/connect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ device: cam.name }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'ws', `Connexion envoyée pour ${cam.name}`);
+                else addLog('error', 'ws', `Erreur: ${JSON.stringify(data)}`);
+            } catch (e) {
+                addLog('error', 'ws', `Erreur: ${e.message}`);
+            }
+        };
+    }
+
+    // Populate camera selector (only shown when >1 camera)
+    const camSelect = document.getElementById('cap-camera-select');
+    const camSection = document.getElementById('cap-camera-section');
+    const cameras = Object.entries(devices).filter(([, d]) => d.type === 'camera');
+    if (camSelect && camSection) {
+        if (cameras.length > 1) {
+            camSection.style.display = '';
+            const prevVal = camSelect.value || selectedCamera;
+            camSelect.innerHTML = '';
+            cameras.forEach(([name]) => {
+                const opt = document.createElement('option');
+                opt.value = name;
+                opt.textContent = name;
+                camSelect.appendChild(opt);
+            });
+            if (prevVal && cameras.some(([n]) => n === prevVal)) {
+                camSelect.value = prevVal;
+            } else if (cameras.length > 0) {
+                camSelect.value = cameras[0][0];
+            }
         } else {
-            led.className = 'cam-led cam-off';
-            led.title = 'Caméra déconnectée';
+            camSection.style.display = 'none';
         }
     }
 
@@ -1563,17 +1667,231 @@ function renderFITSImage(bytes) {
         }
     }
     ctx.putImageData(imgData, 0, 0);
+
+    // Store pixel data for histogram
+    _histPixels = pixels;
+    _histWidth = w;
+    _histHeight = h;
+    _histDataMin = min;
+    _histDataMax = max;
+
     showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — min:${min.toFixed(1)} max:${max.toFixed(1)}`);
-    addLog('info', 'capture', `Image rendue: ${w}×${h} FITS ${Math.abs(bitpix)}bit`);
+
+    // Render histogram + stretch
+    setTimeout(() => {
+        renderHistogram();
+        if (!_histAuto) applyHistogramStretch();
+    }, 50);
+
+    addLog('debug', 'capture', `Image rendue: ${w}×${h} FITS ${Math.abs(bitpix)}bit`);
 }
 
 function showPreviewInfo(text) {
+    const panel = document.getElementById('applet-capture-preview');
+    if (panel) {
+        panel.style.display = '';
+        if (panel.classList.contains('collapsed')) toggleMinimize(panel);
+    }
     const empty = document.getElementById('cap-preview-empty');
     const wrap = document.getElementById('cap-preview-wrap');
     const info = document.getElementById('cap-preview-info');
     if (empty) empty.style.display = 'none';
     if (wrap) wrap.style.display = '';
     if (info) info.textContent = text;
+}
+
+// ── Histogram + preview stretch ────────────────────────────────
+
+function renderHistogram() {
+    const canvas = document.getElementById('cap-histo-canvas');
+    if (!canvas || !_histPixels || _histPixels.length === 0) return;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width = canvas.offsetWidth * 2;
+    const H = canvas.height = canvas.offsetHeight * 2;
+
+    const bins = new Uint32Array(256);
+    const range = _histDataMax - _histDataMin || 1;
+    for (let i = 0; i < _histPixels.length; i++) {
+        let v = Math.round((_histPixels[i] - _histDataMin) / range * 255);
+        if (v < 0) v = 0; if (v > 255) v = 255;
+        bins[v]++;
+    }
+    let maxBin = 0;
+    for (let i = 1; i < 256; i++) if (bins[i] > maxBin) maxBin = bins[i];
+    if (maxBin === 0) maxBin = 1;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Stretch range highlight
+    const blackFrac = _histAuto ? 0 : _histBlackPct / 100;
+    const blX = blackFrac * W;
+    ctx.fillStyle = 'rgba(0,255,204,0.08)';
+    ctx.fillRect(blX, 0, W - blX, H);
+
+    // Bars
+    for (let i = 0; i < 256; i++) {
+        const bh = Math.max(1, (bins[i] / maxBin) * H);
+        ctx.fillStyle = 'rgba(0,255,204,0.5)';
+        ctx.fillRect(i * W / 256, H - bh, W / 256 + 1, bh);
+    }
+
+    // Black point line
+    ctx.strokeStyle = '#ff5577';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(blX, 0);
+    ctx.lineTo(blX, H);
+    ctx.stroke();
+
+    // Update slider position
+    const slider = document.getElementById('cap-histo-slider');
+    if (slider) slider.value = _histAuto ? 0 : _histBlackPct;
+    const val = document.getElementById('cap-histo-val');
+    if (val) val.textContent = _histAuto ? 'AUTO' : Math.round(_histBlackPct) + '%';
+}
+
+function applyHistogramStretch() {
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!canvas || !_histPixels) return;
+    const w = _histWidth, h = _histHeight;
+    const ctx = canvas.getContext('2d');
+    const imgData = ctx.createImageData(w, h);
+    const data = imgData.data;
+
+    if (_histAuto) {
+        _histMin = _histDataMin;
+        _histMax = _histDataMax;
+    } else {
+        const range = _histDataMax - _histDataMin;
+        _histMin = _histDataMin + (_histBlackPct / 100) * range;
+        _histMax = _histDataMax;
+    }
+    const stretchRange = _histMax - _histMin || 1;
+
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const raw = _histPixels[y * w + x];
+            let val;
+            if (raw <= _histMin) val = 0;
+            else if (raw >= _histMax) val = 255;
+            else val = Math.round(((raw - _histMin) / stretchRange) * 255);
+            const dst = ((h - 1 - y) * w + x) * 4;
+            data[dst] = val;
+            data[dst + 1] = val;
+            data[dst + 2] = val;
+            data[dst + 3] = 255;
+        }
+    }
+    ctx.putImageData(imgData, 0, 0);
+
+    const minEl = document.getElementById('cap-histo-min');
+    const maxEl = document.getElementById('cap-histo-max');
+    if (minEl) minEl.textContent = _histMin.toFixed(1);
+    if (maxEl) maxEl.textContent = _histMax.toFixed(1);
+}
+
+// ── Preview resize ─────────────────────────────────────────────
+
+function initPreviewResize() {
+    const panel = document.getElementById('applet-capture-preview');
+    const handle = document.getElementById('cap-resize-handle');
+    if (!panel || !handle) return;
+
+    handle.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handle.setPointerCapture(e.pointerId);
+        const startW = panel.offsetWidth;
+        const startX = e.clientX;
+
+        function onMove(ev) {
+            const newW = Math.max(200, Math.min(window.innerWidth - 40, startW + (ev.clientX - startX)));
+            panel.style.width = newW + 'px';
+        }
+        function onUp() {
+            handle.removeEventListener('pointermove', onMove);
+            handle.removeEventListener('pointerup', onUp);
+            saveAppletPositions();
+        }
+        handle.addEventListener('pointermove', onMove);
+        handle.addEventListener('pointerup', onUp);
+    });
+}
+
+// ── Save image ─────────────────────────────────────────────────
+
+function initSaveImage() {
+    const dirInput = document.getElementById('cap-save-dir');
+    const saveBtn = document.getElementById('cap-save-btn');
+    if (dirInput) {
+        dirInput.value = _saveDir;
+        dirInput.addEventListener('change', () => {
+            _saveDir = dirInput.value.trim();
+            const mc = currentModeConfig();
+            mc.save_dir = _saveDir;
+            saveUiConfig();
+        });
+    }
+    if (saveBtn) {
+        saveBtn.addEventListener('click', async () => {
+            if (!_histPixels) { addLog('warning', 'capture', 'Pas d\'image à sauvegarder'); return; }
+            const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
+            if (!dir) { addLog('warning', 'capture', 'Choisissez un répertoire de sauvegarde'); return; }
+            try {
+                const res = await fetch('/api/camera/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dir }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'capture', `Image sauvegardée: ${data.path}`);
+                else addLog('error', 'capture', `Erreur: ${data.error}`);
+            } catch (e) {
+                addLog('error', 'capture', `Erreur: ${e.message}`);
+            }
+        });
+    }
+}
+
+function initHistogramControls() {
+    const slider = document.getElementById('cap-histo-slider');
+    const autoBtn = document.getElementById('cap-histo-auto');
+    if (slider) {
+        slider.addEventListener('input', () => {
+            _histBlackPct = parseInt(slider.value);
+            _histAuto = false;
+            if (autoBtn) autoBtn.classList.remove('active');
+            applyHistogramStretch();
+            renderHistogram();
+            currentModeConfig().histo_auto = false;
+            currentModeConfig().histo_black_pct = _histBlackPct;
+            saveUiConfig();
+        });
+    }
+    if (autoBtn) {
+        autoBtn.addEventListener('click', () => {
+            _histAuto = !_histAuto;
+            autoBtn.classList.toggle('active', _histAuto);
+            applyHistogramStretch();
+            renderHistogram();
+            currentModeConfig().histo_auto = _histAuto;
+            saveUiConfig();
+        });
+    }
+    // Restore from config
+    const mc = currentModeConfig();
+    if (mc.histo_auto === false) {
+        _histAuto = false;
+        if (autoBtn) autoBtn.classList.remove('active');
+        if (mc.histo_black_pct != null) _histBlackPct = mc.histo_black_pct;
+    }
+    if (mc.save_dir) {
+        _saveDir = mc.save_dir;
+        const dirInput = document.getElementById('cap-save-dir');
+        if (dirInput) dirInput.value = _saveDir;
+    }
 }
 
 // ── Sky engine init ───────────────────────────────────────────
@@ -1884,6 +2202,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTimeControls();
     initLocationUpdate();
     initCapturePanel();
+    initPreviewResize();
+    initSaveImage();
+    initHistogramControls();
     await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();
@@ -1965,4 +2286,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             driverSelect.value = modeCfg.driver;
         }
     }
+
+    _initDone = true;
 });
