@@ -4,9 +4,11 @@
 
 ### Test end-to-end BLOB pipeline
 - [x] Vérifier que la caméra SVBONY est branchée en USB sur le serveur INDIGO
-- [ ] Tester avec CCD Imager Simulator pour valider la chaîne BLOB complète
-- [ ] Vérifier image rendue dans canvas preview capture avec vraie caméra
-- [ ] Vérifier countdown numerique + barre pendant exposition
+- [x] Capture live fonctionne avec la vraie SVBONY (expose → FITS → affichage)
+- [ ] Agrandissement du viewer (plein écran ou mode élargi)
+- [ ] Zoom dans le viewer (scroll wheel ou pinch)
+- [ ] Pan dans le viewer (drag pour naviguer dans l'image zoomée)
+- [ ] Countdown numerique + barre pendant exposition (déjà fait, à vérifier)
 
 ### Applets — Autoguidage
 - [ ] Panneau graphique dérive RA/DEC (canvas)
@@ -22,8 +24,8 @@
 ## Priorité moyenne
 
 ### UI existante
-- [ ] Tester D-pad avec le serveur réel
-- [ ] Tester GOTO depuis la carte avec le serveur réel
+- [x] Tester D-pad avec le serveur réel
+- [x] Tester GOTO depuis la carte avec le serveur réel
 - [ ] Tester panneau propriétés caméra/focuser
 - [ ] Ajouter panneau OnStep Status dans mode Pilotage
 - [ ] Ajouter panneau device list (sélection multi-device)
@@ -31,9 +33,9 @@
 - [ ] Responsive mobile amélioré (tablette à lalescope)
 
 ### Carte céleste — Drag / Rotation verrous
-- [ ] **URGENT** : le drag ne tourne pas autour des axes alt/az malgré la conversion alt/az dans le handler. Le verrou Zénith devrait limiter au drag vertical (altitude), le verrou E/O au drag horizontal (azimut), mais l'horizon bascule toujours.
-- [ ] Performance : culling hors-écran pour les étoiles
-- [ ] Filtrage catalogues vérifié avec données réelles
+- [x] Le drag tourne autour des axes alt/az avec verrous Zénith (vertical) et E/O (horizontal) — **FIXÉ**
+- [x] Performance : culling hors-écran pour les étoiles
+- [x] Filtrage catalogues vérifié avec données réelles
 
 ## Priorité basse
 
@@ -53,6 +55,26 @@
 - [ ] Import catalogue Hipparcos complet
 - [ ] Catalogue NGC complet
 - [ ] Objets du catalogue local (indigo_xtens/public/catalogs/)
+
+## DONE — 23 juillet 2026 (session 3)
+
+### Fix auto-connect retry storm
+- [x] Supprimé `_auto_connect_retry_loop` redondant (server.py)
+- [x] `pv.state == "Alert"` prioritaire sur la valeur de l'item
+- [x] `_confirm_connection` différé 3s pour laisser le temps au Ok/Alert
+- [x] Cooldown 60s (`_connect_gave_up`) après 3 échecs
+- [x] `_connect_retries` persiste entre cycles `_on_def` (pas de reset à 0)
+- [x] Guard `_connect_gave_up` dans handler Alert empêche relance
+- [x] Fix WS crash : `_ws_clients.remove(ws)` ValueError sur race condition
+
+### Capture live fonctionnelle
+- [x] Exposition → FITS → image affichée dans le canvas
+- [x] Reste : agrandissement du viewer, zoom et pan dans le viewer
+
+### Carte céleste
+- [x] Drag avec verrous alt/az corrigé — **FIXÉ**
+- [x] Culling hors-écran
+- [x] Filtrage catalogues vérifié
 
 ## DONE — 23 juillet 2026 (session 2)
 

@@ -157,13 +157,13 @@ class Camera(BaseDevice):
                 f"(no CCD properties received from INDIGO server)"
             )
         self.frame_type = frame_type.upper()
-        log.info("[%s] EXPOSE START: duration=%.1fs frame_type=%s blob_prop=%s",
+        log.debug("[%s] EXPOSE START: duration=%.1fs frame_type=%s blob_prop=%s",
                  self.name, duration, self.frame_type, self.blob_prop_name)
         await self.send_switch("CCD_FRAME_TYPE", [
             {"name": self.frame_type, "value": True},
         ])
         item = self.get_item_name("CCD_EXPOSURE", "EXPOSURE", "CCD_EXPOSURE_VALUE", "DURATION")
-        log.info("[%s] EXPOSE: sending CCD_EXPOSURE item=%s value=%.1f", self.name, item, duration)
+        log.debug("[%s] EXPOSE: sending CCD_EXPOSURE item=%s value=%.1f", self.name, item, duration)
         await self.send_number("CCD_EXPOSURE", [
             {"name": item, "value": duration},
         ])

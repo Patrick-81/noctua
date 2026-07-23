@@ -139,26 +139,6 @@ class WebServer:
                             ]
                             await dev.send_switch("CCD_IMAGE_FORMAT", items)
 
-    async def _auto_connect_retry_loop(self):
-        """Periodically check for devices stuck in auto-connect state and retry."""
-        while True:
-            await asyncio.sleep(10)
-            if not self.registry.client.connected:
-                continue
-            for device_name in list(self.registry._auto_connecting):
-                dev = self.registry.get(device_name)
-                if not dev:
-                    continue
-                # If device is still not connected after 10s, retry
-                if not dev.connected:
-                    retries = self.registry._connect_retries.get(device_name, 0)
-                    if retries < 3:
-                        item_name = self.registry._connect_item_names.get(device_name, "CONNECT")
-                        self.registry._connect_retries[device_name] = retries + 1
-                        log.info("Retry auto-connect: %s (attempt %d/3, item=%s)",
-                                 device_name, retries + 1, item_name)
-                        self.registry._schedule_connect(device_name, item_name)
-
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
@@ -175,7 +155,6 @@ class WebServer:
         async def startup():
             weblog_handler.set_loop(asyncio.get_event_loop())
             asyncio.create_task(self._enable_blob_upload())
-            asyncio.create_task(self._auto_connect_retry_loop())
             log.info("Web server started")
 
         # ── REST API ─────────────────────────────────────────────
@@ -520,7 +499,8 @@ class WebServer:
             except WebSocketDisconnect:
                 pass
             finally:
-                self._ws_clients.remove(ws)
+                if ws in self._ws_clients:
+                    self._ws_clients.remove(ws)
                 weblog_handler.remove_client(ws)
                 log.debug("WS client disconnected (%d remaining)", len(self._ws_clients))
 
