@@ -1003,6 +1003,18 @@ export class SkyEngine {
         });
         menu.appendChild(gotoBtn);
 
+        // "Set target" button for astrometry offset overlay
+        const targetBtn = document.createElement('button');
+        targetBtn.className = 'obj-menu-btn';
+        targetBtn.textContent = '◎ Définir cible';
+        targetBtn.addEventListener('click', () => {
+            if (typeof window.setOffsetTarget === 'function') {
+                window.setOffsetTarget(raDeg, decDeg);
+            }
+            this._hideContextMenu();
+        });
+        menu.appendChild(targetBtn);
+
         menu.style.display = 'block';
         menu.style.left = clientX + 'px';
         menu.style.top = clientY + 'px';

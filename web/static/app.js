@@ -109,6 +109,21 @@ function switchMode(mode) {
         serialRow.style.display = hideSerial ? 'none' : '';
     }
 
+    // Show/hide offset overlay based on mode
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (overlay) {
+        if (mode === 'astrometry' && _offsetVisible) {
+            overlay.style.display = 'block';
+        } else {
+            overlay.style.display = 'none';
+        }
+    }
+
+    // Refresh solver status when switching to astrometry
+    if (mode === 'astrometry') {
+        refreshSolverStatus(1);
+    }
+
     refreshDriverList();
     loadAppletPositions();
     saveUiConfig();
@@ -152,10 +167,13 @@ function connectWS() {
                 try { renderProps(selectedDevice); } catch (e) { console.error('renderProps:', e); }
             }
             renderCapturePanel();
+            updateSolverHints();
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
             handleCameraImage(msg.data, msg.format);
+        } else if (msg.type === 'solver_result') {
+            handleSolverWsResult(msg.result);
         }
     };
 }
@@ -1199,6 +1217,11 @@ let _histMax = 0;
 let _histDataMin = 0;
 let _histDataMax = 0;
 
+// Zoom / pan
+let _previewZoom = 1;
+let _previewPanX = 0;
+let _previewPanY = 0;
+
 // Save
 let _saveDir = '';
 
@@ -1568,6 +1591,7 @@ function renderCapturePanel() {
 // ── FITS image handling ──────────────────────────────────────
 
 function handleCameraImage(b64Data, fmt) {
+    clearOffsetOverlay();
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -1585,6 +1609,14 @@ function handleCameraImage(b64Data, fmt) {
                 canvas.height = img.height;
                 canvas.getContext('2d').drawImage(img, 0, 0);
             }
+            const overlay = document.getElementById('offset-overlay-canvas');
+            if (overlay) {
+                overlay.width = img.width;
+                overlay.height = img.height;
+                overlay.style.width = img.width + 'px';
+                overlay.style.height = img.height + 'px';
+                overlay.style.display = 'none';
+            }
             showPreviewInfo(`${img.width}×${img.height} — ${fmt}`);
             URL.revokeObjectURL(url);
         };
@@ -1601,12 +1633,30 @@ function renderFITSImage(bytes) {
         const block = decoder.decode(bytes.slice(offset, offset + 2880));
         headerStr += block;
         offset += 2880;
-        if (block.includes('END')) break;
+        let foundEnd = false;
+        for (let c = headerStr.length - 2880; c < headerStr.length; c += 80) {
+            if (headerStr.substring(c, c + 3).trim() === 'END') {
+                foundEnd = true;
+                break;
+            }
+        }
+        if (foundEnd) break;
     }
 
     const get = (key) => {
-        const m = headerStr.match(new RegExp(`${key}\\s*=\\s*(.+)`));
-        return m ? m[1].trim().replace(/['"]/g, '').split('/')[0].trim() : null;
+        for (let i = 0; i < headerStr.length; i += 80) {
+            const card = headerStr.substring(i, i + 80);
+            if (card.substring(0, 8).trim() === key) {
+                const eqIdx = card.indexOf('=');
+                if (eqIdx < 0) continue;
+                let val = card.substring(eqIdx + 1).trim();
+                const slashIdx = val.indexOf('/');
+                if (slashIdx >= 0) val = val.substring(0, slashIdx);
+                val = val.trim().replace(/^['"]|['"]$/g, '');
+                return val.split(/\s+/)[0] || null;
+            }
+        }
+        return null;
     };
 
     const naxis = parseInt(get('NAXIS') || '0');
@@ -1646,7 +1696,16 @@ function renderFITSImage(bytes) {
         if (pixels[i] < min) min = pixels[i];
         if (pixels[i] > max) max = pixels[i];
     }
-    const range = max - min || 1;
+
+    // Compute sky level using median and sigma from sorted array
+    const sorted = Float64Array.from(pixels).sort();
+    const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
+    const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
+
+    // Asinh stretch: maps [sky - 3σ, sky + k*σ] → [0, 255]
+    // k adapts to the data range (larger for images with bright stars)
+    const k = Math.max(20, (max - sky) / sigma);
+    const soft = sigma * 0.5;  // softening parameter
 
     const canvas = document.getElementById('cap-preview-canvas');
     if (!canvas) return;
@@ -1658,7 +1717,10 @@ function renderFITSImage(bytes) {
 
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const val = Math.round(((pixels[y * w + x] - min) / range) * 255);
+            const raw = pixels[y * w + x];
+            // Asinh stretch centered on sky background
+            const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
+            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
             const dst = ((h - 1 - y) * w + x) * 4;
             data[dst] = val;
             data[dst + 1] = val;
@@ -1668,19 +1730,28 @@ function renderFITSImage(bytes) {
     }
     ctx.putImageData(imgData, 0, 0);
 
-    // Store pixel data for histogram
+    // Sync overlay canvas dimensions
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (overlay) {
+        overlay.width = w;
+        overlay.height = h;
+        overlay.style.width = w + 'px';
+        overlay.style.height = h + 'px';
+        overlay.style.display = 'none';
+    }
+
     _histPixels = pixels;
     _histWidth = w;
     _histHeight = h;
-    _histDataMin = min;
-    _histDataMax = max;
+    _histDataMin = sky - 3 * sigma;
+    _histDataMax = sky + k * sigma;
+    _histMin = sky - 3 * sigma;
+    _histMax = sky + k * sigma;
 
-    showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — min:${min.toFixed(1)} max:${max.toFixed(1)}`);
+    showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — sky:${sky.toFixed(1)} σ:${sigma.toFixed(1)} range:[${min.toFixed(0)}..${max.toFixed(0)}]`);
 
-    // Render histogram + stretch
     setTimeout(() => {
         renderHistogram();
-        if (!_histAuto) applyHistogramStretch();
     }, 50);
 
     addLog('debug', 'capture', `Image rendue: ${w}×${h} FITS ${Math.abs(bitpix)}bit`);
@@ -1698,6 +1769,8 @@ function showPreviewInfo(text) {
     if (empty) empty.style.display = 'none';
     if (wrap) wrap.style.display = '';
     if (info) info.textContent = text;
+    // Auto-fit image to viewport
+    setTimeout(_fitPreviewZoom, 60);
 }
 
 // ── Histogram + preview stretch ────────────────────────────────
@@ -1804,11 +1877,17 @@ function initPreviewResize() {
         e.stopPropagation();
         handle.setPointerCapture(e.pointerId);
         const startW = panel.offsetWidth;
+        const startH = panel.offsetHeight;
         const startX = e.clientX;
+        const startY = e.clientY;
 
         function onMove(ev) {
             const newW = Math.max(200, Math.min(window.innerWidth - 40, startW + (ev.clientX - startX)));
+            const newH = Math.max(150, Math.min(window.innerHeight - 40, startH + (ev.clientY - startY)));
             panel.style.width = newW + 'px';
+            panel.style.height = newH + 'px';
+            panel.style.transform = 'none';
+            _fitPreviewZoom();
         }
         function onUp() {
             handle.removeEventListener('pointermove', onMove);
@@ -1817,6 +1896,127 @@ function initPreviewResize() {
         }
         handle.addEventListener('pointermove', onMove);
         handle.addEventListener('pointerup', onUp);
+    });
+}
+
+// ── Preview zoom / pan / enlarge ────────────────────────────
+
+function _applyPreviewTransform() {
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!canvas) return;
+    const t = `translate(${_previewPanX}px, ${_previewPanY}px) scale(${_previewZoom})`;
+    canvas.style.transform = t;
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (overlay) overlay.style.transform = t;
+    const vp = document.getElementById('cap-preview-viewport');
+    if (vp) vp.classList.toggle('zoomed', _previewZoom > 1.05);
+    const lvl = document.getElementById('cap-zoom-level');
+    if (lvl) lvl.textContent = Math.round(_previewZoom * 100) + '%';
+}
+
+function _resetPreviewZoom() {
+    _previewZoom = 1;
+    _previewPanX = 0;
+    _previewPanY = 0;
+    const vp = document.getElementById('cap-preview-viewport');
+    if (vp) vp.style.height = '';
+    _applyPreviewTransform();
+}
+
+function _fitPreviewZoom() {
+    const canvas = document.getElementById('cap-preview-canvas');
+    const vp = document.getElementById('cap-preview-viewport');
+    if (!canvas || !vp || !_histWidth || !_histHeight) return;
+    const vpW = vp.clientWidth;
+    if (vpW <= 0) return;
+    const wrap = vp.parentElement;
+    const wrapH = wrap ? wrap.clientHeight : 400;
+    const controlsH = 80;
+    const maxH = Math.max(100, wrapH - controlsH);
+    const fitScale = Math.min(vpW / _histWidth, maxH / _histHeight, 1);
+    _previewZoom = fitScale;
+    _previewPanX = (vpW - _histWidth * fitScale) / 2;
+    _previewPanY = 0;
+    vp.style.height = Math.round(_histHeight * fitScale) + 'px';
+    canvas.style.width = _histWidth + 'px';
+    canvas.style.height = _histHeight + 'px';
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (overlay) {
+        overlay.width = _histWidth;
+        overlay.height = _histHeight;
+        overlay.style.width = _histWidth + 'px';
+        overlay.style.height = _histHeight + 'px';
+    }
+    _applyPreviewTransform();
+}
+
+function initPreviewZoomPan() {
+    const vp = document.getElementById('cap-preview-viewport');
+    const canvas = document.getElementById('cap-preview-canvas');
+    const zoomReset = document.getElementById('cap-zoom-reset');
+    const zoomFit = document.getElementById('cap-zoom-fit');
+    const zoomEnlarge = document.getElementById('cap-zoom-enlarge');
+    if (!vp || !canvas) return;
+
+    // Wheel zoom
+    vp.addEventListener('wheel', (e) => {
+        if (!_histWidth) return;
+        e.preventDefault();
+        const rect = canvas.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const prevZoom = _previewZoom;
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+        _previewZoom = Math.max(0.1, Math.min(50, _previewZoom * factor));
+        const scale = _previewZoom / prevZoom;
+        _previewPanX = mouseX - scale * (mouseX - _previewPanX);
+        _previewPanY = mouseY - scale * (mouseY - _previewPanY);
+        _applyPreviewTransform();
+    }, { passive: false });
+
+    // Pan drag
+    let dragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
+    vp.addEventListener('pointerdown', (e) => {
+        if (_previewZoom <= 1.05) return;
+        if (e.target.closest('.cap-zoom-btn, .cap-histo-auto-btn, input[type=range]')) return;
+        dragging = true;
+        dragStartX = e.clientX;
+        dragStartY = e.clientY;
+        panStartX = _previewPanX;
+        panStartY = _previewPanY;
+        vp.classList.add('panning');
+        vp.setPointerCapture(e.pointerId);
+    });
+    vp.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        _previewPanX = panStartX + (e.clientX - dragStartX);
+        _previewPanY = panStartY + (e.clientY - dragStartY);
+        _applyPreviewTransform();
+    });
+    vp.addEventListener('pointerup', () => {
+        dragging = false;
+        vp.classList.remove('panning');
+    });
+
+    // Buttons
+    if (zoomReset) zoomReset.addEventListener('click', () => { _resetPreviewZoom(); });
+    if (zoomFit) zoomFit.addEventListener('click', () => { _fitPreviewZoom(); });
+    if (zoomEnlarge) zoomEnlarge.addEventListener('click', () => {
+        const panel = document.getElementById('applet-capture-preview');
+        if (!panel) return;
+        const enlarged = panel.classList.toggle('enlarged');
+        if (enlarged) {
+            panel.style.cssText = '';
+            setTimeout(_fitPreviewZoom, 50);
+        } else {
+            panel.style.cssText = 'display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;';
+            _resetPreviewZoom();
+        }
+    });
+    // Double-click to toggle enlarge
+    vp.addEventListener('dblclick', () => {
+        const panel = document.getElementById('applet-capture-preview');
+        if (panel) zoomEnlarge?.click();
     });
 }
 
@@ -1892,6 +2092,621 @@ function initHistogramControls() {
         const dirInput = document.getElementById('cap-save-dir');
         if (dirInput) dirInput.value = _saveDir;
     }
+}
+
+// ── Offset overlay (vecteur décalage sur viewer) ─────────────
+
+let _offsetTargetRA = null;    // RA cible en degrés
+let _offsetTargetDEC = null;   // DEC cible en degrés
+let _offsetSolvedRA = null;    // RA résolu en degrés
+let _offsetSolvedDEC = null;   // DEC résolu en degrés
+let _offsetScaleArcsec = null; // échelle arcsec/px du dernier solve
+let _offsetRotation = null;    // rotation image en degrés
+let _offsetVisible = false;
+
+function _syncOverlaySize() {
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (!overlay || !_histWidth || !_histHeight) return;
+    overlay.width = _histWidth;
+    overlay.height = _histHeight;
+    overlay.style.width = _histWidth + 'px';
+    overlay.style.height = _histHeight + 'px';
+}
+
+function clearOffsetOverlay() {
+    _offsetVisible = false;
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (overlay) {
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        overlay.style.display = 'none';
+    }
+}
+
+function setOffsetTarget(ra, dec) {
+    _offsetTargetRA = ra;
+    _offsetTargetDEC = dec;
+    if (_offsetSolvedRA != null) drawOffsetVector();
+}
+// Expose for sky-engine context menu
+window.setOffsetTarget = setOffsetTarget;
+
+function setOffsetSolved(ra, dec, scaleArcsec, rotationDeg) {
+    _offsetSolvedRA = ra;
+    _offsetSolvedDEC = dec;
+    _offsetScaleArcsec = scaleArcsec;
+    _offsetRotation = rotationDeg;
+    if (_offsetTargetRA != null) drawOffsetVector();
+}
+
+function drawOffsetVector() {
+    if (_offsetSolvedRA == null || _offsetSolvedDEC == null) return;
+    if (_offsetTargetRA == null || _offsetTargetDEC == null) return;
+    if (!_offsetScaleArcsec || !_histWidth || !_histHeight) return;
+
+    const overlay = document.getElementById('offset-overlay-canvas');
+    if (!overlay) return;
+    _syncOverlaySize();
+    overlay.style.display = 'block';
+    _offsetVisible = true;
+
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    const w = overlay.width;
+    const h = overlay.height;
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // Delta RA/DEC en degrés → arcmin
+    const deltaRA = (_offsetTargetRA - _offsetSolvedRA) * 60;  // arcmin
+    const deltaDEC = (_offsetTargetDEC - _offsetSolvedDEC) * 60; // arcmin
+
+    // Conversion arcmin → pixels
+    const scaleArcminPx = _offsetScaleArcsec / 60.0;
+    let dxPx = deltaRA / scaleArcminPx;
+    let dyPx = deltaDEC / scaleArcminPx;
+
+    // Appliquer la rotation de l'image pour orienter correctement le vecteur
+    // La rotation Seiza est en degrés, sens horaire
+    const rotRad = (_offsetRotation || 0) * Math.PI / 180;
+    const cosR = Math.cos(rotRad);
+    const sinR = Math.sin(rotRad);
+    const rdx = dxPx * cosR - dyPx * sinR;
+    const rdy = dxPx * sinR + dyPx * cosR;
+
+    // Origine = centre image (position résolue)
+    const x1 = cx;
+    const y1 = cy;
+    const x2 = cx + rdx;
+    const y2 = cy - rdy; // inversion Y (canvas Y descend)
+
+    // Limiter la longueur max du vecteur
+    const maxLen = Math.min(w, h) * 0.45;
+    const len = Math.sqrt(rdx * rdx + rdy * rdy);
+    let drawX2 = x2, drawY2 = y2;
+    if (len > maxLen) {
+        const scale = maxLen / len;
+        drawX2 = x1 + rdx * scale;
+        drawY2 = y1 - rdy * scale;
+    }
+
+    // ── Dessiner le vecteur ──
+
+    // Ligne principale
+    ctx.strokeStyle = '#00ffcc';
+    ctx.lineWidth = 2.5;
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(drawX2, drawY2);
+    ctx.stroke();
+
+    // Flèche (tête)
+    const arrowLen = 14;
+    const arrowAngle = Math.atan2(drawY2 - y1, drawX2 - x1);
+    ctx.fillStyle = '#00ffcc';
+    ctx.beginPath();
+    ctx.moveTo(drawX2, drawY2);
+    ctx.lineTo(
+        drawX2 - arrowLen * Math.cos(arrowAngle - 0.35),
+        drawY2 - arrowLen * Math.sin(arrowAngle - 0.35)
+    );
+    ctx.lineTo(
+        drawX2 - arrowLen * Math.cos(arrowAngle + 0.35),
+        drawY2 - arrowLen * Math.sin(arrowAngle + 0.35)
+    );
+    ctx.closePath();
+    ctx.fill();
+
+    // Point origine (position résolue)
+    ctx.fillStyle = '#00ffcc';
+    ctx.beginPath();
+    ctx.arc(x1, y1, 5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = '#003322';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Réticule cible (à la pointe du vecteur)
+    const tgtX = drawX2, tgtY = drawY2;
+    const tgtR = 10;
+    ctx.strokeStyle = '#ff8800';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    // Cercle
+    ctx.beginPath();
+    ctx.arc(tgtX, tgtY, tgtR, 0, Math.PI * 2);
+    ctx.stroke();
+    // Croix
+    ctx.beginPath();
+    ctx.moveTo(tgtX - tgtR - 4, tgtY);
+    ctx.lineTo(tgtX + tgtR + 4, tgtY);
+    ctx.moveTo(tgtX, tgtY - tgtR - 4);
+    ctx.lineTo(tgtX, tgtY + tgtR + 4);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // ── Étiquettes ──
+
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'bottom';
+
+    // Label distance
+    const distArcmin = Math.sqrt(deltaRA * deltaRA + deltaDEC * deltaDEC);
+    const distLabel = distArcmin < 10
+        ? `${distArcmin.toFixed(1)}'`
+        : `${distArcmin.toFixed(0)}'`;
+
+    // Position du label (à côté de la pointe)
+    const labelX = drawX2 + 10;
+    const labelY = drawY2 - 6;
+
+    // Fond semi-transparent pour lisibilité
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    const tw = ctx.measureText(distLabel).width;
+    ctx.fillRect(labelX - 3, labelY - 12, tw + 6, 15);
+
+    ctx.fillStyle = '#00ffcc';
+    ctx.fillText(distLabel, labelX, labelY);
+
+    // Flèches cardinales (si rotation connue)
+    if (_offsetRotation != null) {
+        ctx.font = '10px monospace';
+        ctx.fillStyle = 'rgba(0,255,204,0.5)';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+
+        // Direction RA (Est) tournée par la rotation
+        const eAngle = -rotRad; // Est = 0° avant rotation
+        const nAngle = -rotRad + Math.PI / 2; // Nord = 90° avant rotation
+        const arrowR = 28;
+
+        ctx.fillText('E', cx + arrowR * Math.cos(eAngle), cy - arrowR * Math.sin(eAngle));
+        ctx.fillText('N', cx + arrowR * Math.cos(nAngle), cy - arrowR * Math.sin(nAngle));
+    }
+}
+
+// ── Test harness (dev / no-camera testing) ───────────────────
+
+let _testImages = [];
+
+async function loadTestImageList() {
+    try {
+        const resp = await fetch('/api/test/fits-list');
+        const data = await resp.json();
+        _testImages = data.images || [];
+        return _testImages;
+    } catch (e) {
+        console.warn('Test image list failed:', e);
+        return [];
+    }
+}
+
+async function loadTestFITS(filename) {
+    try {
+        const resp = await fetch(`/api/test/fits/${filename}`);
+        const data = await resp.json();
+        if (!data.ok) throw new Error(data.error);
+        clearOffsetOverlay();
+        handleCameraImage(data.data, 'image/fits');
+
+        fetch('/api/test/fits-store', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ data: data.data, format: 'image/fits' }),
+        });
+
+        addLog('info', 'test', `Image test chargée: ${filename} (${data.size} bytes)`);
+        return true;
+    } catch (e) {
+        addLog('error', 'test', `Échec chargement test: ${e.message}`);
+        return false;
+    }
+}
+
+function mockSolveResult(ra, dec, scale, rotation, opts = {}) {
+    const result = {
+        ok: true,
+        ra: ra,
+        dec: dec,
+        rotation: rotation || 0,
+        flipped: false,
+        scale: scale || 2.5,
+        matches: opts.matches || 12,
+        rms: opts.rms || 1.5,
+        width: _histWidth || 1920,
+        height: _histHeight || 1080,
+        stars_detected: opts.stars || 80,
+        mode: 'hinted',
+        elapsed_ms: opts.elapsed_ms || 42.0,
+    };
+    _lastSolverResult = result;
+    renderSolverResult(result);
+    setOffsetSolved(ra, dec, scale, rotation);
+    addLog('info', 'test', `Mock solve: RA=${ra.toFixed(4)}° DEC=${dec.toFixed(4)}° scale=${scale}" rot=${rotation}°`);
+    return result;
+}
+
+function mockSetTarget(ra, dec) {
+    setOffsetTarget(ra, dec);
+    addLog('info', 'test', `Cible définie: RA=${ra.toFixed(4)}° DEC=${dec.toFixed(4)}°`);
+}
+
+function mockClearTarget() {
+    _offsetTargetRA = null;
+    _offsetTargetDEC = null;
+    clearOffsetOverlay();
+    addLog('info', 'test', 'Cible et overlay effacés');
+}
+
+function testOverlayScenario(scenario) {
+    const scenarios = {
+        'north': {
+            desc: 'Décalage 30\' vers le Nord',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 0 },
+            target: { ra: 100.0, dec: 45.5 },
+        },
+        'east': {
+            desc: 'Décalage 15\' vers l\'Est',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 0 },
+            target: { ra: 100.25, dec: 45.0 },
+        },
+        'southeast': {
+            desc: 'Décalage diagonal Sud-Est',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 0 },
+            target: { ra: 100.3, dec: 44.5 },
+        },
+        'rotated': {
+            desc: 'Même offset mais image rotée 45°',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 45 },
+            target: { ra: 100.0, dec: 45.5 },
+        },
+        'small': {
+            desc: 'Petit décalage 3\' (proche centrage)',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 0 },
+            target: { ra: 100.0, dec: 45.05 },
+        },
+        'large': {
+            desc: 'Grand décalage 2°',
+            solved: { ra: 100.0, dec: 45.0, scale: 2.5, rot: 0 },
+            target: { ra: 102.0, dec: 45.0 },
+        },
+    };
+
+    const s = scenarios[scenario] || scenarios['north'];
+    mockSolveResult(s.solved.ra, s.solved.dec, s.solved.scale, s.solved.rot);
+    mockSetTarget(s.target.ra, s.target.dec);
+    addLog('info', 'test', `Scénario "${scenario}": ${s.desc}`);
+    return s;
+}
+
+window._testHarness = {
+    loadTestImageList,
+    loadTestFITS,
+    mockSolveResult,
+    mockSetTarget,
+    mockClearTarget,
+    testOverlayScenario,
+    listImages: () => { loadTestImageList().then(imgs => console.table(imgs)); },
+    help: () => {
+        console.log(`
+═══ Test Harness — Overlay & Solver ═══
+
+  _testHarness.listImages()                  — Lister les images FITS disponibles
+  _testHarness.loadTestFITS('test_orion.fits') — Charger une image dans le viewer
+  _testHarness.mockSolveResult(ra, dec, scale, rotation) — Simuler un résultat solver
+  _testHarness.mockSetTarget(ra, dec)         — Définir la cible
+  _testHarness.mockClearTarget()              — Effacer cible et overlay
+  _testHarness.testOverlayScenario('north')   — Scénario de test prédéfini
+
+  Scénarios: north, east, southeast, rotated, small, large
+
+  Exemple complet:
+    await _testHarness.loadTestFITS('test_orion.fits')
+    _testHarness.testOverlayScenario('southeast')
+        `);
+    },
+};
+
+// ── Plate Solver panel ──────────────────────────────────────────
+
+let _solverMode = 'hinted';
+let _solverStatus = null;
+
+function initSolverPanel() {
+    // Mode buttons
+    document.querySelectorAll('.solver-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.solver-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _solverMode = btn.dataset.solverMode;
+            const hintedParams = document.getElementById('solver-hinted-params');
+            const blindParams = document.getElementById('solver-blind-params');
+            if (hintedParams) hintedParams.style.display = _solverMode === 'hinted' ? '' : 'none';
+            if (blindParams) blindParams.style.display = _solverMode === 'blind' ? '' : 'none';
+        });
+    });
+
+    // Auto hint checkbox
+    const autoHint = document.getElementById('solver-auto-hint');
+    const manualHints = document.getElementById('solver-manual-hints');
+    if (autoHint && manualHints) {
+        autoHint.addEventListener('change', () => {
+            manualHints.style.display = autoHint.checked ? 'none' : '';
+        });
+    }
+
+    // Solve button
+    const solveBtn = document.getElementById('solver-solve-btn');
+    if (solveBtn) {
+        solveBtn.addEventListener('click', () => solverSolve('last_image'));
+    }
+
+    // Sync mount button
+    const syncBtn = document.getElementById('solver-sync-btn');
+    if (syncBtn) {
+        syncBtn.addEventListener('click', () => {
+            const res = _lastSolverResult;
+            if (res && res.ok) {
+                apiPost('/api/mount/slew', { ra_hours: res.ra / 15, dec_deg: res.dec });
+                addLog('info', 'solver', `SYNC monture vers RA=${res.ra.toFixed(4)}° DEC=${res.dec.toFixed(4)}°`);
+            }
+        });
+    }
+
+    // Center sky map button
+    const centerBtn = document.getElementById('solver-center-btn');
+    if (centerBtn) {
+        centerBtn.addEventListener('click', () => {
+            const res = _lastSolverResult;
+            if (res && res.ok && skyEngine) {
+                skyEngine.centerOnObject(res.ra, res.dec);
+                addLog('info', 'solver', `Carte centrée sur RA=${res.ra.toFixed(2)}° DEC=${res.dec.toFixed(2)}°`);
+            }
+        });
+    }
+
+    // Test images button
+    const testBtn = document.getElementById('solver-test-btn');
+    const testDropdown = document.getElementById('solver-test-dropdown');
+    const testList = document.getElementById('solver-test-list');
+    if (testBtn && testDropdown && testList) {
+        testBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const visible = testDropdown.style.display !== 'none';
+            testDropdown.style.display = visible ? 'none' : '';
+            if (!visible && testList.children.length === 0) {
+                testList.innerHTML = '<div style="color:#666; font-size:0.6rem;">Chargement...</div>';
+                const images = await loadTestImageList();
+                testList.innerHTML = '';
+                if (!images.length) {
+                    testList.innerHTML = '<div style="color:#666; font-size:0.6rem;">Aucune image trouvée dans tests/fake_sky/</div>';
+                    return;
+                }
+                for (const img of images) {
+                    const item = document.createElement('div');
+                    item.className = 'solver-test-item';
+                    item.innerHTML = `<span class="test-name">${img.name}</span><span class="test-meta">RA=${img.ra?.toFixed(1)}° DEC=${img.dec?.toFixed(1)}° ${img.scale}"</span>`;
+                    item.addEventListener('click', () => {
+                        loadTestFITS(img.file);
+                        testDropdown.style.display = 'none';
+                    });
+                    testList.appendChild(item);
+                }
+            }
+        });
+    }
+
+    // Load solver status
+    refreshSolverStatus();
+}
+
+let _lastSolverResult = null;
+
+async function refreshSolverStatus(retries = 2) {
+    for (let attempt = 0; attempt <= retries; attempt++) {
+        try {
+            const resp = await fetch('/api/solver/status');
+            const status = await resp.json();
+            _solverStatus = status;
+            const led = document.getElementById('solver-led');
+            const text = document.getElementById('solver-status-text');
+            const solveBtn = document.getElementById('solver-solve-btn');
+
+            if (status.available && status.catalogs_loaded) {
+                if (led) led.className = 'solver-led solver-led-ok';
+                if (text) text.textContent = `Seiza prêt${status.has_blind_index ? ' (blind OK)' : ''}`;
+                if (solveBtn) solveBtn.disabled = false;
+                return;
+            } else if (status.available) {
+                if (led) led.className = 'solver-led solver-led-warn';
+                if (text) text.textContent = 'Catalogues non chargés';
+                if (solveBtn) solveBtn.disabled = true;
+                return;
+            } else {
+                if (led) led.className = 'solver-led solver-led-error';
+                if (text) text.textContent = 'Seiza non installé';
+                if (solveBtn) solveBtn.disabled = true;
+                return;
+            }
+        } catch (e) {
+            if (attempt < retries) {
+                await new Promise(r => setTimeout(r, 500));
+                continue;
+            }
+            const led = document.getElementById('solver-led');
+            const text = document.getElementById('solver-status-text');
+            if (led) led.className = 'solver-led solver-led-error';
+            if (text) text.textContent = 'Erreur status';
+        }
+    }
+}
+
+function updateSolverHints() {
+    const m = findMount();
+    const cam = findCamera();
+    const raEl = document.getElementById('solver-ra-hint');
+    const decEl = document.getElementById('solver-dec-hint');
+    const scaleEl = document.getElementById('solver-scale-hint');
+
+    if (m && m.dev.ra_hours != null) {
+        const raDeg = m.dev.ra_hours * 15;
+        if (raEl) raEl.textContent = decToSexa(raDeg / 15, true);
+        if (decEl) decEl.textContent = decToSexa(m.dev.dec_deg, false);
+    } else {
+        if (raEl) raEl.textContent = '--';
+        if (decEl) decEl.textContent = '--';
+    }
+
+    if (cam && cam.dev.pixel_size_um && cam.dev.focal_length_mm) {
+        const bx = cam.dev.binning_x || 1;
+        const scale = (cam.dev.pixel_size_um / 1000) / (cam.dev.focal_length_mm / 1000) * 206.265 / bx;
+        if (scaleEl) scaleEl.textContent = scale.toFixed(2) + ' arcsec/px';
+    } else {
+        if (scaleEl) scaleEl.textContent = '-- arcsec/px';
+    }
+}
+
+async function solverSolve(mode) {
+    const solveBtn = document.getElementById('solver-solve-btn');
+    const progress = document.getElementById('solver-progress');
+    const progressFill = document.getElementById('solver-progress-fill');
+    const progressText = document.getElementById('solver-progress-text');
+    const resultsEl = document.getElementById('solver-results');
+    const errorEl = document.getElementById('solver-error');
+
+    if (solveBtn) solveBtn.disabled = true;
+    if (progress) progress.style.display = '';
+    if (resultsEl) resultsEl.style.display = 'none';
+    if (errorEl) errorEl.style.display = 'none';
+
+    // Animate progress bar
+    let pct = 0;
+    const progressInterval = setInterval(() => {
+        pct = Math.min(95, pct + 1);
+        if (progressFill) progressFill.style.width = pct + '%';
+        if (progressText) {
+            const elapsed = (pct / 100) * (_solverMode === 'blind' ? 30 : 3);
+            progressText.textContent = `Résolution en cours... ${elapsed.toFixed(1)}s`;
+        }
+    }, _solverMode === 'blind' ? 300 : 30);
+
+    // Build request body
+    const body = { mode };
+
+    if (_solverMode === 'hinted') {
+        const autoHint = document.getElementById('solver-auto-hint');
+        if (autoHint && autoHint.checked) {
+            // Auto: server will use mount + camera
+            body.mode = 'last_image';
+        } else {
+            // Manual hints
+            const ra = parseFloat(document.getElementById('solver-ra-manual')?.value);
+            const dec = parseFloat(document.getElementById('solver-dec-manual')?.value);
+            const scale = parseFloat(document.getElementById('solver-scale-manual')?.value);
+            if (!isNaN(ra)) body.ra_hint = ra;
+            if (!isNaN(dec)) body.dec_hint = dec;
+            if (!isNaN(scale)) body.scale_hint = scale;
+        }
+    } else {
+        body.min_scale = parseFloat(document.getElementById('solver-min-scale')?.value || '0.5');
+        body.max_scale = parseFloat(document.getElementById('solver-max-scale')?.value || '15.0');
+    }
+
+    try {
+        const result = await fetch('/api/solver/solve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        }).then(r => r.json());
+
+        clearInterval(progressInterval);
+
+        if (result.ok) {
+            _lastSolverResult = result;
+            renderSolverResult(result);
+            setOffsetSolved(result.ra, result.dec, result.scale, result.rotation);
+        } else {
+            if (errorEl) {
+                errorEl.style.display = '';
+                errorEl.textContent = result.error || 'Échec de la résolution';
+            }
+            addLog('error', 'solver', result.error || 'Échec');
+        }
+    } catch (e) {
+        clearInterval(progressInterval);
+        if (errorEl) {
+            errorEl.style.display = '';
+            errorEl.textContent = e.message;
+        }
+        addLog('error', 'solver', e.message);
+    } finally {
+        if (progress) progress.style.display = 'none';
+        if (solveBtn) solveBtn.disabled = false;
+    }
+}
+
+function renderSolverResult(result) {
+    const resultsEl = document.getElementById('solver-results');
+    if (resultsEl) resultsEl.style.display = '';
+
+    const raDeg = result.ra;
+    const decDeg = result.dec;
+
+    const el = (id, val) => {
+        const e = document.getElementById(id);
+        if (e) e.textContent = val;
+    };
+
+    el('solver-res-ra', decToSexa(raDeg / 15, true));
+    el('solver-res-dec', decToSexa(decDeg, false));
+    el('solver-res-scale', result.scale.toFixed(2) + ' arcsec/px');
+    el('solver-res-rotation', result.rotation.toFixed(1) + '°' + (result.flipped ? ' (mirrored)' : ''));
+    el('solver-res-matches', `${result.matches} / ${result.stars_detected} détectées`);
+    el('solver-res-rms', result.rms.toFixed(2) + '"');
+
+    // Calculate FoV
+    const cam = findCamera();
+    if (cam && cam.dev.width_px && cam.dev.height_px) {
+        const fovX = (cam.dev.width_px * result.scale / 3600).toFixed(2);
+        const fovY = (cam.dev.height_px * result.scale / 3600).toFixed(2);
+        el('solver-res-fov', `${fovX}° × ${fovY}°`);
+    } else {
+        el('solver-res-fov', '--');
+    }
+
+    el('solver-res-mode', result.mode === 'hinted' ? 'Indice' : 'Blind');
+    el('solver-res-time', result.elapsed_ms < 1000 ? result.elapsed_ms.toFixed(0) + 'ms' : (result.elapsed_ms / 1000).toFixed(1) + 's');
+
+    addLog('info', 'solver', `Résolu: RA=${raDeg.toFixed(4)}° DEC=${decDeg.toFixed(4)}° — ${result.matches} étoiles, RMS=${result.rms.toFixed(2)}"`);
+}
+
+function handleSolverWsResult(result) {
+    _lastSolverResult = result;
+    renderSolverResult(result);
+    if (result.ok) setOffsetSolved(result.ra, result.dec, result.scale, result.rotation);
 }
 
 // ── Sky engine init ───────────────────────────────────────────
@@ -2203,8 +3018,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     initLocationUpdate();
     initCapturePanel();
     initPreviewResize();
+    initPreviewZoomPan();
     initSaveImage();
     initHistogramControls();
+    initSolverPanel();
     await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();

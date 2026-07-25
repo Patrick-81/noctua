@@ -65,6 +65,10 @@ class WebServer:
         self._ws_clients: list[WebSocket] = []
         self._last_image_data: bytes = b""
 
+        # Plate solver (lazy import to avoid circular dependency)
+        from indigo.devices.solver import Solver
+        self.solver = Solver()
+
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
 
@@ -155,6 +159,12 @@ class WebServer:
         async def startup():
             weblog_handler.set_loop(asyncio.get_event_loop())
             asyncio.create_task(self._enable_blob_upload())
+            # Load plate solver catalogs
+            cat_result = self.solver.load_catalogs()
+            if cat_result.get("ok"):
+                log.info("Solver catalogs loaded: %s", cat_result)
+            else:
+                log.warning("Solver catalogs: %s", cat_result.get("error", "unknown error"))
             log.info("Web server started")
 
         # ── REST API ─────────────────────────────────────────────
@@ -424,6 +434,113 @@ class WebServer:
             await c.set_temperature(body["target"])
             return {"ok": True}
 
+        # ── Plate Solver ─────────────────────────────────────────
+
+        @app.get("/api/solver/status")
+        async def solver_status():
+            return self.solver.status()
+
+        @app.post("/api/solver/catalogs")
+        async def solver_load_catalogs(body: dict = {}):
+            catalog_dir = body.get("catalog_dir")
+            result = self.solver.load_catalogs(catalog_dir)
+            return result
+
+        @app.post("/api/solver/solve")
+        async def solver_solve(body: dict):
+            """Solve a plate from the last captured image or uploaded data.
+
+            body = {
+                "mode": "hinted" | "blind" | "last_image",
+                "ra_hint": 100.5,        # degrees (hinted mode)
+                "dec_hint": 35.2,        # degrees (hinted mode)
+                "scale_hint": 2.5,       # arcsec/pixel (hinted mode)
+                "min_scale": 0.5,        # arcsec/pixel (blind mode)
+                "max_scale": 15.0,       # arcsec/pixel (blind mode)
+                "device": "camera_name", # optional, for auto-hint from mount
+            }
+            """
+            if self.solver.is_solving:
+                return {"error": "Already solving — wait for current solve to finish"}
+
+            mode = body.get("mode", "hinted")
+
+            # Get image data
+            image_data = None
+            fmt = "fits"
+
+            if mode == "last_image":
+                # Use the last captured image
+                if not self._last_image_data:
+                    return {"error": "No image captured yet — capture first"}
+                image_data = self._last_image_data
+                fmt = "fits"
+            elif "image_data" in body:
+                # Direct image upload (base64)
+                import base64
+                image_data = base64.b64decode(body["image_data"])
+                fmt = body.get("format", "fits")
+            else:
+                return {"error": "Provide 'mode': 'last_image' or 'image_data'"}
+
+            # Get hints
+            ra_hint = body.get("ra_hint")
+            dec_hint = body.get("dec_hint")
+            scale_hint = body.get("scale_hint")
+
+            # Auto-hint from FITS WCS (highest priority for test images)
+            if (ra_hint is None or dec_hint is None or scale_hint is None) and image_data:
+                try:
+                    wcs = self.solver._extract_wcs(image_data)
+                    if wcs:
+                        if ra_hint is None and wcs.get("crval1") is not None:
+                            ra_hint = wcs["crval1"]
+                        if dec_hint is None and wcs.get("crval2") is not None:
+                            dec_hint = wcs["crval2"]
+                        if scale_hint is None and wcs.get("cdelt1") is not None:
+                            scale_hint = abs(wcs["cdelt1"]) * 3600  # deg/pix → arcsec/pix
+                        log.info("Auto-hint from FITS WCS: RA=%.2f DEC=%.2f scale=%.2f",
+                                 ra_hint or 0, dec_hint or 0, scale_hint or 0)
+                except Exception as e:
+                    log.debug("FITS WCS extraction failed: %s", e)
+
+            # Auto-hint from mount (if not yet provided)
+            if ra_hint is None or dec_hint is None:
+                m = self.registry.get_mount()
+                if m and m.ra_hours is not None:
+                    ra_hint = ra_hint if ra_hint is not None else m.ra_hours * 15  # hours → degrees
+                    dec_hint = dec_hint if dec_hint is not None else m.dec_deg
+                    log.debug("Auto-hint from mount: RA=%.2f DEC=%.2f", ra_hint, dec_hint)
+
+            # Auto-scale from camera (only if still no scale)
+            if scale_hint is None:
+                c = self.registry.get_camera(body.get("device"))
+                if c and c.pixel_size_um and c.focal_length_mm:
+                    scale_hint = (c.pixel_size_um / 1000) / (c.focal_length_mm / 1000) * 206.265
+                    log.debug("Auto-scale from camera: %.2f arcsec/px", scale_hint)
+
+            # Run solve in a thread (Seiza releases GIL but we want non-blocking)
+            loop = asyncio.get_event_loop()
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.solver.solve_image(
+                    image_data,
+                    fmt=fmt,
+                    ra_hint=ra_hint,
+                    dec_hint=dec_hint,
+                    scale_hint=scale_hint,
+                    min_scale=body.get("min_scale", 0.5),
+                    max_scale=body.get("max_scale", 15.0),
+                    sigma=body.get("sigma", 2.0),
+                )
+            )
+
+            # Broadcast result via WebSocket
+            if result.get("ok"):
+                await self._broadcast_solver_result(result)
+
+            return result
+
         @app.post("/api/focuser/move")
         async def focuser_move(body: dict):
             f = self.registry.get_focuser()
@@ -503,6 +620,60 @@ class WebServer:
                     self._ws_clients.remove(ws)
                 weblog_handler.remove_client(ws)
                 log.debug("WS client disconnected (%d remaining)", len(self._ws_clients))
+
+        # ── Test endpoints (dev only) ─────────────────────────────
+
+        @app.get("/api/test/fits-list")
+        async def test_fits_list():
+            """List available synthetic FITS test images."""
+            fake_sky = Path(__file__).parent.parent / "tests" / "fake_sky"
+            if not fake_sky.exists():
+                return {"images": []}
+            images = []
+            for p in sorted(fake_sky.glob("test_*.fits")):
+                name = p.stem.replace("test_", "")
+                meta_path = p.with_suffix(".json")
+                meta = {}
+                if meta_path.exists():
+                    import json as _json
+                    meta = _json.loads(meta_path.read_text())
+                images.append({
+                    "name": name,
+                    "file": p.name,
+                    "ra": meta.get("center_ra"),
+                    "dec": meta.get("center_dec"),
+                    "scale": meta.get("scale_arcsec_px"),
+                    "stars": meta.get("n_stars"),
+                })
+            return {"images": images}
+
+        @app.get("/api/test/fits/{filename}")
+        async def test_fits_get(filename: str):
+            """Return a synthetic FITS file as base64 for viewer testing."""
+            import base64 as _b64
+            fake_sky = Path(__file__).parent.parent / "tests" / "fake_sky"
+            filepath = fake_sky / filename
+            if not filepath.exists() or not filepath.suffix == ".fits":
+                return {"error": f"File not found: {filename}"}
+            data = filepath.read_bytes()
+            return {
+                "ok": True,
+                "filename": filename,
+                "format": "image/fits",
+                "data": _b64.b64encode(data).decode("ascii"),
+                "size": len(data),
+            }
+
+        @app.post("/api/test/fits-store")
+        async def test_fits_store(body: dict):
+            """Store a FITS image (base64) as last captured image for solver testing."""
+            import base64 as _b64
+            b64_data = body.get("data", "")
+            if not b64_data:
+                return {"error": "No data"}
+            self._last_image_data = _b64.b64decode(b64_data)
+            log.info("Test FITS stored as last image (%d bytes)", len(self._last_image_data))
+            return {"ok": True, "size": len(self._last_image_data)}
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────
 
@@ -648,3 +819,19 @@ class WebServer:
                             self._safe_remove_client(ws)
         except Exception as e:
             log.error("Failed to fetch BLOB from %s: %s", url, e)
+
+    async def _broadcast_solver_result(self, result: dict) -> None:
+        """Broadcast solver result to all WebSocket clients."""
+        if not self._ws_clients:
+            return
+        payload = json.dumps(_sanitize({"type": "solver_result", "result": result}))
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))

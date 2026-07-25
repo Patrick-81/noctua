@@ -17,8 +17,13 @@
 - [ ] Routine calibration
 
 ### Applets — Astrométrie
-- [ ] Panneau solver (image + coords résolues)
-- [ ] Panneau mise en station polaire (erreurs d'alignement)
+- [x] Panneau solver (image + coords résolues) — **FAIT (Seiza)**
+- [x] Tests solver end-to-end (33/33 passent) — FITS, détection, résolution, précision — **FAIT**
+- [x] Overlay canvas vecteur décalage sur viewer (flèche + réticule cible + cardinaux) — **FAIT**
+- [x] Affichage FITS dans viewer — auto-stretch percentile (p1/p99) — **FIXÉ**
+- [x] Solver status UI — retry + refresh au switch mode — **FIXÉ**
+- [ ] Panneau centrage cible (inputs RA/DEC cible, boutons Nudge/GOTO, décalage affiché)
+- [ ] Panneau mise en station polaire (séquence 3-points, calcul erreur Alt/Az)
 - [ ] Routine calibration polaire
 
 ## Priorité moyenne

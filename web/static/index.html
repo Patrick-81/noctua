@@ -402,9 +402,17 @@
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>
             <div id="cap-preview-wrap" style="display:none; text-align:center; position:relative;">
-                <canvas id="cap-preview-canvas" style="max-width:100%; border-radius:4px;"></canvas>
+                <div id="cap-preview-viewport" style="overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
+                    <canvas id="cap-preview-canvas" style="display:block; border-radius:4px;"></canvas>
+                    <canvas id="offset-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
+                </div>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
-                <div class="cap-histo-row">
+                <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
+                    <button id="cap-zoom-reset" class="cap-zoom-btn" title="Zoom 100%">1:1</button>
+                    <button id="cap-zoom-fit" class="cap-zoom-btn" title="Adapter à la fenêtre">◻</button>
+                    <button id="cap-zoom-enlarge" class="cap-zoom-btn" title="Agrandir / réduire">⤢</button>
+                    <span id="cap-zoom-level" style="font-size:0.6rem; color:#888; min-width:36px;">100%</span>
+                    <div style="flex:1;"></div>
                     <button id="cap-histo-auto" class="cap-histo-auto-btn active" title="Extension auto/manuelle">AUTO</button>
                     <span class="cap-histo-label">Noir</span>
                     <input type="range" id="cap-histo-slider" class="cap-slider" min="0" max="100" value="0" style="flex:1;">
@@ -414,17 +422,142 @@
                     <span class="cap-histo-minmax"><span id="cap-histo-min">0</span> — <span id="cap-histo-max">255</span></span>
                 </div>
                 <canvas id="cap-histo-canvas" class="cap-histo-canvas"></canvas>
-                <div id="cap-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
             </div>
+            <div id="cap-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
         <!-- APPLETS MODE: ASTROMÉTRIE (placeholder)               -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Solver</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        <div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:420px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ PLATE SOLVER — Seiza</span><button id="solver-test-btn" class="solver-test-btn" title="Images de test (dev)">🧪</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <!-- Test images dropdown -->
+            <div id="solver-test-dropdown" class="solver-test-dropdown" style="display:none;">
+                <div class="solver-label">Images de test</div>
+                <div id="solver-test-list" class="solver-test-list"></div>
+            </div>
+
+            <!-- Solver status -->
+            <div class="solver-status" id="solver-status">
+                <span class="solver-led" id="solver-led"></span>
+                <span id="solver-status-text">Vérification...</span>
+            </div>
+
+            <!-- Mode selection -->
+            <div class="solver-section">
+                <div class="solver-label">Mode</div>
+                <div class="solver-mode-row">
+                    <button class="btn-glass solver-mode-btn active" data-solver-mode="hinted" title="Utilise la position monture comme indice (rapide)">Indice</button>
+                    <button class="btn-glass solver-mode-btn" data-solver-mode="blind" title="Résolution sans indice (lent, 5-30s)">Blind</button>
+                </div>
+            </div>
+
+            <!-- Hinted mode params -->
+            <div id="solver-hinted-params" class="solver-section">
+                <div class="solver-label">Indice depuis monture</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA:</span>
+                    <span class="solver-param-value" id="solver-ra-hint">--</span>
+                    <span class="solver-param-label">DEC:</span>
+                    <span class="solver-param-value" id="solver-dec-hint">--</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">Échelle:</span>
+                    <span class="solver-param-value" id="solver-scale-hint">-- arcsec/px</span>
+                </div>
+                <div class="solver-row" style="margin-top:4px;">
+                    <label class="solver-cb"><input type="checkbox" id="solver-auto-hint" checked> Auto (monture + caméra)</label>
+                </div>
+                <div id="solver-manual-hints" style="display:none;">
+                    <div class="solver-row">
+                        <span class="solver-param-label">RA (°):</span>
+                        <input type="number" id="solver-ra-manual" class="solver-input" step="0.01" placeholder="100.5">
+                    </div>
+                    <div class="solver-row">
+                        <span class="solver-param-label">DEC (°):</span>
+                        <input type="number" id="solver-dec-manual" class="solver-input" step="0.01" placeholder="35.2">
+                    </div>
+                    <div class="solver-row">
+                        <span class="solver-param-label">Scale:</span>
+                        <input type="number" id="solver-scale-manual" class="solver-input" step="0.1" placeholder="2.5">
+                        <span class="solver-unit">arcsec/px</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Blind mode params -->
+            <div id="solver-blind-params" class="solver-section" style="display:none;">
+                <div class="solver-label">Plage d'échelle</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">Min:</span>
+                    <input type="number" id="solver-min-scale" class="solver-input" value="0.5" step="0.1" min="0.1">
+                    <span class="solver-unit">arcsec/px</span>
+                    <span class="solver-param-label">Max:</span>
+                    <input type="number" id="solver-max-scale" class="solver-input" value="15.0" step="0.5" min="0.5">
+                    <span class="solver-unit">arcsec/px</span>
+                </div>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="solver-actions">
+                <button id="solver-solve-btn" class="btn-glass success solver-action-btn">⭐ Résoudre (dernière image)</button>
+            </div>
+
+            <!-- Progress -->
+            <div id="solver-progress" class="solver-section" style="display:none;">
+                <div class="solver-progress-bar">
+                    <div class="solver-progress-fill" id="solver-progress-fill"></div>
+                </div>
+                <div class="solver-progress-text" id="solver-progress-text">Résolution en cours...</div>
+            </div>
+
+            <!-- Results -->
+            <div id="solver-results" class="solver-results" style="display:none;">
+                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;">Résultat</div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">RA:</span>
+                    <span class="solver-result-value" id="solver-res-ra">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">DEC:</span>
+                    <span class="solver-result-value" id="solver-res-dec">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">Échelle:</span>
+                    <span class="solver-result-value" id="solver-res-scale">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">Rotation:</span>
+                    <span class="solver-result-value" id="solver-res-rotation">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">Étoiles:</span>
+                    <span class="solver-result-value" id="solver-res-matches">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">RMS:</span>
+                    <span class="solver-result-value" id="solver-res-rms">--</span>
+                </div>
+                <div class="solver-result-row">
+                    <span class="solver-result-label">FoV:</span>
+                    <span class="solver-result-value" id="solver-res-fov">--</span>
+                </div>
+                <div class="solver-result-row" style="margin-top:4px;">
+                    <span class="solver-result-label">Mode:</span>
+                    <span class="solver-result-value" id="solver-res-mode">--</span>
+                    <span class="solver-result-label">Temps:</span>
+                    <span class="solver-result-value" id="solver-res-time">--</span>
+                </div>
+                <div class="solver-actions" style="margin-top:6px;">
+                    <button id="solver-sync-btn" class="btn-glass warning solver-action-btn" title="Synchroniser la monture sur la position résolue">⟳ SYNC Monture</button>
+                    <button id="solver-center-btn" class="btn-glass solver-action-btn" title="Centrer la carte sur la position résolue">◎ Centrer carte</button>
+                </div>
+            </div>
+
+            <!-- Error -->
+            <div id="solver-error" class="solver-error" style="display:none;"></div>
         </div>
 
         <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:260px;">

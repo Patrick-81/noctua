@@ -1,4 +1,4 @@
-mode: capture
+mode: astrometry
 log_levels:
   info: true
   warning: true
@@ -8,7 +8,7 @@ sky:
   magnitude_limit: 6
   layers:
     stars: true
-    dsos: true
+    dsos: false
     planets: true
     constellations: true
     milkyway: true
@@ -18,19 +18,19 @@ sky:
     meridian: true
     horizon: true
   catalogs:
-    messier: true
-    ngc: true
-    ic: true
-    caldwell: true
-    sh2: true
-    ldn: true
-    ced: true
-    vdb: true
-    lbn: true
-    rcw: true
-    snr: true
-    cr: true
-    other: true
+    messier: false
+    ngc: false
+    ic: false
+    caldwell: false
+    sh2: false
+    ldn: false
+    ced: false
+    vdb: false
+    lbn: false
+    rcw: false
+    snr: false
+    cr: false
+    other: false
 modes:
   mount:
     rotation_lock: none
@@ -151,6 +151,7 @@ modes:
     driver: indigo_ccd_svb
     collapsed:
       applet-log: false
+      applet-capture-preview: false
     applets:
       applet-log:
         left: 44px
@@ -185,8 +186,8 @@ modes:
         right: 16px
         bottom: null
       applet-capture-preview:
-        left: 50px
-        top: 155px
+        left: 58px
+        top: 164px
         right: null
         bottom: null
       applet-solver:
@@ -200,18 +201,58 @@ modes:
         top: 80px
         right: 16px
         bottom: null
+    histo_auto: false
+    histo_black_pct: 0
   astrometry:
     driver: null
     collapsed: {}
     applets:
-      applet-solver:
+      applet-log:
+        left: 44px
+        top: 638px
+        right: null
+        bottom: null
+      applet-focuser-control:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-focuser-position:
         left: 50%
         top: 200px
         right: null
         bottom: null
         transform: translateX(-50%)
+      applet-guiding-graph:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-guiding-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-settings:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-preview:
+        left: 58px
+        top: 164px
+        right: null
+        bottom: null
+      applet-solver:
+        left: 1433px
+        top: 255px
+        right: null
+        bottom: null
       applet-polar:
         left: null
         top: 80px
         right: 16px
         bottom: null
+    histo_auto: false
+    histo_black_pct: 0

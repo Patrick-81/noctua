@@ -1,10 +1,99 @@
-# CHECKPOINT — 23 juillet 2026
+# CHECKPOINT — 24 juillet 2026
 
 ## État actuel
 SVBONY SV305PRO **connectée et fonctionnelle** : `connected=True`, `is_ready=True`, 1920×1080, 2.9µm pixel. 30 propriétés CCD reçues.
-**Capture live fonctionne** : exposition → FITS → image dans le canvas preview. Reste : zoom/pan/agrandissement viewer.
+**Capture live fonctionne** : exposition → FITS → image dans le canvas preview.
 **Carte céleste** : drag avec verrous alt/az corrigé, culling, filtrage catalogues OK.
-**Logs propres** : 5 devices échouent proprement en ~1min, puis silence total.
+**Logs propres** : 5 devices échouent proprement en ~1min, puis silence totalet.
+**Plate Solver** : Seiza intégré — résolution hinted (rapide) et blind, auto-hint monture+caméra, résultats WS temps réel.
+**Tests solver** : 33/33 tests passent — FITS parsing, détection étoiles, résolution hinted, précision sur champs synthétiques.
+**Viewer FITS** : Affichage corrigé — auto-stretch percentile (p1/p99) au lieu du linéaire min/max qui rendait les images noires.
+**Solver status** : Refresh avec retry (2 tentatives) + refresh automatique au passage en mode astrométrie.
+
+## Changements majeurs (session 24 juillet — suite)
+
+### Fix affichage FITS dans le viewer
+- **Bug** : Les images FITS apparaissaient noires/grises bruitées
+- **Cause** : Stretch linéaire min→max avec des images astronomiques à haute dynamique (fond ~50, étoiles ~31000) → le fond mappe à ~0/255
+- **Fix** : Auto-stretch percentile (p0.5 / p99.5) au lieu de min/max — les étoiles restent visibles
+- **Parser FITS JS** : END keyword détecté via carte 80 chars (pas `includes('END')` qui matchait `EXTEND`)
+- **Regex headers** : Parser card-by-card (80 chars) au lieu de regex sur la string entière — plus robuste
+
+### Fix solver status UI
+- **Bug** : Bouton solver grisée "Seiza non installé" malgré API retournant `available:true`
+- **Cause** : `refreshSolverStatus()` appelé une seule fois à l'init, jamais repris en cas d'échec
+- **Fix** : Retry (2 tentatives, 500ms delay) + refresh automatique quand on passe en mode astrométrie
+
+### Fix générateur images synthétiques
+- **Bug** : `hash(field_name)` non-déterministe (PYTHONHASHSEED) → positions étoiles changeaient à chaque génération
+- **Fix** : Seed déterministe `int.from_bytes(field_name.encode()) % 10000`
+- **Bug** : Ligne NAXIS dupliquée dans l'header FITS
+- **Fix** : Supprimé, padding simplifié (36 cards × 80 = 2880)
+- **Fix Orion** : Centre déplacé (-1.5 → -1.0), scale augmenté (2.5 → 3.0) pour capturer plus d'étoiles bright dans le FOV
+
+## Changements majeurs (session 24 juillet)
+
+### Plate Solver Seiza
+- **Librairie** : Seiza (Rust/Python) — résolution de plaques haute performance
+- **Documentation** : `docs/seiza.md` — API Python, CLI, catalogues, intégration
+- **Backend** : `indigo/devices/solver.py` — wrapper Seiza avec detect/solve/solve_blind
+- **Parsing FITS** : parser natif (sans astropy) — support BITPIX 8/16/32/64, END keyword correct, cards 80 chars
+- **Détection étoiles** : sigma=2.0 par défaut (au lieu de 4.0) pour meilleure sensibilité
+- **API routes** :
+  - `GET /api/solver/status` — état du solver
+  - `POST /api/solver/catalogs` — charger les catalogues
+  - `POST /api/solver/solve` — résoudre une image (+ paramètre `sigma`)
+- **Auto-hint** : position monture (RA/DEC) + échelle caméra (pixel_size/focal_length)
+- **Modes** : hinted (rapide, <1s) et blind (lent, 5-30s)
+- **Frontend** : applet-solver complet avec :
+  - Sélection mode (Indice/Blind)
+  - Paramètres auto/manuels
+  - Barre de progression
+  - Résultats (RA/DEC/rotation/échelle/étoiles/RMS/FoV)
+  - Boutons SYNC monture + Centrer carte
+  - Status LED (Seiza prêt/catalogues/erreur)
+- **WebSocket** : broadcast résultats solver en temps réel
+- **Styles** : glass morphism cohérent avec le reste de l'UI
+
+### Tests Solver
+- **Générateur images synthétiques** : `tests/generate_test_images.py` — 10 champs test (Orion, Pléiades, M42, Gémeaux, Grande Ourse, Cygne, Scorpion, Cassiopée, Andromède, grand champ)
+- **Suite de tests** : `tests/test_solver.py` — 33 tests (parsing FITS, détection étoiles, résolution hinted, précision multi-champs)
+- **Doc images** : `tests/fake_sky/README.md` — catalogue des images synthétiques
+- **Fix bugs** :
+  - Parser FITS : END keyword détecté incorrectement → re-parser carte par carte
+  - Attribut `solution.rms` → `solution.rms_arcsec` (API Seiza)
+  - Attribut `solution.matches` → `solution.matched_stars`
+  - Seuil sigma trop strict (4.0) → 2.0 pour images propres
+
+### Overlay canvas — Vecteur décalage viewer
+- **Canvas overlay** : `#offset-overlay-canvas` dans `#cap-preview-viewport`, synchronisé avec le zoom/pan du viewer
+- **Vecteur de décalage** : dessine une flèche cyan du centre (position résolue) vers la cible
+  - Longueur proportionnelle au décalage RA/DEC (en arcmin)
+  - Rotation image appliquée pour orientation correcte
+  - Étiquette distance avec fond lisibilité
+  - Réticule cible (cercle+croix orange) à la pointe du vecteur
+  - Flèches cardinales N/E tournées selon la rotation
+- **Fonctions JS** :
+  - `setOffsetTarget(ra, dec)` — définit la position cible
+  - `setOffsetSolved(ra, dec, scale, rotation)` — définit la position résolue
+  - `drawOffsetVector()` — dessine le vecteur sur l'overlay
+  - `clearOffsetOverlay()` — efface l'overlay
+  - `window.setOffsetTarget()` — exposé globalement pour sky-engine
+- **Menu contextuel carte** : bouton "◎ Définir cible" ajouté dans sky-engine.js
+- **Nettoyage automatique** : overlay effacé à chaque nouvelle image capturée
+- **Visibilité mode** : overlay visible uniquement en mode astrométrie
+
+### Test harness (pas de caméra nécessaire)
+- **Endpoints serveur** :
+  - `GET /api/test/fits-list` — liste les 10 images FITS synthétiques disponibles
+  - `GET /api/test/fits/{filename}` — retourne l'image en base64 pour le viewer
+- **Bouton 🧪** dans le panneau solver — dropdown avec la liste des images de test, clic pour charger
+- **Fonctions JS** (console `_testHarness`):
+  - `loadTestFITS('test_orion.fits')` — charge une image dans le viewer
+  - `mockSolveResult(ra, dec, scale, rotation)` — simule un résultat solver
+  - `mockSetTarget(ra, dec)` — définit la cible
+  - `testOverlayScenario('north|east|southeast|rotated|small|large')` — scénarios prédéfinis
+- **Scénarios** : 6 cas test (N, E, SE, image rotée, petit offset, grand offset)
 
 ## Changements majeurs (session 23 juillet)
 
