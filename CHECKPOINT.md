@@ -49,9 +49,34 @@ Ajouté `GuideDriftSim` dans `mock_indigo.py` : génère une séquence d'images 
 - `start-mock-server.sh` : nouveau script
 - `PLAN_D3_CELESTIAL.md` : supprimé (obsolète)
 
+## Session 2026-07-28 (suite) — Phase 5 Autofocus : boucle complète
+
+### Fix _autofocusWaitImage() — Stub → attente réelle
+La fonction `_autofocusWaitImage()` retournait `true` après 500ms sans vérifier la disponibilité de l'image.
+**Correction** : utilise le même pattern que `waitExposureDone()` — poll `devices[camName].exposure_time` jusqu'à ≤ 0, timeout à 30s. L'arrêt utilisateur (`_afRunning = false`) interrompt aussi l'attente.
+
+### Fix _autofocusFinish() — Move to best + vérification
+`_autofocusFinish()` affichait le meilleur point mais ne bougeait pas le focuser.
+**Correction** : après l'analyse V-curve, enchaîne :
+1. `POST /api/focuser/move` vers `best_position`
+2. `_autofocusWaitFocuser()` jusqu'à arrivée
+3. `POST /api/camera/expose` pour capture de vérification
+4. `_autofocusWaitImage()` jusqu'à réception
+5. Affichage "✅ Terminé"
+
+### Ajout display HFR courant + Position
+Ajouté `#af-info-line` dans l'UI avec `#af-curr-hfr` et `#af-curr-pos`.
+Pendant le scan, affiche : `HFR: X.XX → meilleur: Y.YY` et `Pos: ZZZZ`.
+Mis à jour à chaque step, réinitialisé au start.
+
+### Fichiers modifiés cette session
+- `web/static/app.js` : _autofocusWaitImage(), _autofocusFinish(), _autofocusStart() + HFR info line
+- `web/static/index.html` : #af-info-line dans af-progress-wrap
+
 ## État des tests
-- **Via pytest** : 50/50 passent (flow tests exclus)
-- **Via main()** : 86/86 (50 pytest + 38 guide_flow + 34 autofocus_flow)
-- **Tests Playwright** : 19/19
-- **Tests JS unit** : 53/53 (polar_math)
-- **Total : 158/158**
+- **Via pytest** : 50/50 (incl. 16 autofocus unit)
+- **Guide flow (main)** : 38/38
+- **Autofocus flow (main)** : 34/34
+- **Playwright** : 19/19
+- **Polar math JS** : 53/53
+- **Total : 194/194****

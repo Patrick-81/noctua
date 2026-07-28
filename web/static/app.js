@@ -4113,6 +4113,10 @@ async function _autofocusStart() {
     _afResults = [];
     _afIndex = 0;
     _afPositions = [];
+    const currHfrEl = document.getElementById('af-curr-hfr');
+    if (currHfrEl) currHfrEl.textContent = 'HFR: —';
+    const currPosEl = document.getElementById('af-curr-pos');
+    if (currPosEl) currPosEl.textContent = 'Pos: —';
     if (_afStartBtn) _afStartBtn.disabled = true;
     if (_afStopBtn) _afStopBtn.disabled = false;
     if (_afProgressWrap) _afProgressWrap.style.display = '';
@@ -4190,6 +4194,15 @@ async function _autofocusStep() {
     _autofocusDrawVcurve();
     _afIndex++;
 
+    // Update info line with current HFR and position
+    const currHfrEl = document.getElementById('af-curr-hfr');
+    if (currHfrEl) {
+        const bestMin = _afResults.reduce((m, r) => r.hfr < m.hfr ? r : m, _afResults[0]);
+        currHfrEl.textContent = `HFR: ${metric.hfr.toFixed(2)} → meilleur: ${bestMin.hfr.toFixed(2)}`;
+    }
+    const currPosEl = document.getElementById('af-curr-pos');
+    if (currPosEl) currPosEl.textContent = `Pos: ${pos}`;
+
     // Also record in HFR history
     _focHfrData.push({
         step: _focHfrStep++,
@@ -4215,16 +4228,23 @@ async function _autofocusWaitFocuser(targetPos, timeoutMs) {
     return false;
 }
 
-async function _autofocusWaitImage(timeoutMs) {
-    const cam = _getSelectedCamera();
+function _autofocusWaitImage(timeoutMs) {
+    const camName = _getSelectedCamera();
     const t0 = Date.now();
-    while (Date.now() - t0 < timeoutMs) {
-        // Check if capture-preview has new data (simplified: just wait)
-        await new Promise(r => setTimeout(r, 500));
-        // For now, we trust the server timing. In a real flow we'd poll WS for BLOB ready.
-        return true;
-    }
-    return false;
+    return new Promise(resolve => {
+        const check = () => {
+            if (!_afRunning) { resolve(false); return; }
+            const elapsed = Date.now() - t0;
+            if (elapsed > timeoutMs) { resolve(false); return; }
+            const cam = devices[camName];
+            if (cam && cam.exposure_time != null && cam.exposure_time <= 0) {
+                resolve(true);
+                return;
+            }
+            setTimeout(check, 200);
+        };
+        setTimeout(check, 200);
+    });
 }
 
 async function _autofocusFinish() {
@@ -4240,10 +4260,31 @@ async function _autofocusFinish() {
         if (_afResult) _afResult.style.display = '';
         if (_afProgressBar) _afProgressBar.style.width = '100%';
         addLog('info', 'autofocus', `Meilleur point: pos=${res.best_position}, HFR=${res.best_hfr ? res.best_hfr.toFixed(2) : '—'}`);
+
+        // Move focuser to best position
+        if (res.best_position != null) {
+            if (_afStatusText) _afStatusText.textContent = `→ meilleur: ${res.best_position}`;
+            await fetch('/api/focuser/move', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ position: res.best_position })
+            }).then(r => r.json()).catch(() => {});
+            await _autofocusWaitFocuser(res.best_position, 30000);
+
+            // Verification capture
+            if (_afStatusText) _afStatusText.textContent = 'Vérification...';
+            await fetch('/api/camera/expose', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: _getSelectedCamera(), duration: _afExposureSec })
+            }).then(r => r.json()).catch(() => {});
+            await _autofocusWaitImage(30000);
+        }
     } else {
         addLog('error', 'autofocus', res?.error || 'Analyse V-curve échouée');
     }
     _autofocusDrawVcurve();
+    if (_afStatusText) _afStatusText.textContent = '✅ Terminé';
     _autofocusCleanup();
 }
 
