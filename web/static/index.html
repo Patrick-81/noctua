@@ -353,8 +353,8 @@
         <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+        <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:560px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button id="guide-expand-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Afficher/Masquer la cible">⊕ Cible</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
                     <span style="font-size:0.6rem; color:#666;">Trames: <span id="guide-frame-count" style="color:#00ffcc;">0</span></span>
@@ -364,10 +364,13 @@
                 <div style="display:flex; gap:6px;">
                     <canvas id="guide-star-canvas" width="120" height="120" style="width:120px; height:120px; background:#0a0a12; border-radius:4px; flex-shrink:0;"></canvas>
                     <div style="flex:1; min-width:0;">
-                        <canvas id="guide-drift-canvas" width="340" height="120" style="width:100%; height:120px; background:#0a0a12; border-radius:4px;"></canvas>
+                        <canvas id="guide-drift-canvas" width="400" height="140" style="width:100%; height:140px; background:#0a0a12; border-radius:4px;"></canvas>
+                        <div id="guide-crosshair-wrap" style="display:none; margin-top:4px;">
+                            <canvas id="guide-crosshair-canvas" width="400" height="200" style="width:100%; height:200px; background:#0a0a12; border-radius:4px;"></canvas>
+                        </div>
                     </div>
                 </div>
-                <div style="display:flex; gap:8px; margin-top:4px; font-size:0.55rem; color:#888;">
+                <div style="display:flex; gap:8px; margin-top:4px; font-size:0.6rem; color:#888;">
                     <span style="color:#44cc44;">● AD (RA)</span>
                     <span style="color:#4488ff;">● DEC</span>
                     <span style="color:#ff4444;">— Tolérance</span>
@@ -409,6 +412,13 @@
                     <div class="cap-label">Pulse max (ms)</div>
                     <div class="cap-row">
                         <input id="guide-max-pulse" type="number" class="input-glass" style="flex:1;" value="2000" min="100" max="5000" step="100">
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Tolérance (± arcsec)</div>
+                    <div class="cap-row">
+                        <input id="guide-tolerance" type="number" class="input-glass" style="flex:1;" value="10" min="1" max="120" step="1">
+                        <span style="font-size:0.6rem; color:#666;">″</span>
                     </div>
                 </div>
                 <div class="cap-section cap-actions" style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:4px;">

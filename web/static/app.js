@@ -4543,6 +4543,8 @@ async function initSkyEngine() {
 
 function initGuidePanel() {
     _guideDriftCanvas = document.getElementById('guide-drift-canvas');
+    _guideCrosshairCanvas = document.getElementById('guide-crosshair-canvas');
+    _guideExpandBtn = document.getElementById('guide-expand-btn');
     _guideStartBtn = document.getElementById('guide-start-btn');
     _guideStopBtn = document.getElementById('guide-stop-btn');
     _guidePauseBtn = document.getElementById('guide-pause-btn');
@@ -4555,6 +4557,17 @@ function initGuidePanel() {
 
     if (_guideCameraSelect) {
         _refreshGuideCameraList();
+    }
+
+    // Expand/collapse crosshair
+    if (_guideExpandBtn) {
+        _guideExpandBtn.addEventListener('click', () => {
+            _guideCrosshairVisible = !_guideCrosshairVisible;
+            const wrap = document.getElementById('guide-crosshair-wrap');
+            if (wrap) wrap.style.display = _guideCrosshairVisible ? '' : 'none';
+            _guideExpandBtn.textContent = _guideCrosshairVisible ? '⊖ Cible' : '⊕ Cible';
+            if (_guideCrosshairVisible && _guideDriftHistory.length > 0) _guideDrawCrosshair();
+        });
     }
 
     const aggrSlider = document.getElementById('guide-aggressiveness');
@@ -4688,10 +4701,39 @@ function _guideUpdateUI(status) {
     if (status.history) {
         _guideDriftHistory = status.history;
         _guideDrawDrift();
+        if (_guideCrosshairVisible) _guideDrawCrosshair();
+    }
+
+    // Beep if outside tolerance
+    const tolInput = document.getElementById('guide-tolerance');
+    const tol = parseFloat(tolInput?.value || '10');
+    if (tol > 0) {
+        const ra = Math.abs(status.drift_arcsec_x || 0);
+        const dec = Math.abs(status.drift_arcsec_y || 0);
+        if (ra > tol || dec > tol) _guideBeep();
     }
 }
 
 let _guideDriftLastCSSW = 0, _guideDriftLastCSSH = 0;
+let _guideCrosshairCanvas = null, _guideExpandBtn = null;
+let _guideCrosshairVisible = false;
+let _guideAudioCtx = null;
+
+function _guideBeep() {
+    try {
+        if (!_guideAudioCtx) _guideAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = _guideAudioCtx.createOscillator();
+        const gain = _guideAudioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(_guideAudioCtx.destination);
+        osc.frequency.value = 880;
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.15, _guideAudioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, _guideAudioCtx.currentTime + 0.3);
+        osc.start();
+        osc.stop(_guideAudioCtx.currentTime + 0.3);
+    } catch (e) { /* audio not available */ }
+}
 
 function _guideDrawDrift() {
     const canvas = _guideDriftCanvas;
@@ -4713,51 +4755,63 @@ function _guideDrawDrift() {
     ctx.clearRect(0, 0, w, h);
 
     const hist = _guideDriftHistory;
-    const pad = 30;
+    const pad = 36;
     const midY = h / 2;
-    const yMax = 5.0; // Fixed ±5 arcsec scale for now
+
+    // Dynamic yMax from tolerance input (minimum ±5)
+    const tolInput = document.getElementById('guide-tolerance');
+    const tolArcsec = parseFloat(tolInput?.value || '10');
+    const yMax = Math.max(5, tolArcsec);
 
     // Grid lines
-    ctx.strokeStyle = '#1a1a2e';
-    ctx.lineWidth = 0.5 * dpr;
-    for (let i = -2; i <= 2; i++) {
-        const y = midY + (i / 2) * (midY - pad);
+    ctx.strokeStyle = '#2a2a3e';
+    ctx.lineWidth = 1 * dpr;
+    const gridSteps = 4;
+    for (let i = -gridSteps; i <= gridSteps; i++) {
+        const y = midY + (i / gridSteps) * (midY - pad);
+        if (y < pad || y > h - pad) continue;
         ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
     }
 
-    // Zero line (target)
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1 * dpr;
+    // Zero line (target) — brighter
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1.5 * dpr;
     ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(w - pad, midY); ctx.stroke();
 
-    // Tolerance zone ±2 arcsec
-    const tol = 2.0 / yMax * (midY - pad);
-    ctx.fillStyle = 'rgba(255,68,68,0.08)';
+    // Tolerance zone from input value
+    const tol = tolArcsec / yMax * (midY - pad);
+    ctx.fillStyle = 'rgba(255,68,68,0.12)';
     ctx.fillRect(pad, midY - tol, w - 2 * pad, tol * 2);
-    ctx.strokeStyle = 'rgba(255,68,68,0.5)';
-    ctx.lineWidth = 1 * dpr;
-    ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.setLineDash([6 * dpr, 4 * dpr]);
     ctx.beginPath(); ctx.moveTo(pad, midY - tol); ctx.lineTo(w - pad, midY - tol); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(pad, midY + tol); ctx.lineTo(w - pad, midY + tol); ctx.stroke();
     ctx.setLineDash([]);
 
+    // Tolerance label
+    ctx.fillStyle = '#ff6666';
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText(`±${tolArcsec}″`, pad + 2 * dpr, midY - tol - 4 * dpr);
+
     if (hist.length < 1) {
-        ctx.fillStyle = '#555';
-        ctx.font = `${11 * dpr}px monospace`;
+        ctx.fillStyle = '#777';
+        ctx.font = `${12 * dpr}px monospace`;
         ctx.textAlign = 'center';
         ctx.fillText('En attente de données...', w / 2, midY);
         return;
     }
 
     // Sliding window: show last N points that fit
-    const maxPoints = Math.floor((w - 2 * pad) / 3); // 3px per point min
+    const maxPoints = Math.floor((w - 2 * pad) / 3);
     const startIdx = Math.max(0, hist.length - maxPoints);
     const visible = hist.slice(startIdx);
     const xStep = visible.length > 1 ? (w - 2 * pad) / (visible.length - 1) : 0;
 
-    function drawLine(data, color) {
+    function drawLine(data, color, name) {
         ctx.strokeStyle = color;
-        ctx.lineWidth = 1.5 * dpr;
+        ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
         for (let i = 0; i < data.length; i++) {
             const x = pad + i * xStep;
@@ -4765,34 +4819,191 @@ function _guideDrawDrift() {
             if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
         }
         ctx.stroke();
-        // Draw last point dot
+
+        // Last value label at endpoint
         if (data.length > 0) {
             const lx = pad + (data.length - 1) * xStep;
             const ly = midY - (data[data.length - 1] / yMax) * (midY - pad);
             ctx.fillStyle = color;
-            ctx.beginPath(); ctx.arc(lx, ly, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.arc(lx, ly, 4 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.font = `bold ${10 * dpr}px monospace`;
+            ctx.textAlign = 'left';
+            const label = `${data[data.length - 1].toFixed(1)}″`;
+            const lxOff = lx + 6 * dpr;
+            const lyOff = ly - 6 * dpr;
+            ctx.fillText(label, lxOff, lyOff);
         }
     }
 
     const raDrifts = visible.map(d => d.drift_arcsec_x);
     const decDrifts = visible.map(d => d.drift_arcsec_y);
 
-    drawLine(raDrifts, '#44cc44');  // AD = vert
-    drawLine(decDrifts, '#4488ff');  // DEC = bleu
+    drawLine(raDrifts, '#44cc44', 'RA');
+    drawLine(decDrifts, '#4488ff', 'DEC');
 
-    // Y axis labels
-    ctx.fillStyle = '#555';
-    ctx.font = `${9 * dpr}px monospace`;
+    // Y axis labels — brighter + bigger
+    ctx.fillStyle = '#999';
+    ctx.font = `bold ${10 * dpr}px monospace`;
     ctx.textAlign = 'right';
-    ctx.fillText(`+${yMax.toFixed(0)}″`, pad - 4 * dpr, pad + 2 * dpr);
-    ctx.fillText(`-${yMax.toFixed(0)}″`, pad - 4 * dpr, h - pad + 2 * dpr);
-    ctx.fillText('0', pad - 4 * dpr, midY + 3 * dpr);
+    const labelStep = yMax / gridSteps;
+    for (let i = -gridSteps; i <= gridSteps; i++) {
+        const y = midY + (i / gridSteps) * (midY - pad);
+        if (y < pad - 4 * dpr || y > h - pad + 4 * dpr) continue;
+        const val = (i / gridSteps) * yMax;
+        if (val === 0) ctx.fillStyle = '#bbb';
+        else ctx.fillStyle = '#777';
+        ctx.fillText(val.toFixed(0), pad - 6 * dpr, y + 3.5 * dpr);
+    }
 
-    // X axis
+    // X axis — brighter
+    ctx.fillStyle = '#666';
+    ctx.font = `9px monospace`;
     ctx.textAlign = 'left';
     ctx.fillText(`#${startIdx + 1}`, pad, h - 4 * dpr);
     ctx.textAlign = 'right';
     ctx.fillText(`#${hist.length}`, w - pad, h - 4 * dpr);
+}
+
+function _guideDrawCrosshair() {
+    const canvas = _guideCrosshairCanvas;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const dw = canvas.clientWidth;
+    const dh = canvas.clientHeight;
+    if (!dw || !dh) return;
+    const bw = Math.round(dw * dpr);
+    const bh = Math.round(dh * dpr);
+    canvas.width = bw;
+    canvas.height = bh;
+    const ctx = canvas.getContext('2d');
+    const w = bw, h = bh;
+    ctx.clearRect(0, 0, w, h);
+
+    const hist = _guideDriftHistory;
+    if (hist.length < 1) {
+        ctx.fillStyle = '#555';
+        ctx.font = `${11 * dpr}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('En attente de données...', w / 2, h / 2);
+        return;
+    }
+
+    const tolInput = document.getElementById('guide-tolerance');
+    const tolArcsec = parseFloat(tolInput?.value || '10');
+    const half = Math.max(5, tolArcsec);
+    const pad = 40;
+    const plotW = w - 2 * pad;
+    const plotH = h - 2 * pad;
+    const midX = pad + plotW / 2;
+    const midY = pad + plotH / 2;
+    const scale = Math.min(plotW, plotH) / (2 * half);
+
+    // Grid
+    ctx.strokeStyle = '#2a2a3e';
+    ctx.lineWidth = 1 * dpr;
+    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
+        const x = midX + i * scale;
+        const y = midY - i * scale;
+        ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+    }
+
+    // Zero crosshair — bright
+    ctx.strokeStyle = '#666';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
+
+    // Tolerance box
+    const tolPx = tolArcsec * scale;
+    ctx.strokeStyle = '#ff4444';
+    ctx.lineWidth = 2 * dpr;
+    ctx.setLineDash([6 * dpr, 4 * dpr]);
+    ctx.strokeRect(midX - tolPx, midY - tolPx, tolPx * 2, tolPx * 2);
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,68,68,0.08)';
+    ctx.fillRect(midX - tolPx, midY - tolPx, tolPx * 2, tolPx * 2);
+
+    // Plot all history points (fading trail)
+    for (let i = 0; i < hist.length; i++) {
+        const d = hist[i];
+        const px = midX + (d.drift_arcsec_x || 0) * scale;
+        const py = midY - (d.drift_arcsec_y || 0) * scale;
+        const alpha = 0.15 + 0.85 * (i / hist.length);
+        const radius = i === hist.length - 1 ? 5 * dpr : 2.5 * dpr;
+        ctx.fillStyle = i === hist.length - 1 ? '#ffffff' : `rgba(180,200,255,${alpha * 0.6})`;
+        ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Current position — bright crosshair
+    const last = hist[hist.length - 1];
+    const cx = midX + (last.drift_arcsec_x || 0) * scale;
+    const cy = midY - (last.drift_arcsec_y || 0) * scale;
+    ctx.strokeStyle = '#00ffcc';
+    ctx.lineWidth = 2.5 * dpr;
+    const ch = 10 * dpr;
+    ctx.beginPath(); ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch); ctx.stroke();
+    ctx.fillStyle = '#00ffcc';
+    ctx.beginPath(); ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+
+    // Axis labels — brighter + bigger
+    ctx.fillStyle = '#999';
+    ctx.font = `bold ${10 * dpr}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('RA (″)', midX, h - 4 * dpr);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('DEC (″)', pad - 8 * dpr, midY);
+
+    // Tick labels
+    ctx.fillStyle = '#666';
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
+        if (i === 0) continue;
+        const x = midX + i * scale;
+        ctx.fillText(i, x, midY + 4 * dpr);
+    }
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
+        if (i === 0) continue;
+        const y = midY - i * scale;
+        ctx.fillText(i, midX - 6 * dpr, y);
+    }
+    ctx.fillStyle = '#888';
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('0', midX - 6 * dpr, midY);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('0', midX, midY + 4 * dpr);
+
+    // Legend inside the plot
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(pad + 4 * dpr, pad + 4 * dpr, 90 * dpr, 30 * dpr);
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = '#44cc44';
+    ctx.fillText('●', pad + 8 * dpr, pad + 8 * dpr);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('RA', pad + 18 * dpr, pad + 8 * dpr);
+    ctx.fillStyle = '#4488ff';
+    ctx.fillText('●', pad + 48 * dpr, pad + 8 * dpr);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('DEC', pad + 58 * dpr, pad + 8 * dpr);
+
+    // RA/DEC numeric readout
+    ctx.fillStyle = '#fff';
+    ctx.font = `bold ${11 * dpr}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'bottom';
+    ctx.fillText(`RA: ${(last.drift_arcsec_x || 0).toFixed(2)}″`, w - pad, h - pad);
+    ctx.fillText(`DEC: ${(last.drift_arcsec_y || 0).toFixed(2)}″`, w - pad, h - pad + 14 * dpr);
 }
 
 async function _guideStop() {
@@ -4822,6 +5033,10 @@ async function _guideReset() {
     await fetch('/api/guide/reset', { method: 'POST' }).catch(() => {});
     _guideDriftHistory = [];
     _guideDrawDrift();
+    if (_guideCrosshairCanvas) {
+        const ctx = _guideCrosshairCanvas.getContext('2d');
+        ctx.clearRect(0, 0, _guideCrosshairCanvas.width, _guideCrosshairCanvas.height);
+    }
     _guideCleanup();
     addLog('info', 'guide', 'Guidage réinitialisé');
 }
