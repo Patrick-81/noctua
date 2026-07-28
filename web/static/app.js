@@ -4891,40 +4891,51 @@ function _guideDrawCrosshair() {
     const tolInput = document.getElementById('guide-tolerance');
     const tolArcsec = parseFloat(tolInput?.value || '10');
     const half = Math.max(5, tolArcsec);
-    const pad = 40;
+
+    const pad = 48;
     const plotW = w - 2 * pad;
     const plotH = h - 2 * pad;
     const midX = pad + plotW / 2;
     const midY = pad + plotH / 2;
-    const scale = Math.min(plotW, plotH) / (2 * half);
+    const maxR = Math.min(plotW, plotH) / 2 - 4 * dpr;
+    const scale = maxR / half;
 
-    // Grid
-    ctx.strokeStyle = '#2a2a3e';
-    ctx.lineWidth = 1 * dpr;
-    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
-        const x = midX + i * scale;
-        const y = midY - i * scale;
-        ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+    // ── Concentric tolerance zones ──
+    const tolR = tolArcsec * scale;        // full tolerance radius
+    const safeR = tolR / 2;                // safe zone = inner half
+
+    // Orange zone (tol/2 → tol)
+    const gradOrg = ctx.createRadialGradient(midX, midY, safeR, midX, midY, tolR);
+    gradOrg.addColorStop(0, 'rgba(255,165,0,0.0)');
+    gradOrg.addColorStop(1, 'rgba(255,165,0,0.12)');
+    ctx.fillStyle = gradOrg;
+    ctx.beginPath(); ctx.arc(midX, midY, tolR, 0, Math.PI * 2); ctx.fill();
+
+    // Green zone (0 → tol/2)
+    const gradGrn = ctx.createRadialGradient(midX, midY, 0, midX, midY, safeR);
+    gradGrn.addColorStop(0, 'rgba(0,255,100,0.08)');
+    gradGrn.addColorStop(1, 'rgba(0,255,100,0.15)');
+    ctx.fillStyle = gradGrn;
+    ctx.beginPath(); ctx.arc(midX, midY, safeR, 0, Math.PI * 2); ctx.fill();
+
+    // Graduated concentric circles every tol/4
+    for (let r = 1; r <= 4; r++) {
+        const radius = (tolR * r) / 4;
+        const isBoundary = r % 2 === 0;
+        ctx.strokeStyle = isBoundary ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = isBoundary ? 1.5 * dpr : 0.5 * dpr;
+        ctx.setLineDash(isBoundary ? [] : [3 * dpr, 3 * dpr]);
+        ctx.beginPath(); ctx.arc(midX, midY, radius, 0, Math.PI * 2); ctx.stroke();
     }
+    ctx.setLineDash([]);
 
-    // Zero crosshair — bright
-    ctx.strokeStyle = '#666';
-    ctx.lineWidth = 1.5 * dpr;
+    // Grid crosshair lines
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1 * dpr;
     ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
 
-    // Tolerance box
-    const tolPx = tolArcsec * scale;
-    ctx.strokeStyle = '#ff4444';
-    ctx.lineWidth = 2 * dpr;
-    ctx.setLineDash([6 * dpr, 4 * dpr]);
-    ctx.strokeRect(midX - tolPx, midY - tolPx, tolPx * 2, tolPx * 2);
-    ctx.setLineDash([]);
-    ctx.fillStyle = 'rgba(255,68,68,0.08)';
-    ctx.fillRect(midX - tolPx, midY - tolPx, tolPx * 2, tolPx * 2);
-
-    // Plot all history points (fading trail)
+    // ── Data trail ──
     for (let i = 0; i < hist.length; i++) {
         const d = hist[i];
         const px = midX + (d.drift_arcsec_x || 0) * scale;
@@ -4935,7 +4946,7 @@ function _guideDrawCrosshair() {
         ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
     }
 
-    // Current position — bright crosshair
+    // ── Current position — bright crosshair ──
     const last = hist[hist.length - 1];
     const cx = midX + (last.drift_arcsec_x || 0) * scale;
     const cy = midY - (last.drift_arcsec_y || 0) * scale;
@@ -4947,7 +4958,25 @@ function _guideDrawCrosshair() {
     ctx.fillStyle = '#00ffcc';
     ctx.beginPath(); ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2); ctx.fill();
 
-    // Axis labels — brighter + bigger
+    // ── Ring labels (right side) ──
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.font = `${8 * dpr}px monospace`;
+    const labelPositions = [
+        { r: 1, label: `±${(tolArcsec * 0.25).toFixed(1)}″`, color: '#555' },
+        { r: 2, label: `±${(tolArcsec * 0.5).toFixed(1)}″`, color: '#4a4' },
+        { r: 3, label: `±${(tolArcsec * 0.75).toFixed(1)}″`, color: '#555' },
+        { r: 4, label: `±${tolArcsec}″`, color: '#f44' },
+    ];
+    for (const lp of labelPositions) {
+        const rPx = (tolR * lp.r) / 4;
+        const lx = midX + rPx + 4 * dpr;
+        const ly = midY;
+        ctx.fillStyle = lp.color;
+        ctx.fillText(lp.label, lx, ly);
+    }
+
+    // ── Axis labels ──
     ctx.fillStyle = '#999';
     ctx.font = `bold ${10 * dpr}px monospace`;
     ctx.textAlign = 'center';
@@ -4957,53 +4986,28 @@ function _guideDrawCrosshair() {
     ctx.textBaseline = 'middle';
     ctx.fillText('DEC (″)', pad - 8 * dpr, midY);
 
-    // Tick labels
-    ctx.fillStyle = '#666';
-    ctx.font = `${9 * dpr}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
-        if (i === 0) continue;
-        const x = midX + i * scale;
-        ctx.fillText(i, x, midY + 4 * dpr);
-    }
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    for (let i = -half; i <= half; i += Math.max(1, Math.round(half / 4))) {
-        if (i === 0) continue;
-        const y = midY - i * scale;
-        ctx.fillText(i, midX - 6 * dpr, y);
-    }
-    ctx.fillStyle = '#888';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('0', midX - 6 * dpr, midY);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('0', midX, midY + 4 * dpr);
-
-    // Legend inside the plot
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(pad + 4 * dpr, pad + 4 * dpr, 90 * dpr, 30 * dpr);
-    ctx.font = `${9 * dpr}px monospace`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = '#44cc44';
-    ctx.fillText('●', pad + 8 * dpr, pad + 8 * dpr);
-    ctx.fillStyle = '#ccc';
-    ctx.fillText('RA', pad + 18 * dpr, pad + 8 * dpr);
-    ctx.fillStyle = '#4488ff';
-    ctx.fillText('●', pad + 48 * dpr, pad + 8 * dpr);
-    ctx.fillStyle = '#ccc';
-    ctx.fillText('DEC', pad + 58 * dpr, pad + 8 * dpr);
-
-    // RA/DEC numeric readout
+    // ── RA/DEC numeric readout ──
     ctx.fillStyle = '#fff';
     ctx.font = `bold ${11 * dpr}px monospace`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'bottom';
     ctx.fillText(`RA: ${(last.drift_arcsec_x || 0).toFixed(2)}″`, w - pad, h - pad);
     ctx.fillText(`DEC: ${(last.drift_arcsec_y || 0).toFixed(2)}″`, w - pad, h - pad + 14 * dpr);
+
+    // ── Zone legend ──
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.font = `${8 * dpr}px monospace`;
+    const legX = pad + 4 * dpr;
+    const legY = pad + 4 * dpr;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(legX - 2 * dpr, legY - 2 * dpr, 82 * dpr, 36 * dpr);
+    ctx.fillStyle = '#4a4';
+    ctx.fillText('● Zone sûre', legX, legY);
+    ctx.fillStyle = '#fa0';
+    ctx.fillText('● Attention', legX, legY + 12 * dpr);
+    ctx.fillStyle = '#f44';
+    ctx.fillText('● Alerte (bip)', legX, legY + 24 * dpr);
 }
 
 async function _guideStop() {
