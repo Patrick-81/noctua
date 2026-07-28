@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>INDIGO Devices</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='10' r='6' fill='%2300ffcc'/%3E%3Cpath d='M10 18l-4 12h20l-4-12Z' fill='%2300ffcc' opacity='.6'/%3E%3C/svg%3E">
     <link rel="stylesheet" href="/style.css">
     <script src="/lib/d3.min.js"></script>
 </head>
@@ -249,26 +250,179 @@
 
         <div id="applet-focuser-control" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:80px; right:16px; width:220px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUSER</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+            <div style="padding:6px 8px;">
+                <div class="cap-section">
+                    <div class="cap-label">Caméra</div>
+                    <select id="foc-camera-select" class="input-glass" style="width:100%; font-size:0.65rem;">
+                        <option value="">— aucune —</option>
+                    </select>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Position</div>
+                    <div class="cap-row" style="align-items:baseline; gap:6px;">
+                        <span id="foc-pos-current" style="font-size:1.2rem; color:#00ffcc; font-weight:bold; font-family:monospace;">—</span>
+                        <span style="font-size:0.65rem; color:#666;">/ <span id="foc-pos-target">—</span></span>
+                        <span style="font-size:0.65rem; color:#666; margin-left:auto;">MOVING</span>
+                        <span id="foc-moving-dot" style="color:#666;">●</span>
+                    </div>
+                    <div style="margin-top:4px; height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden;">
+                        <div id="foc-pos-bar" style="height:100%; width:0%; background:#00ffcc; border-radius:2px; transition:width 0.3s;"></div>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Vitesse</div>
+                    <div class="cap-row">
+                        <input id="foc-speed-input" type="number" class="input-glass" style="flex:1; width:60px;" value="500" min="1" max="10000" step="100">
+                        <span style="font-size:0.6rem; color:#666;">steps/s</span>
+                        <button id="foc-speed-set" class="btn-glass cap-btn-sm" style="flex:0;">OK</button>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Déplacement rapide</div>
+                    <div class="cap-row" style="gap:4px;">
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="-1000" style="flex:1;">−1k</button>
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="-100" style="flex:1;">−100</button>
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="-10" style="flex:1;">−10</button>
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="10" style="flex:1;">+10</button>
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="100" style="flex:1;">+100</button>
+                        <button class="btn-glass cap-btn-sm foc-rel" data-steps="1000" style="flex:1;">+1k</button>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Position absolue</div>
+                    <div class="cap-row">
+                        <input id="foc-abs-input" type="number" class="input-glass" style="flex:1;" placeholder="position...">
+                        <button id="foc-abs-go" class="btn-glass success cap-btn-sm" style="flex:0;">GO</button>
+                    </div>
+                </div>
+                <div class="cap-section cap-actions" style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:4px;">
+                    <button id="foc-halt-btn" class="btn-glass warning" style="width:100%; font-size:0.7rem;">⏹ Arrêter</button>
+                </div>
+            </div>
         </div>
 
-        <div id="applet-focuser-position" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:320px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ POSITION</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        <div id="applet-focuser-position" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:340px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUS — HFR</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+                    <span style="font-size:0.6rem; color:#666;">Steps: <span id="foc-hfr-count" style="color:#00ffcc;">0</span></span>
+                    <span style="font-size:0.6rem; color:#666;">Best: <span id="foc-hfr-best" style="color:#00ffcc;">—</span></span>
+                    <div style="flex:1;"></div>
+                    <button id="foc-hfr-reset" class="btn-glass cap-btn-sm" style="font-size:0.55rem;">Reset</button>
+                </div>
+                <canvas id="foc-hfr-canvas" width="320" height="100" style="width:100%; height:100px; background:#0a0a12; border-radius:4px;"></canvas>
+                <canvas id="foc-history-canvas" width="320" height="60" style="width:100%; height:60px; background:#0a0a12; border-radius:4px; margin-top:4px;"></canvas>
+            </div>
+        </div>
+
+        <div id="applet-autofocus" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; bottom:16px; right:16px; width:360px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◎ AUTOFOCUS — V-curve</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+                    <span style="font-size:0.6rem; color:#666;">Plage:</span>
+                    <input id="af-range" type="number" class="input-glass" style="width:60px; font-size:0.65rem;" value="2000" min="100" max="20000" step="100">
+                    <span style="font-size:0.6rem; color:#666;">Points:</span>
+                    <input id="af-points" type="number" class="input-glass" style="width:40px; font-size:0.65rem;" value="25" min="5" max="100">
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:4px;">
+                    <button id="af-start" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.65rem;">▶ Lancer</button>
+                    <button id="af-stop" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled>⏹ Stop</button>
+                </div>
+                <div id="af-progress-wrap" style="display:none; margin-bottom:4px;">
+                    <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#888; margin-bottom:2px;">
+                        <span id="af-progress-text">0/25</span>
+                        <span id="af-status-text"></span>
+                    </div>
+                    <div style="height:4px; background:rgba(255,255,255,0.06); border-radius:2px; overflow:hidden;">
+                        <div id="af-progress-bar" style="height:100%; width:0%; background:#00ffcc; border-radius:2px; transition:width 0.3s;"></div>
+                    </div>
+                </div>
+                <div id="af-result" style="display:none; font-size:0.6rem; color:#888; margin-bottom:4px;">
+                    <span>Best: <span id="af-best-pos" style="color:#00ffcc;">—</span></span>
+                    <span style="margin-left:8px;">HFR: <span id="af-best-hfr" style="color:#00ffcc;">—</span></span>
+                </div>
+                <canvas id="af-vcurve-canvas" width="340" height="120" style="width:100%; height:120px; background:#0a0a12; border-radius:4px;"></canvas>
+            </div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
-        <!-- APPLETS MODE: AUTOGUIDAGE (placeholder)              -->
+        <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Graphique</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
+                    <span style="font-size:0.6rem; color:#666;">Trames: <span id="guide-frame-count" style="color:#00ffcc;">0</span></span>
+                    <span style="font-size:0.6rem; color:#666;">RA: <span id="guide-drift-ra" style="color:#00ffcc;">0.0</span>″</span>
+                    <span style="font-size:0.6rem; color:#666;">DEC: <span id="guide-drift-dec" style="color:#00ffcc;">0.0</span>″</span>
+                </div>
+                <div style="display:flex; gap:6px;">
+                    <canvas id="guide-star-canvas" width="120" height="120" style="width:120px; height:120px; background:#0a0a12; border-radius:4px; flex-shrink:0;"></canvas>
+                    <div style="flex:1; min-width:0;">
+                        <canvas id="guide-drift-canvas" width="340" height="120" style="width:100%; height:120px; background:#0a0a12; border-radius:4px;"></canvas>
+                    </div>
+                </div>
+                <div style="display:flex; gap:8px; margin-top:4px; font-size:0.55rem; color:#888;">
+                    <span style="color:#44cc44;">● AD (RA)</span>
+                    <span style="color:#4488ff;">● DEC</span>
+                    <span style="color:#ff4444;">— Tolérance</span>
+                </div>
+            </div>
         </div>
 
         <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:220px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+            <div style="padding:6px 8px;">
+                <div class="cap-section">
+                    <div class="cap-label">Caméra guide</div>
+                    <select id="guide-camera-select" class="input-glass" style="width:100%; font-size:0.65rem;">
+                        <option value="">— aucune —</option>
+                    </select>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Exposition</div>
+                    <div class="cap-row">
+                        <input id="guide-exposure" type="number" class="input-glass" style="flex:1; width:60px;" value="1.0" min="0.1" max="30" step="0.5">
+                        <span style="font-size:0.6rem; color:#666;">sec</span>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Agressivité</div>
+                    <div class="cap-row">
+                        <input id="guide-aggressiveness" type="range" class="input-glass" style="flex:1;" min="0" max="1" step="0.05" value="0.8">
+                        <span id="guide-aggr-val" style="font-size:0.6rem; color:#00ffcc; width:28px; text-align:right;">0.8</span>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Gain RA / DEC (px→ms)</div>
+                    <div class="cap-row" style="gap:4px;">
+                        <input id="guide-ra-gain" type="number" class="input-glass" style="flex:1;" value="1.0" min="0.1" step="0.1">
+                        <input id="guide-dec-gain" type="number" class="input-glass" style="flex:1;" value="1.0" min="0.1" step="0.1">
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Pulse max (ms)</div>
+                    <div class="cap-row">
+                        <input id="guide-max-pulse" type="number" class="input-glass" style="flex:1;" value="2000" min="100" max="5000" step="100">
+                    </div>
+                </div>
+                <div class="cap-section cap-actions" style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:4px;">
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+                        <button id="guide-start-btn" class="btn-glass success" style="font-size:0.65rem;">▶ Lancer</button>
+                        <button id="guide-stop-btn" class="btn-glass warning" style="font-size:0.65rem;" disabled>⏹ Stop</button>
+                        <button id="guide-pause-btn" class="btn-glass" style="font-size:0.65rem;" disabled>⏸ Pause</button>
+                        <button id="guide-reset-btn" class="btn-glass" style="font-size:0.65rem;">↺ Reset</button>
+                    </div>
+                </div>
+                <div class="cap-section" style="margin-top:4px;">
+                    <div class="cap-label">Correction</div>
+                    <div style="font-size:0.6rem; color:#888;">
+                        <span>RA: <span id="guide-corr-ra" style="color:#00ffcc;">0ms —</span></span>
+                        <span style="display:block;">DEC: <span id="guide-corr-dec" style="color:#00ffcc;">0ms —</span></span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
@@ -398,15 +552,17 @@
             </div>
         </div>
 
-        <div id="applet-capture-preview" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+        <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>
             <div id="cap-preview-wrap" style="display:none; text-align:center; position:relative;">
                 <div id="cap-preview-viewport" style="overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
                     <canvas id="cap-preview-canvas" style="display:block; border-radius:4px;"></canvas>
                     <canvas id="offset-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
+                    <canvas id="focus-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                 </div>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
+                <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
                     <button id="cap-zoom-reset" class="cap-zoom-btn" title="Zoom 100%">1:1</button>
                     <button id="cap-zoom-fit" class="cap-zoom-btn" title="Adapter à la fenêtre">◻</button>
@@ -560,9 +716,207 @@
             <div id="solver-error" class="solver-error" style="display:none;"></div>
         </div>
 
-        <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:260px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Mise en station</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="color:#888; font-size:0.7rem; padding:20px; text-align:center;">À implémenter</div>
+        <div id="applet-target" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:280px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CIBLE — Centrage</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <!-- Coordonnées cible -->
+            <div class="solver-section">
+                <div class="solver-label">Position cible</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA:</span>
+                    <input type="text" id="target-ra" class="solver-input" placeholder="HH:MM:SS" style="width:90px;">
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">DEC:</span>
+                    <input type="text" id="target-dec" class="solver-input" placeholder="±DD:MM:SS" style="width:90px;">
+                </div>
+                <div class="solver-actions">
+                    <button id="target-set-btn" class="btn-glass solver-action-btn" title="Définir la cible (overlay)">◎ Définir</button>
+                    <button id="target-goto-btn" class="btn-glass success solver-action-btn" title="Envoyer la monture vers la cible">GOTO</button>
+                </div>
+            </div>
+
+            <!-- Offset display -->
+            <div id="target-offset-section" class="solver-section" style="display:none;">
+                <div class="solver-label">Décalage résiduel</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">ΔRA:</span>
+                    <span class="solver-param-value" id="target-dra">--</span>
+                    <span class="solver-param-label">ΔDEC:</span>
+                    <span class="solver-param-value" id="target-ddec">--</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">Distance:</span>
+                    <span class="solver-param-value" id="target-dist">--</span>
+                    <span class="solver-param-label" style="margin-left:8px;">Direction:</span>
+                    <span class="solver-param-value" id="target-dir">--</span>
+                </div>
+            </div>
+
+            <!-- Nudge controls -->
+            <div class="solver-section">
+                <div class="solver-label">Nudge</div>
+                <div class="solver-row" style="justify-content:center; gap:4px; margin-bottom:4px;">
+                    <button class="nudge-amount-btn btn-glass active" data-nudge="1">1'</button>
+                    <button class="nudge-amount-btn btn-glass" data-nudge="5">5'</button>
+                    <button class="nudge-amount-btn btn-glass" data-nudge="10">10'</button>
+                    <button class="nudge-amount-btn btn-glass" data-nudge="30">30'</button>
+                </div>
+                <div class="solver-row" style="justify-content:center; gap:4px;">
+                    <button class="nudge-dir-btn btn-glass" data-dra="-1" data-ddec="0">◀ RA-</button>
+                    <button class="nudge-dir-btn btn-glass" data-dra="0" data-ddec="1">▲ DEC+</button>
+                    <button class="nudge-dir-btn btn-glass" data-dra="0" data-ddec="-1">▼ DEC-</button>
+                    <button class="nudge-dir-btn btn-glass" data-dra="1" data-ddec="0">RA+ ▶</button>
+                </div>
+            </div>
+
+            <!-- Center button -->
+            <div class="solver-actions">
+                <button id="target-center-btn" class="btn-glass warning solver-action-btn" title="Centrage itératif: solve → nudge → re-solve">⟳ Centrer</button>
+                <button id="target-stop-btn" class="btn-glass solver-action-btn" title="Arrêter le centrage" style="display:none;">⏹ Stop</button>
+            </div>
+
+            <!-- Centering status -->
+            <div id="target-center-status" class="solver-section" style="display:none;">
+                <div class="solver-progress-bar">
+                    <div class="solver-progress-fill" id="target-center-fill"></div>
+                </div>
+                <div class="solver-progress-text" id="target-center-text">Centrage en cours...</div>
+            </div>
+        </div>
+
+        <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:340px; right:16px; width:280px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ MISE EN STATION — Polaire</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <!-- Mode selection -->
+            <div class="solver-section">
+                <div class="solver-row">
+                    <button class="btn-glass solver-mode-btn active polar-mode-btn" data-polar-mode="auto">Auto</button>
+                    <button class="btn-glass solver-mode-btn polar-mode-btn" data-polar-mode="manual">Manuel</button>
+                </div>
+            </div>
+
+            <!-- Parameters -->
+            <div class="solver-section">
+                <div class="solver-label">Paramètres</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">Angle:</span>
+                    <input type="number" id="polar-angle" class="solver-input" value="30" min="5" max="120" step="5">
+                    <span class="solver-unit">min (±)</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">DEC pôle:</span>
+                    <span class="solver-param-value" id="polar-dec-target">--</span>
+                </div>
+            </div>
+
+            <!-- Mount control -->
+            <div class="solver-section">
+                <div class="solver-label">Contrôle monture</div>
+                <div class="solver-row" style="gap:4px;">
+                    <button id="polar-track-btn" class="btn-glass solver-action-btn" style="flex:1;">Tracking ON</button>
+                    <button id="polar-unpark-btn" class="btn-glass solver-action-btn" style="flex:1;">Unpark</button>
+                    <button id="polar-abort-btn" class="btn-glass warning solver-action-btn" style="flex:1;">Stop</button>
+                </div>
+            </div>
+
+            <!-- Progress (auto mode) -->
+            <div id="polar-progress" class="solver-section" style="display:none;">
+                <div class="solver-progress-bar">
+                    <div class="solver-progress-fill" id="polar-progress-fill"></div>
+                </div>
+                <div class="solver-progress-text" id="polar-progress-text">Prêt</div>
+            </div>
+
+            <!-- Step 1 -->
+            <div class="solver-section polar-step" id="polar-step1">
+                <div class="solver-row">
+                    <span class="polar-step-num">1</span>
+                    <span class="solver-param-label" id="polar-step1-label">Centre (0h)</span>
+                    <span class="polar-step-status" id="polar-step1-status">◻</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA:</span>
+                    <span class="solver-param-value" id="polar-s1-ra">--</span>
+                    <span class="solver-param-label">DEC:</span>
+                    <span class="solver-param-value" id="polar-s1-dec">--</span>
+                </div>
+                <div class="solver-actions">
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="0">Capturer + Résoudre</button>
+                </div>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="solver-section polar-step" id="polar-step2">
+                <div class="solver-row">
+                    <span class="polar-step-num">2</span>
+                    <span class="solver-param-label" id="polar-step2-label">+30min Est</span>
+                    <span class="polar-step-status" id="polar-step2-status">◻</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA:</span>
+                    <span class="solver-param-value" id="polar-s2-ra">--</span>
+                    <span class="solver-param-label">DEC:</span>
+                    <span class="solver-param-value" id="polar-s2-dec">--</span>
+                </div>
+                <div class="solver-actions">
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="1">Capturer + Résoudre</button>
+                </div>
+            </div>
+
+            <!-- Step 3 -->
+            <div class="solver-section polar-step" id="polar-step3">
+                <div class="solver-row">
+                    <span class="polar-step-num">3</span>
+                    <span class="solver-param-label" id="polar-step3-label">-30min Ouest</span>
+                    <span class="polar-step-status" id="polar-step3-status">◻</span>
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA:</span>
+                    <span class="solver-param-value" id="polar-s3-ra">--</span>
+                    <span class="solver-param-label">DEC:</span>
+                    <span class="solver-param-value" id="polar-s3-dec">--</span>
+                </div>
+                <div class="solver-actions">
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="2">Capturer + Résoudre</button>
+                </div>
+            </div>
+
+            <!-- Results (hidden until 3 solves done) -->
+            <div id="polar-results" class="solver-section" style="display:none;">
+                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;">Erreur polaire</div>
+
+                <div class="polar-result-row">
+                    <span class="solver-param-label">Altitude:</span>
+                    <span class="polar-result-value" id="polar-err-alt">--</span>
+                    <span class="polar-arrow" id="polar-arrow-alt"></span>
+                </div>
+                <div class="polar-result-row">
+                    <span class="solver-param-label">Azimut:</span>
+                    <span class="polar-result-value" id="polar-err-az">--</span>
+                    <span class="polar-arrow" id="polar-arrow-az"></span>
+                </div>
+                <div class="polar-result-row">
+                    <span class="solver-param-label">Totale:</span>
+                    <span class="polar-result-value" id="polar-err-total">--</span>
+                </div>
+                <div class="polar-result-row" style="margin-top:4px;">
+                    <span class="solver-param-label">Pôle trouvé:</span>
+                    <span class="solver-param-value" id="polar-pole-ra">--</span>
+                    <span class="solver-param-value" id="polar-pole-dec">--</span>
+                </div>
+
+                <!-- Canvas schéma correction -->
+                <canvas id="polar-canvas" width="240" height="120" class="polar-canvas"></canvas>
+            </div>
+
+            <!-- Actions -->
+            <div class="solver-actions">
+                <button id="polar-start-btn" class="btn-glass success solver-action-btn" title="Lancer la séquence auto">▶ Démarrer</button>
+                <button id="polar-stop-btn" class="btn-glass warning solver-action-btn" title="Arrêter la séquence" style="display:none;">⏹ Stop</button>
+                <button id="polar-recalc-btn" class="btn-glass solver-action-btn" title="Relancer les 3 captures">⟳ Recalculer</button>
+                <button id="polar-reset-btn" class="btn-glass solver-action-btn" title="Réinitialiser">⟲ Reset</button>
+            </div>
         </div>
 
         <!-- APPLET: Propriétés device (commun, mais positionné) -->

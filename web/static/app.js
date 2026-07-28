@@ -50,11 +50,11 @@ const MODES = {
         driverType: 'mount'
     },
     focuser: {
-        applets: ['applet-focuser-control', 'applet-focuser-position'],
+        applets: ['applet-focuser-control', 'applet-focuser-position', 'applet-capture-preview'],
         driverType: 'focuser'
     },
     guiding: {
-        applets: ['applet-guiding-graph', 'applet-guiding-settings'],
+        applets: ['applet-guiding-graph', 'applet-guiding-settings', 'applet-capture-preview'],
         driverType: 'ccd'
     },
     capture: {
@@ -62,7 +62,7 @@ const MODES = {
         driverType: 'ccd'
     },
     astrometry: {
-        applets: ['applet-solver', 'applet-polar'],
+        applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-capture-preview'],
         driverType: null
     }
 };
@@ -109,6 +109,9 @@ function switchMode(mode) {
         serialRow.style.display = hideSerial ? 'none' : '';
     }
 
+    // Configure viewer features per mode
+    configureViewerForMode(mode);
+
     // Show/hide offset overlay based on mode
     const overlay = document.getElementById('offset-overlay-canvas');
     if (overlay) {
@@ -119,6 +122,17 @@ function switchMode(mode) {
         }
     }
 
+    // Show/hide focus overlay based on mode
+    const focusOvl = document.getElementById('focus-overlay-canvas');
+    if (focusOvl) {
+        if (mode === 'focuser' && _focusVisible) {
+            focusOvl.style.display = 'block';
+        } else {
+            focusOvl.style.display = 'none';
+        }
+    }
+    if (mode !== 'focuser') clearFocusOverlay();
+
     // Refresh solver status when switching to astrometry
     if (mode === 'astrometry') {
         refreshSolverStatus(1);
@@ -127,6 +141,40 @@ function switchMode(mode) {
     refreshDriverList();
     loadAppletPositions();
     saveUiConfig();
+}
+
+const VIEWER_MODE_CONFIG = {
+    capture:   { title: '◎ CAPTURE — Aperçu',   save: true,  histogram: true,  stretch: true  },
+    focuser:   { title: '◎ FOCUSER — Aperçu',   save: false, histogram: true,  stretch: true  },
+    guiding:   { title: '◎ GUIDAGE — Aperçu',   save: false, histogram: false, stretch: true  },
+    astrometry:{ title: '◎ ASTROMÉTRIE — Aperçu', save: false, histogram: true,  stretch: true  },
+};
+
+function configureViewerForMode(mode) {
+    const cfg = VIEWER_MODE_CONFIG[mode];
+    const titleEl = document.getElementById('viewer-title');
+    if (titleEl && cfg) titleEl.textContent = cfg.title;
+
+    const show = cfg && cfg.histogram;
+
+    // Save button
+    const saveSection = document.getElementById('cap-save-dir')?.closest('.cap-section');
+    if (saveSection) saveSection.style.display = (cfg && cfg.save) ? '' : 'none';
+
+    // Histogram controls — hide individually (they share a flex row with zoom buttons)
+    const histoCanvas = document.getElementById('cap-histo-canvas');
+    const histoSlider = document.getElementById('cap-histo-slider');
+    const histoAuto = document.getElementById('cap-histo-auto');
+    const noirLabel = document.querySelector('.cap-histo-label');
+    const noirVal = document.getElementById('cap-histo-val');
+    const histoRow = document.querySelector('.cap-histo-row');
+
+    if (histoCanvas) histoCanvas.style.display = show ? '' : 'none';
+    if (histoSlider) histoSlider.style.display = show ? '' : 'none';
+    if (histoAuto) histoAuto.style.display = show ? '' : 'none';
+    if (noirLabel) noirLabel.style.display = show ? '' : 'none';
+    if (noirVal) noirVal.style.display = show ? '' : 'none';
+    if (histoRow) histoRow.style.display = show ? '' : 'none';
 }
 
 function initModeBar() {
@@ -167,11 +215,17 @@ function connectWS() {
                 try { renderProps(selectedDevice); } catch (e) { console.error('renderProps:', e); }
             }
             renderCapturePanel();
+            renderFocuserPanel();
             updateSolverHints();
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
-            handleCameraImage(msg.data, msg.format);
+            const guideCam = _guideCameraSelect?.value || '';
+            if (guideCam && msg.device === guideCam && currentMode === 'guiding') {
+                handleGuideImage(msg.data, msg.format);
+            } else {
+                handleCameraImage(msg.data, msg.format);
+            }
         } else if (msg.type === 'solver_result') {
             handleSolverWsResult(msg.result);
         }
@@ -1590,8 +1644,129 @@ function renderCapturePanel() {
 
 // ── FITS image handling ──────────────────────────────────────
 
+function handleGuideImage(b64Data, fmt) {
+    const raw = atob(b64Data);
+    const bytes = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+    if (!(fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53))) return;
+
+    // Quick FITS parse for mini-preview
+    let offset = 0;
+    const decoder = new TextDecoder('ascii');
+    let headerStr = '';
+    while (offset < bytes.length) {
+        const block = decoder.decode(bytes.slice(offset, offset + 2880));
+        headerStr += block;
+        offset += 2880;
+        let foundEnd = false;
+        for (let c = headerStr.length - 2880; c < headerStr.length; c += 80) {
+            if (headerStr.substring(c, c + 3).trim() === 'END') { foundEnd = true; break; }
+        }
+        if (foundEnd) break;
+    }
+    const get = (key) => {
+        for (let i = 0; i < headerStr.length; i += 80) {
+            const card = headerStr.substring(i, i + 80);
+            if (card.substring(0, 8).trim() === key) {
+                const eqIdx = card.indexOf('=');
+                if (eqIdx < 0) continue;
+                let val = card.substring(eqIdx + 1).trim();
+                const slashIdx = val.indexOf('/');
+                if (slashIdx >= 0) val = val.substring(0, slashIdx);
+                val = val.trim().replace(/^['"]|['"]$/g, '');
+                return val.split(/\s+/)[0] || null;
+            }
+        }
+        return null;
+    };
+    const naxis = parseInt(get('NAXIS') || '0');
+    const w = parseInt(get('NAXIS1') || '0');
+    const h = parseInt(get('NAXIS2') || '0');
+    const bitpix = parseInt(get('BITPIX') || '16');
+    if (naxis < 2 || !w || !h) return;
+
+    const dataStart = offset;
+    const remaining = bytes.length - dataStart;
+    const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
+    const pixels = new Float64Array(w * h);
+    if (bitpix === 16) {
+        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
+            pixels[i] = view.getInt16(i * 2, false);
+    } else return;
+
+    let min = Infinity, max = -Infinity;
+    for (let i = 0; i < pixels.length; i++) {
+        if (pixels[i] < min) min = pixels[i];
+        if (pixels[i] > max) max = pixels[i];
+    }
+    const sorted = Float64Array.from(pixels).sort();
+    const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
+    const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
+    const k = Math.max(20, (max - sky) / sigma);
+    const soft = sigma * 0.5;
+
+    const canvas = document.getElementById('guide-star-canvas');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const CW = 120, CH = 120;
+    const bw = Math.round(CW * dpr), bh = Math.round(CH * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, bw, bh);
+
+    // Draw into temp canvas at native res, then scale down
+    const tmp = document.createElement('canvas');
+    tmp.width = w; tmp.height = h;
+    const tctx = tmp.getContext('2d');
+    const imgData = tctx.createImageData(w, h);
+    const data = imgData.data;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const raw = pixels[y * w + x];
+            const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
+            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+            const dst = ((h - 1 - y) * w + x) * 4;
+            data[dst] = val; data[dst+1] = val; data[dst+2] = val; data[dst+3] = 255;
+        }
+    }
+    tctx.putImageData(imgData, 0, 0);
+
+    // Scale to fit bw×bh keeping aspect ratio
+    const scale = Math.min(bw / w, bh / h);
+    const dw = w * scale, dh = h * scale;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tmp, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
+
+    // Target crosshair at center (reference point)
+    const cx = bw / 2, cy = bh / 2;
+    ctx.strokeStyle = 'rgba(0,255,204,0.3)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.beginPath(); ctx.arc(cx, cy, 10 * dpr, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Star centroid crosshair (green solid)
+    const c = _guideLastCentroid;
+    if (c && c.imgW && c.imgH) {
+        const sx = (c.x / c.imgW) * bw;
+        const sy = ((c.imgH - 1 - c.y) / c.imgH) * bh;
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.beginPath(); ctx.moveTo(sx - 6 * dpr, sy); ctx.lineTo(sx + 6 * dpr, sy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(sx, sy - 6 * dpr); ctx.lineTo(sx, sy + 6 * dpr); ctx.stroke();
+        ctx.beginPath(); ctx.arc(sx, sy, 4 * dpr, 0, Math.PI * 2); ctx.stroke();
+    }
+}
+
+let _guideRefSet = false;
+let _guideLastCentroid = null;
+
 function handleCameraImage(b64Data, fmt) {
     clearOffsetOverlay();
+    clearFocusOverlay();
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -1751,6 +1926,7 @@ function renderFITSImage(bytes) {
     showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — sky:${sky.toFixed(1)} σ:${sigma.toFixed(1)} range:[${min.toFixed(0)}..${max.toFixed(0)}]`);
 
     setTimeout(() => {
+        _fitPreviewZoom();
         renderHistogram();
     }, 50);
 
@@ -1771,6 +1947,8 @@ function showPreviewInfo(text) {
     if (info) info.textContent = text;
     // Auto-fit image to viewport
     setTimeout(_fitPreviewZoom, 60);
+    // Compute focus metrics in focuser mode
+    if (currentMode === 'focuser') setTimeout(requestFocusMetrics, 200);
 }
 
 // ── Histogram + preview stretch ────────────────────────────────
@@ -1908,10 +2086,20 @@ function _applyPreviewTransform() {
     canvas.style.transform = t;
     const overlay = document.getElementById('offset-overlay-canvas');
     if (overlay) overlay.style.transform = t;
+    const focusOvl = document.getElementById('focus-overlay-canvas');
+    if (focusOvl) focusOvl.style.transform = t;
     const vp = document.getElementById('cap-preview-viewport');
     if (vp) vp.classList.toggle('zoomed', _previewZoom > 1.05);
     const lvl = document.getElementById('cap-zoom-level');
-    if (lvl) lvl.textContent = Math.round(_previewZoom * 100) + '%';
+    if (lvl) {
+        const txt = Math.round(_previewZoom * 100) + '%';
+        if (lvl.textContent !== txt) {
+            lvl.textContent = txt;
+            lvl.classList.add('flash');
+            clearTimeout(lvl._flashTimer);
+            lvl._flashTimer = setTimeout(() => lvl.classList.remove('flash'), 400);
+        }
+    }
 }
 
 function _resetPreviewZoom() {
@@ -1996,6 +2184,77 @@ function initPreviewZoomPan() {
     vp.addEventListener('pointerup', () => {
         dragging = false;
         vp.classList.remove('panning');
+    });
+
+    // Touch: pinch-to-zoom + single-finger pan
+    let touchState = null;
+    vp.addEventListener('touchstart', (e) => {
+        if (!_histWidth) return;
+        if (e.touches.length === 2) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const rect = vp.getBoundingClientRect();
+            touchState = {
+                mode: 'pinch',
+                startDist: Math.hypot(dx, dy),
+                startZoom: _previewZoom,
+                startPanX: _previewPanX,
+                startPanY: _previewPanY,
+                midX: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
+                midY: (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+            };
+        } else if (e.touches.length === 1 && _previewZoom > 1.05) {
+            if (e.target.closest('.cap-zoom-btn, .cap-histo-auto-btn, input[type=range]')) return;
+            touchState = {
+                mode: 'pan',
+                startX: e.touches[0].clientX,
+                startY: e.touches[0].clientY,
+                startPanX: _previewPanX,
+                startPanY: _previewPanY
+            };
+            vp.classList.add('panning');
+        }
+    }, { passive: false });
+
+    vp.addEventListener('touchmove', (e) => {
+        if (!touchState) return;
+        if (touchState.mode === 'pinch' && e.touches.length === 2) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            const newZoom = Math.max(0.1, Math.min(50, touchState.startZoom * (dist / touchState.startDist)));
+            const scale = newZoom / touchState.startZoom;
+            _previewPanX = touchState.midX - scale * (touchState.midX - touchState.startPanX);
+            _previewPanY = touchState.midY - scale * (touchState.midY - touchState.startPanY);
+            _previewZoom = newZoom;
+            _applyPreviewTransform();
+        } else if (touchState.mode === 'pan' && e.touches.length === 1) {
+            e.preventDefault();
+            _previewPanX = touchState.startPanX + (e.touches[0].clientX - touchState.startX);
+            _previewPanY = touchState.startPanY + (e.touches[0].clientY - touchState.startY);
+            _applyPreviewTransform();
+        }
+    }, { passive: false });
+
+    vp.addEventListener('touchend', (e) => {
+        if (touchState && touchState.mode === 'pan') vp.classList.remove('panning');
+        touchState = null;
+    });
+    vp.addEventListener('touchcancel', () => {
+        if (touchState && touchState.mode === 'pan') vp.classList.remove('panning');
+        touchState = null;
+    });
+
+    // Escape to exit enlarged mode
+    document.addEventListener('keydown', (e) => {
+        if (e.key !== 'Escape') return;
+        const panel = document.getElementById('applet-capture-preview');
+        if (panel && panel.classList.contains('enlarged')) {
+            e.preventDefault();
+            zoomEnlarge?.click();
+        }
     });
 
     // Buttons
@@ -2121,6 +2380,103 @@ function clearOffsetOverlay() {
         ctx.clearRect(0, 0, overlay.width, overlay.height);
         overlay.style.display = 'none';
     }
+}
+
+// ── Focus metrics overlay ──────────────────────────────────────
+
+let _focusStars = [];
+let _focusHFR = 0;
+let _focusFWHM = 0;
+let _focusVisible = false;
+
+function clearFocusOverlay() {
+    _focusVisible = false;
+    _focusStars = [];
+    const overlay = document.getElementById('focus-overlay-canvas');
+    if (overlay) {
+        const ctx = overlay.getContext('2d');
+        ctx.clearRect(0, 0, overlay.width, overlay.height);
+        overlay.style.display = 'none';
+    }
+    const info = document.getElementById('focus-metric-info');
+    if (info) info.textContent = '';
+}
+
+function drawFocusOverlay() {
+    if (!_focusStars.length) return;
+    const overlay = document.getElementById('focus-overlay-canvas');
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!overlay || !canvas) return;
+
+    overlay.width = canvas.width;
+    overlay.height = canvas.height;
+    overlay.style.width = canvas.width + 'px';
+    overlay.style.height = canvas.height + 'px';
+    overlay.style.display = 'block';
+
+    const ctx = overlay.getContext('2d');
+    ctx.clearRect(0, 0, overlay.width, overlay.height);
+
+    // Draw circles on detected stars
+    for (const star of _focusStars) {
+        const r = Math.max(star.hfr || 3, 3);
+        ctx.beginPath();
+        ctx.arc(star.x, star.y, r, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(0,255,204,0.6)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+
+        // Small crosshair at center
+        ctx.beginPath();
+        ctx.moveTo(star.x - 2, star.y);
+        ctx.lineTo(star.x + 2, star.y);
+        ctx.moveTo(star.x, star.y - 2);
+        ctx.lineTo(star.x, star.y + 2);
+        ctx.strokeStyle = 'rgba(0,255,204,0.8)';
+        ctx.lineWidth = 0.5;
+        ctx.stroke();
+    }
+
+    // HFR/FWHM label in top-left
+    const info = document.getElementById('focus-metric-info');
+    if (info) {
+        info.textContent = `HFR: ${_focusHFR.toFixed(1)}px  FWHM: ${_focusFWHM.toFixed(1)}px  ★${_focusStars.length}`;
+    }
+
+    // Sync transform with preview
+    const t = `translate(${_previewPanX}px, ${_previewPanY}px) scale(${_previewZoom})`;
+    overlay.style.transform = t;
+}
+
+function requestFocusMetrics() {
+    if (currentMode !== 'focuser') return;
+    fetch('/api/focuser/focus-metric')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.ok || !data.stars) {
+                clearFocusOverlay();
+                return;
+            }
+            _focusStars = data.stars;
+            _focusHFR = data.hfr;
+            _focusFWHM = data.fwhm;
+            _focusVisible = true;
+            drawFocusOverlay();
+
+            // Record HFR data point for the focus chart
+            const f = findFocuser();
+            const pos = f ? (f.dev.position ?? 0) : 0;
+            _focHfrData.push({
+                step: _focHfrStep++,
+                position: pos,
+                hfr: data.hfr,
+                fwhm: data.fwhm,
+                timestamp: Date.now()
+            });
+            if (_focHfrData.length > 200) _focHfrData.shift();
+            _focDrawHfrChart();
+        })
+        .catch(() => clearFocusOverlay());
 }
 
 function setOffsetTarget(ra, dec) {
@@ -2706,7 +3062,1382 @@ function renderSolverResult(result) {
 function handleSolverWsResult(result) {
     _lastSolverResult = result;
     renderSolverResult(result);
-    if (result.ok) setOffsetSolved(result.ra, result.dec, result.scale, result.rotation);
+    if (result.ok) {
+        setOffsetSolved(result.ra, result.dec, result.scale, result.rotation);
+        updateTargetOffset();
+    }
+    if (_centeringActive) {
+        _centeringStep(result);
+    }
+}
+
+// ── Target centering panel ──────────────────────────────────────
+
+let _nudgeAmount = 1; // arcmin
+let _centeringActive = false;
+let _centeringMaxSteps = 10;
+let _centeringThresholdArcmin = 0.5;
+
+function initTargetPanel() {
+    // Set target from inputs
+    const setBtn = document.getElementById('target-set-btn');
+    if (setBtn) setBtn.addEventListener('click', targetSetFromInputs);
+
+    // GOTO
+    const gotoBtn = document.getElementById('target-goto-btn');
+    if (gotoBtn) gotoBtn.addEventListener('click', targetGoto);
+
+    // Nudge amount buttons
+    document.querySelectorAll('.nudge-amount-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.nudge-amount-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            _nudgeAmount = parseInt(btn.dataset.nudge) || 1;
+        });
+    });
+
+    // Nudge direction buttons
+    document.querySelectorAll('.nudge-dir-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const dra = parseInt(btn.dataset.dra) * _nudgeAmount;
+            const ddec = parseInt(btn.dataset.ddec) * _nudgeAmount;
+            targetNudge(dra, ddec);
+        });
+    });
+
+    // Center button
+    const centerBtn = document.getElementById('target-center-btn');
+    if (centerBtn) centerBtn.addEventListener('click', targetCenterStart);
+
+    // Stop button
+    const stopBtn = document.getElementById('target-stop-btn');
+    if (stopBtn) stopBtn.addEventListener('click', targetCenterStop);
+
+    // Fill RA/DEC from mount position if available
+    _targetAutoFillFromMount();
+}
+
+function _targetAutoFillFromMount() {
+    const m = findMount();
+    const raEl = document.getElementById('target-ra');
+    const decEl = document.getElementById('target-dec');
+    if (m && m.dev.ra_hours != null && raEl && decEl) {
+        raEl.value = decToSexa(m.dev.ra_hours, true);
+        decEl.value = decToSexa(m.dev.dec_deg, false);
+    }
+}
+
+function targetSetFromInputs() {
+    const raStr = document.getElementById('target-ra')?.value;
+    const decStr = document.getElementById('target-dec')?.value;
+    if (!raStr || !decStr) return;
+
+    const raH = sexaToDec(raStr, true);
+    const decD = sexaToDec(decStr, false);
+    if (raH === null || decD === null) {
+        addLog('error', 'target', 'Format invalide. Utilisez HH:MM:SS / ±DD:MM:SS');
+        return;
+    }
+
+    const raDeg = raH * 15;
+    setOffsetTarget(raDeg, decD);
+    addLog('info', 'target', `Cible définie: RA=${raDeg.toFixed(4)}° DEC=${decD.toFixed(4)}°`);
+
+    // Update offset display if we already have a solve
+    updateTargetOffset();
+}
+
+function targetGoto() {
+    const raStr = document.getElementById('target-ra')?.value;
+    const decStr = document.getElementById('target-dec')?.value;
+    if (!raStr || !decStr) return;
+
+    const raH = sexaToDec(raStr, true);
+    const decD = sexaToDec(decStr, false);
+    if (raH === null || decD === null) {
+        addLog('error', 'target', 'Format invalide');
+        return;
+    }
+
+    apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: decD });
+    addLog('info', 'target', `GOTO RA=${raH.toFixed(4)}h DEC=${decD.toFixed(4)}°`);
+
+    // Also set as offset target
+    setOffsetTarget(raH * 15, decD);
+}
+
+function targetNudge(draArcmin, ddecArcmin) {
+    if (_offsetSolvedRA == null || _offsetSolvedDEC == null) {
+        addLog('warning', 'target', 'Pas de résolution — résolvez d\'abord une image');
+        return;
+    }
+
+    // Convert arcmin delta to RA hours / DEC degrees
+    const newRA = _offsetSolvedRA + draArcmin / 60.0;
+    const newDEC = _offsetSolvedDEC + ddecArcmin / 60.0;
+
+    apiPost('/api/mount/slew', { ra_hours: newRA / 15, dec_deg: newDEC });
+    addLog('info', 'target', `Nudge: ΔRA=${draArcmin > 0 ? '+' : ''}${draArcmin}' ΔDEC=${ddecArcmin > 0 ? '+' : ''}${ddecArcmin}'`);
+}
+
+function updateTargetOffset() {
+    if (_offsetTargetRA == null || _offsetSolvedRA == null) return;
+
+    const section = document.getElementById('target-offset-section');
+    if (section) section.style.display = '';
+
+    const deltaRA = (_offsetTargetRA - _offsetSolvedRA) * 60; // arcmin
+    const deltaDEC = (_offsetTargetDEC - _offsetSolvedDEC) * 60; // arcmin
+    const dist = Math.sqrt(deltaRA * deltaRA + deltaDEC * deltaDEC);
+
+    const draEl = document.getElementById('target-dra');
+    const ddecEl = document.getElementById('target-ddec');
+    const distEl = document.getElementById('target-dist');
+    const dirEl = document.getElementById('target-dir');
+
+    if (draEl) {
+        draEl.textContent = `${deltaRA > 0 ? '+' : ''}${deltaRA.toFixed(1)}'`;
+        draEl.style.color = Math.abs(deltaRA) < _centeringThresholdArcmin ? '#00ff88' : '#00ffcc';
+    }
+    if (ddecEl) {
+        ddecEl.textContent = `${deltaDEC > 0 ? '+' : ''}${deltaDEC.toFixed(1)}'`;
+        ddecEl.style.color = Math.abs(deltaDEC) < _centeringThresholdArcmin ? '#00ff88' : '#00ffcc';
+    }
+    if (distEl) {
+        distEl.textContent = dist < 10 ? dist.toFixed(1) + "'" : dist.toFixed(0) + "'";
+        distEl.style.color = dist < _centeringThresholdArcmin ? '#00ff88' : dist < 5 ? '#ffcc00' : '#ff5577';
+    }
+
+    // Direction (compass bearing)
+    if (dirEl) {
+        const angle = (Math.atan2(deltaRA, deltaDEC) * 180 / Math.PI + 360) % 360;
+        const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+        dirEl.textContent = dirs[Math.round(angle / 22.5) % 16];
+    }
+}
+
+// ── Centering loop ──────────────────────────────────────────────
+
+function targetCenterStart() {
+    if (_centeringActive) return;
+
+    if (_offsetTargetRA == null) {
+        addLog('error', 'target', 'Définissez d\'abord une cible');
+        return;
+    }
+
+    _centeringActive = true;
+    _centeringStepNum = 0;
+
+    const centerBtn = document.getElementById('target-center-btn');
+    const stopBtn = document.getElementById('target-stop-btn');
+    const statusSection = document.getElementById('target-center-status');
+    if (centerBtn) centerBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = '';
+    if (statusSection) statusSection.style.display = '';
+
+    addLog('info', 'target', 'Centrage itératif démarré');
+    _centeringNextStep();
+}
+
+function targetCenterStop() {
+    _centeringActive = false;
+    const centerBtn = document.getElementById('target-center-btn');
+    const stopBtn = document.getElementById('target-stop-btn');
+    if (centerBtn) centerBtn.style.display = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+    addLog('info', 'target', 'Centrage arrêté');
+}
+
+let _centeringStepNum = 0;
+
+function _centeringNextStep() {
+    if (!_centeringActive) return;
+
+    _centeringStepNum++;
+    if (_centeringStepNum > _centeringMaxSteps) {
+        addLog('warning', 'target', `Centrage: max ${_centeringMaxSteps} étapes atteint`);
+        targetCenterStop();
+        return;
+    }
+
+    // Update progress
+    const fill = document.getElementById('target-center-fill');
+    const text = document.getElementById('target-center-text');
+    if (fill) fill.style.width = ((_centeringStepNum / _centeringMaxSteps) * 100) + '%';
+    if (text) text.textContent = `Étape ${_centeringStepNum}/${_centeringMaxSteps} — résolution...`;
+
+    // Solve last image
+    solverSolve('last_image');
+}
+
+function _centeringStep(result) {
+    if (!_centeringActive) return;
+
+    if (!result || !result.ok) {
+        addLog('error', 'target', 'Centrage: échec résolution');
+        targetCenterStop();
+        return;
+    }
+
+    updateTargetOffset();
+
+    // Check if close enough
+    if (_offsetTargetRA != null && _offsetSolvedRA != null) {
+        const deltaRA = (_offsetTargetRA - _offsetSolvedRA) * 60;
+        const deltaDEC = (_offsetTargetDEC - _offsetSolvedDEC) * 60;
+        const dist = Math.sqrt(deltaRA * deltaRA + deltaDEC * deltaDEC);
+
+        const text = document.getElementById('target-center-text');
+        if (text) text.textContent = `Étape ${_centeringStepNum} — offset ${dist.toFixed(1)}'`;
+
+        if (dist < _centeringThresholdArcmin) {
+            addLog('info', 'target', `Centrage terminé: offset ${dist.toFixed(2)}' (< ${_centeringThresholdArcmin}')`);
+            targetCenterStop();
+            return;
+        }
+
+        // Nudge mount toward target
+        targetNudge(deltaRA, deltaDEC);
+
+        // Wait for mount to settle then re-solve
+        setTimeout(() => {
+            if (_centeringActive) _centeringNextStep();
+        }, 3000);
+    }
+}
+
+// ── Polar alignment (3-point method) ────────────────────────────
+
+let _polarSolves = [null, null, null]; // { ra, dec, ha }
+let _polarTargets = []; // { ra_hours, dec_deg } for each step
+let _polarSiteLat = 43.952;
+let _polarMode = 'auto'; // 'auto' | 'manual'
+let _polarAutoRunning = false;
+let _polarAbortFlag = false;
+
+function _getLstDeg() {
+    const now = new Date();
+    const jd = (now.getTime() / 86400000) + 2440587.5;
+    const t = (jd - 2451545.0) / 36525.0;
+    let gmst = 280.46061837 + 360.98564736629 * (jd - 2451545.0)
+        + 0.000387933 * t * t - (t * t * t) / 38710000.0;
+    gmst = ((gmst % 360) + 360) % 360;
+    const lng = skyEngine ? skyEngine.siteLng : 1.568;
+    let lst = (gmst + lng) % 360;
+    if (lst < 0) lst += 360;
+    return lst;
+}
+
+function _polarGetAngleDeg() {
+    const el = document.getElementById('polar-angle');
+    const val = el ? parseFloat(el.value) : 30;
+    return Math.max(5, Math.min(120, val || 30));
+}
+
+function _polarComputeTargets() {
+    const lst = _getLstDeg();
+    const lat = skyEngine ? skyEngine.siteLat : _polarSiteLat;
+    const decDeg = 90.0 - lat + 20.0;
+    const angleMin = _polarGetAngleDeg();
+    const haOffsetDeg = angleMin / 4.0; // 1 min RA = 0.25° HA
+    const haOffsets = [0, haOffsetDeg, -haOffsetDeg];
+    _polarTargets = haOffsets.map(haOff => {
+        const raDeg = ((lst - haOff) % 360 + 360) % 360;
+        return { ra_hours: raDeg / 15, dec_deg: decDeg };
+    });
+    return _polarTargets;
+}
+
+function _polarDecToSexa(deg) {
+    const sign = deg < 0 ? '-' : '+';
+    const abs = Math.abs(deg);
+    const d = Math.floor(abs);
+    const mf = (abs - d) * 60;
+    const m = Math.floor(mf);
+    const s = Math.floor((mf - m) * 60);
+    const pad = n => String(n).padStart(2, '0');
+    return `${sign}${pad(d)}°${pad(m)}'${pad(s)}"`;
+}
+
+function _polarRaToSexa(raDeg) {
+    const h = raDeg / 15;
+    const hh = Math.floor(h);
+    const mf = (h - hh) * 60;
+    const mm = Math.floor(mf);
+    const ss = Math.floor((mf - mm) * 60);
+    const pad = n => String(n).padStart(2, '0');
+    return `${pad(hh)}h${pad(mm)}m${pad(ss)}s`;
+}
+
+function initPolarPanel() {
+    // Manual capture buttons
+    document.querySelectorAll('.polar-capture-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const step = parseInt(btn.dataset.step);
+            polarCapture(step);
+        });
+    });
+
+    // Mode toggle
+    document.querySelectorAll('.polar-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            _polarMode = btn.dataset.polarMode;
+            document.querySelectorAll('.polar-mode-btn').forEach(b => b.classList.toggle('active', b === btn));
+            _polarUpdateModeUI();
+        });
+    });
+
+    // Angle input — recompute targets on change
+    const angleEl = document.getElementById('polar-angle');
+    if (angleEl) {
+        angleEl.addEventListener('change', () => {
+            _polarComputeTargets();
+            _polarUpdateTargetDisplay();
+        });
+    }
+
+    // Mount controls
+    const trackBtn = document.getElementById('polar-track-btn');
+    if (trackBtn) trackBtn.addEventListener('click', async () => {
+        try {
+            await fetch('/api/mount/tracking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) });
+            addLog('info', 'polar', 'Tracking activé');
+        } catch (e) { addLog('error', 'polar', `Tracking: ${e.message}`); }
+    });
+    const unparkBtn = document.getElementById('polar-unpark-btn');
+    if (unparkBtn) unparkBtn.addEventListener('click', async () => {
+        try {
+            await fetch('/api/mount/unpark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            addLog('info', 'polar', 'Monture déparquée');
+        } catch (e) { addLog('error', 'polar', `Unpark: ${e.message}`); }
+    });
+    const abortBtn = document.getElementById('polar-abort-btn');
+    if (abortBtn) abortBtn.addEventListener('click', async () => {
+        _polarAbortFlag = true;
+        try {
+            await fetch('/api/mount/abort', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+            addLog('warning', 'polar', 'Arrêt demandé');
+        } catch (e) { addLog('error', 'polar', `Abort: ${e.message}`); }
+    });
+
+    // Start / Stop auto sequence
+    const startBtn = document.getElementById('polar-start-btn');
+    if (startBtn) startBtn.addEventListener('click', _polarAutoSequence);
+    const stopBtn = document.getElementById('polar-stop-btn');
+    if (stopBtn) stopBtn.addEventListener('click', () => { _polarAbortFlag = true; });
+
+    // Recalculate
+    const recalcBtn = document.getElementById('polar-recalc-btn');
+    if (recalcBtn) recalcBtn.addEventListener('click', polarReset);
+
+    // Reset
+    const resetBtn = document.getElementById('polar-reset-btn');
+    if (resetBtn) resetBtn.addEventListener('click', polarReset);
+
+    // Compute initial targets
+    _polarComputeTargets();
+    _polarUpdateTargetDisplay();
+    _polarUpdateModeUI();
+}
+
+function _polarUpdateModeUI() {
+    const isManual = _polarMode === 'manual';
+    document.querySelectorAll('.polar-manual-only').forEach(el => {
+        el.style.display = isManual ? '' : 'none';
+    });
+    const startBtn = document.getElementById('polar-start-btn');
+    if (startBtn) startBtn.style.display = isManual ? 'none' : '';
+}
+
+function _polarUpdateTargetDisplay() {
+    const angleMin = _polarGetAngleDeg();
+    const formatAngle = (m) => {
+        if (m >= 60) return `${(m/60).toFixed(1)}h`;
+        return `${m}min`;
+    };
+    // Update step labels
+    const label1 = document.getElementById('polar-step1-label');
+    const label2 = document.getElementById('polar-step2-label');
+    const label3 = document.getElementById('polar-step3-label');
+    if (label1) label1.textContent = 'Centre (0h)';
+    if (label2) label2.textContent = `+${formatAngle(angleMin)} Est`;
+    if (label3) label3.textContent = `-${formatAngle(angleMin)} Ouest`;
+
+    // Update DEC target
+    const decEl = document.getElementById('polar-dec-target');
+    if (decEl && _polarTargets.length) {
+        decEl.textContent = _polarDecToSexa(_polarTargets[0].dec_deg);
+    }
+
+    // Update target RA/DEC for each step
+    for (let i = 0; i < 3; i++) {
+        const t = _polarTargets[i];
+        if (!t) continue;
+        const raEl = document.getElementById(`polar-s${i+1}-ra`);
+        const decEl = document.getElementById(`polar-s${i+1}-dec`);
+        if (raEl) raEl.textContent = _polarRaToSexa(t.ra_hours * 15);
+        if (decEl) decEl.textContent = _polarDecToSexa(t.dec_deg);
+    }
+}
+
+async function _polarAutoSequence() {
+    if (_polarAutoRunning) return;
+    _polarAutoRunning = true;
+    _polarAbortFlag = false;
+
+    const startBtn = document.getElementById('polar-start-btn');
+    const stopBtn = document.getElementById('polar-stop-btn');
+    if (startBtn) startBtn.style.display = 'none';
+    if (stopBtn) stopBtn.style.display = '';
+
+    const progressSection = document.getElementById('polar-progress');
+    const progressFill = document.getElementById('polar-progress-fill');
+    const progressText = document.getElementById('polar-progress-text');
+    if (progressSection) progressSection.style.display = '';
+
+    // Reset any previous solves
+    polarReset();
+    _polarAutoRunning = true;
+
+    const steps = [
+        'GOTO position centrale',
+        'Capture + résolution #1',
+        'GOTO position Est',
+        'Capture + résolution #2',
+        'GOTO position Ouest',
+        'Capture + résolution #3',
+    ];
+    const totalSteps = steps.length;
+
+    try {
+        // Ensure tracking is on
+        addLog('info', 'polar', 'Séquence auto: activation tracking...');
+        await fetch('/api/mount/tracking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) });
+
+        for (let i = 0; i < 3; i++) {
+            if (_polarAbortFlag) break;
+
+            // Progress: GOTO step
+            const gotoIdx = i * 2;
+            if (progressFill) progressFill.style.width = `${(gotoIdx / totalSteps) * 100}%`;
+            if (progressText) progressText.textContent = steps[gotoIdx];
+
+            await polarCapture(i);
+            if (_polarAbortFlag) break;
+
+            // Progress: solve step
+            const solveIdx = i * 2 + 1;
+            if (progressFill) progressFill.style.width = `${(solveIdx / totalSteps) * 100}%`;
+            if (progressText) progressText.textContent = steps[solveIdx];
+
+            if (!_polarSolves[i]) {
+                if (progressText) progressText.textContent = `Étape ${i+1} échouée — séquence interrompue`;
+                break;
+            }
+        }
+
+        if (!_polarAbortFlag && _polarSolves.every(s => s !== null)) {
+            if (progressFill) progressFill.style.width = '100%';
+            if (progressText) progressText.textContent = 'Terminé — calcul en cours...';
+            polarCompute();
+            if (progressText) progressText.textContent = 'Terminé ✓';
+        } else if (_polarAbortFlag) {
+            if (progressText) progressText.textContent = 'Arrêté par l\'utilisateur';
+        }
+    } catch (e) {
+        addLog('error', 'polar', `Séquence auto: ${e.message}`);
+        if (progressText) progressText.textContent = `Erreur: ${e.message}`;
+    }
+
+    _polarAutoRunning = false;
+    if (startBtn) startBtn.style.display = '';
+    if (stopBtn) stopBtn.style.display = 'none';
+}
+
+async function polarCapture(step) {
+    if (step < 0 || step > 2) return;
+    const target = _polarTargets[step];
+    if (!target) return;
+
+    const statusEl = document.getElementById(`polar-step${step+1}-status`);
+    const stepEl = document.getElementById(`polar-step${step+1}`);
+    if (statusEl) statusEl.textContent = '⟳';
+    if (stepEl) { stepEl.classList.add('polar-step-active'); stepEl.classList.remove('polar-step-done'); }
+
+    // Slew to target
+    addLog('info', 'polar', `Étape ${step+1}/3: GOTO RA=${target.ra_hours.toFixed(4)}h DEC=${target.dec_deg.toFixed(4)}°`);
+    apiPost('/api/mount/slew', { ra_hours: target.ra_hours, dec_deg: target.dec_deg });
+
+    // Wait for mount to settle (poll position)
+    const settled = await _polarWaitSettle(30000);
+    if (!settled) {
+        if (statusEl) statusEl.textContent = '✕';
+        if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
+        addLog('error', 'polar', `Étape ${step+1}: monture n'a pas atteint la position`);
+        return;
+    }
+
+    // Solve
+    addLog('info', 'polar', `Étape ${step+1}/3: résolution en cours...`);
+    try {
+        const result = await fetch('/api/solver/solve', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: 'last_image' }),
+        }).then(r => r.json());
+
+        if (result.ok) {
+            const lst = _getLstDeg();
+            const haDeg = (lst - result.ra + 360) % 360;
+            _polarSolves[step] = { ra: result.ra, dec: result.dec, ha: haDeg };
+            if (statusEl) statusEl.textContent = '✓';
+            if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-done'); }
+            addLog('info', 'polar', `Étape ${step+1}/3: RA=${result.ra.toFixed(4)}° DEC=${result.dec.toFixed(4)}° (${result.matches} étoiles)`);
+
+            // Check if all 3 done
+            if (_polarSolves.every(s => s !== null)) {
+                polarCompute();
+            }
+        } else {
+            if (statusEl) statusEl.textContent = '✕';
+            if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
+            addLog('error', 'polar', `Étape ${step+1}: ${result.error || 'échec résolution'}`);
+        }
+    } catch (e) {
+        if (statusEl) statusEl.textContent = '✕';
+        if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
+        addLog('error', 'polar', `Étape ${step+1}: ${e.message}`);
+    }
+}
+
+function _polarWaitSettle(timeoutMs) {
+    return new Promise(resolve => {
+        const start = Date.now();
+        let lastRA = null, stableCount = 0;
+        const poll = setInterval(async () => {
+            try {
+                const resp = await fetch('/api/mount');
+                const data = await resp.json();
+                const ra = data.ra_hours;
+                if (lastRA !== null && Math.abs(ra - lastRA) < 0.001) {
+                    stableCount++;
+                } else {
+                    stableCount = 0;
+                }
+                lastRA = ra;
+                if (stableCount >= 3) {
+                    clearInterval(poll);
+                    resolve(true);
+                }
+            } catch (e) { /* retry */ }
+            if (Date.now() - start > timeoutMs) {
+                clearInterval(poll);
+                resolve(false);
+            }
+        }, 500);
+    });
+}
+
+function polarCompute() {
+    // Convert solved positions to unit vectors
+    const toRad = d => d * Math.PI / 180;
+    const toDeg = r => r * 180 / Math.PI;
+
+    const vecs = _polarSolves.map(s => {
+        const ra = toRad(s.ra);
+        const dec = toRad(s.dec);
+        return [
+            Math.cos(dec) * Math.cos(ra),
+            Math.cos(dec) * Math.sin(ra),
+            Math.sin(dec)
+        ];
+    });
+
+    // Center of circumscribed circle on sphere
+    // = normalize((u1-u2) × (u1-u3))
+    const sub = (a, b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]];
+    const cross = (a, b) => [
+        a[1]*b[2] - a[2]*b[1],
+        a[2]*b[0] - a[0]*b[2],
+        a[0]*b[1] - a[1]*b[0]
+    ];
+    const norm = v => Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+    const normalize = v => { const n = norm(v); return [v[0]/n, v[1]/n, v[2]/n]; };
+
+    let pole = normalize(cross(sub(vecs[0], vecs[1]), sub(vecs[0], vecs[2])));
+
+    // Ensure pole points to the correct hemisphere
+    if (pole[2] < 0) pole = pole.map(v => -v);
+
+    // Convert pole back to RA/DEC
+    const poleRA = ((toDeg(Math.atan2(pole[1], pole[0])) % 360) + 360) % 360;
+    const poleDEC = toDeg(Math.asin(pole[2]));
+
+    // Error from true pole (DEC=+90°)
+    const errDec = 90.0 - poleDEC; // positive = pole too low (altitude error)
+    // Azimuth error: project offset onto E-W direction at the pole
+    // For northern hemisphere: E-W direction at the pole is along RA
+    const lat = skyEngine ? skyEngine.siteLat : _polarSiteLat;
+    const errAz = errDec * Math.sin(toRad(poleRA)) * Math.cos(toRad(lat));
+
+    // Alternative: use the hour angle of the pole to determine E-W offset
+    const lst = _getLstDeg();
+    const poleHA = ((lst - poleRA) % 360 + 360) % 360;
+    // For small errors, azimuth correction ≈ errDec * sin(HA) * cos(lat)
+    // But a simpler approach: the offset direction on the sky
+    const errAzSimple = (90 - poleDEC) * Math.cos(toRad(poleRA - 0)); // rough E-W component
+
+    // Total error in arcmin
+    const errTotal = Math.sqrt(errDec * errDec + errAz * errAz) * 60;
+
+    // Display
+    const errAltEl = document.getElementById('polar-err-alt');
+    const errAzEl = document.getElementById('polar-err-az');
+    const errTotalEl = document.getElementById('polar-err-total');
+    const poleRAEl = document.getElementById('polar-pole-ra');
+    const poleDecEl = document.getElementById('polar-pole-dec');
+    const arrowAlt = document.getElementById('polar-arrow-alt');
+    const arrowAz = document.getElementById('polar-arrow-az');
+    const resultsEl = document.getElementById('polar-results');
+
+    if (resultsEl) resultsEl.style.display = '';
+    if (errAltEl) {
+        const sign = errDec > 0 ? '↑' : '↓';
+        errAltEl.textContent = `${errDec > 0 ? '+' : ''}${(errDec * 60).toFixed(1)}'`;
+        errAltEl.style.color = Math.abs(errDec * 60) < 2 ? '#00ff88' : '#ffcc00';
+    }
+    if (arrowAlt) arrowAlt.textContent = errDec > 0 ? '↑ trop bas' : '↓ trop haut';
+    if (errAzEl) {
+        errAzEl.textContent = `${errAz > 0 ? '+' : ''}${(errAz * 60).toFixed(1)}'`;
+        errAzEl.style.color = Math.abs(errAz * 60) < 2 ? '#00ff88' : '#ffcc00';
+    }
+    if (arrowAz) arrowAz.textContent = errAz > 0 ? '→ droite' : '← gauche';
+    if (errTotalEl) {
+        errTotalEl.textContent = `${errTotal.toFixed(1)}'`;
+        errTotalEl.style.color = errTotal < 2 ? '#00ff88' : errTotal < 10 ? '#ffcc00' : '#ff5577';
+    }
+    if (poleRAEl) poleRAEl.textContent = _polarRaToSexa(poleRA);
+    if (poleDecEl) poleDecEl.textContent = _polarDecToSexa(poleDEC);
+
+    // Draw correction diagram
+    _polarDrawDiagram(errDec * 60, errAz * 60);
+
+    addLog('info', 'polar', `Pôle trouvé: RA=${poleRA.toFixed(4)}° DEC=${poleDEC.toFixed(4)}° — erreur totale: ${errTotal.toFixed(1)}'`);
+}
+
+function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
+    const canvas = document.getElementById('polar-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const cx = w / 2;
+    const cy = h / 2;
+
+    // Scale: 1 arcmin = 2px, max ±60' → ±120px
+    const scale = 2;
+    const maxErr = Math.max(Math.abs(errAltArcmin), Math.abs(errAzArcmin), 10);
+
+    // Draw crosshairs (true pole)
+    ctx.strokeStyle = 'rgba(0,255,204,0.3)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(cx, 10); ctx.lineTo(cx, h - 10);
+    ctx.moveTo(10, cy); ctx.lineTo(w - 10, cy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // True pole label
+    ctx.fillStyle = 'rgba(0,255,204,0.5)';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Pôle true', cx, 10);
+
+    // Draw found pole offset
+    // errAltArcmin: positive = pole too low (south)
+    // errAzArcmin: positive = pole too far east
+    const dx = errAzArcmin * scale; // E-W
+    const dy = -errAltArcmin * scale; // N-S (canvas Y inverted)
+
+    const poleX = cx + dx;
+    const poleY = cy + dy;
+
+    // Line from true to found
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(poleX, poleY);
+    ctx.stroke();
+
+    // Arrow head
+    const angle = Math.atan2(poleY - cy, poleX - cx);
+    const arrowLen = 10;
+    ctx.fillStyle = '#ffcc00';
+    ctx.beginPath();
+    ctx.moveTo(poleX, poleY);
+    ctx.lineTo(poleX - arrowLen * Math.cos(angle - 0.4), poleY - arrowLen * Math.sin(angle - 0.4));
+    ctx.lineTo(poleX - arrowLen * Math.cos(angle + 0.4), poleY - arrowLen * Math.sin(angle + 0.4));
+    ctx.closePath();
+    ctx.fill();
+
+    // Found pole dot
+    ctx.fillStyle = '#ff5577';
+    ctx.beginPath();
+    ctx.arc(poleX, poleY, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Correction arrows (what the user should do)
+    // To correct: move pole UP by errAlt, move pole LEFT by errAz
+    const corrAlt = -errAltArcmin * scale; // correction direction
+    const corrAz = -errAzArcmin * scale;
+
+    if (Math.abs(corrAlt) > 3) {
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 2]);
+        ctx.beginPath();
+        ctx.moveTo(poleX, poleY);
+        ctx.lineTo(poleX, poleY + corrAlt);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#00ff88';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText('↑ Alt', poleX + 6, poleY + corrAlt / 2);
+    }
+    if (Math.abs(corrAz) > 3) {
+        ctx.strokeStyle = '#00ff88';
+        ctx.lineWidth = 2;
+        ctx.setLineDash([4, 2]);
+        ctx.beginPath();
+        ctx.moveTo(poleX, poleY);
+        ctx.lineTo(poleX + corrAz, poleY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#00ff88';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('Az →', poleX + corrAz / 2, poleY - 8);
+    }
+
+    // Scale bar
+    ctx.fillStyle = 'rgba(255,255,255,0.3)';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${Math.round(30)}'`, 4, h - 4);
+    ctx.strokeStyle = 'rgba(255,255,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(4, h - 14);
+    ctx.lineTo(4 + 30 * scale, h - 14);
+    ctx.stroke();
+}
+
+function polarReset() {
+    _polarSolves = [null, null, null];
+    _polarAbortFlag = false;
+    for (let i = 1; i <= 3; i++) {
+        const statusEl = document.getElementById(`polar-step${i}-status`);
+        const stepEl = document.getElementById(`polar-step${i}`);
+        if (statusEl) statusEl.textContent = '◻';
+        if (stepEl) {
+            stepEl.classList.remove('polar-step-done', 'polar-step-active', 'polar-step-fail');
+        }
+    }
+    const resultsEl = document.getElementById('polar-results');
+    if (resultsEl) resultsEl.style.display = 'none';
+    const progressSection = document.getElementById('polar-progress');
+    const progressFill = document.getElementById('polar-progress-fill');
+    const progressText = document.getElementById('polar-progress-text');
+    if (progressSection) progressSection.style.display = 'none';
+    if (progressFill) progressFill.style.width = '0%';
+    if (progressText) progressText.textContent = 'Prêt';
+    _polarComputeTargets();
+    _polarUpdateTargetDisplay();
+    addLog('info', 'polar', 'Reset — prêt pour une nouvelle séquence');
+}
+
+// ── Focuser panel ─────────────────────────────────────────────
+
+const _focHistory = [];
+let _focHistoryTimer = null;
+const _focHfrData = [];    // [{step, position, hfr, fwhm, timestamp}]
+let _focHfrStep = 0;
+
+let _selectedFocCamera = '';
+let _focCameraSelect = null;
+
+// Autofocus state
+let _afStartBtn = null, _afStopBtn = null;
+let _afProgressBar = null, _afProgressText = null, _afStatusText = null;
+let _afProgressWrap = null, _afResult = null;
+let _afBestPos = null, _afBestHfr = null;
+let _afVcurveCanvas = null;
+let _afRunning = false;
+let _afPositions = [];
+let _afResults = [];
+let _afIndex = 0;
+let _afTimer = null;
+let _afExposureSec = 1.0;
+
+// Guide state
+let _guideRunning = false;
+let _guideTimer = null;
+let _guideDriftHistory = [];
+let _guideDriftCanvas = null;
+let _guideStartBtn = null, _guideStopBtn = null, _guidePauseBtn = null;
+let _guideFrameCountEl = null, _guideDriftRAEl = null, _guideDriftDECEl = null;
+let _guideCorrRAEl = null, _guideCorrDECEl = null;
+let _guideCameraSelect = null;
+
+function findFocuser() {
+    for (const [name, dev] of Object.entries(devices)) {
+        if (dev.type === 'focuser') return { name, dev };
+    }
+    return null;
+}
+
+function renderFocuserPanel() {
+    const f = findFocuser();
+    const posEl = document.getElementById('foc-pos-current');
+    const tgtEl = document.getElementById('foc-pos-target');
+    const dotEl = document.getElementById('foc-moving-dot');
+    const barEl = document.getElementById('foc-pos-bar');
+    const speedEl = document.getElementById('foc-speed-input');
+    if (!posEl) return;
+
+    if (!f) {
+        posEl.textContent = '—';
+        tgtEl.textContent = '—';
+        dotEl.textContent = '●';
+        dotEl.className = 'foc-idle';
+        if (barEl) barEl.style.width = '0%';
+        return;
+    }
+
+    posEl.textContent = f.dev.position ?? '—';
+    tgtEl.textContent = f.dev.target_position ?? '—';
+    if (f.dev.is_moving) {
+        dotEl.textContent = '●';
+        dotEl.className = 'foc-moving';
+    } else {
+        dotEl.textContent = '●';
+        dotEl.className = 'foc-idle';
+    }
+
+    // Position bar (relative to target if known, else static)
+    if (barEl) {
+        if (f.dev.target_position != null && f.dev.position != null) {
+            const min = Math.min(f.dev.position, f.dev.target_position);
+            const max = Math.max(f.dev.position, f.dev.target_position);
+            const range = max - min || 1;
+            const pct = Math.abs(f.dev.position - f.dev.target_position) / range * 100;
+            barEl.style.width = (f.dev.is_moving ? pct : 0) + '%';
+            barEl.style.background = f.dev.is_moving ? '#00ffcc' : 'rgba(0,255,204,0.3)';
+        } else {
+            barEl.style.width = '0%';
+        }
+    }
+
+    // Sync speed input (only if not focused)
+    if (speedEl && document.activeElement !== speedEl && f.dev.speed != null) {
+        speedEl.value = f.dev.speed;
+    }
+
+    _focHistory.push(f.dev.position ?? 0);
+    if (_focHistory.length > 100) _focHistory.shift();
+    _focDrawHistory();
+}
+
+function _focDrawHistory() {
+    const canvas = document.getElementById('foc-history-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    if (_focHistory.length < 2) return;
+
+    const min = Math.min(..._focHistory);
+    const max = Math.max(..._focHistory);
+    const range = max - min || 1;
+    const step = w / (_focHistory.length - 1);
+
+    ctx.beginPath();
+    ctx.strokeStyle = 'rgba(0,255,204,0.4)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < _focHistory.length; i++) {
+        const x = i * step;
+        const y = h - 4 - ((_focHistory[i] - min) / range) * (h - 8);
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+}
+
+function _focDrawHfrChart() {
+    const canvas = document.getElementById('foc-hfr-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const countEl = document.getElementById('foc-hfr-count');
+    const bestEl = document.getElementById('foc-hfr-best');
+    if (countEl) countEl.textContent = _focHfrData.length;
+
+    if (_focHfrData.length === 0) {
+        if (bestEl) bestEl.textContent = '—';
+        return;
+    }
+
+    const hfrs = _focHfrData.map(d => d.hfr);
+    const min = Math.min(...hfrs);
+    const max = Math.max(...hfrs);
+    const range = max - min || 1;
+    const pad = 20;
+    const plotW = w - pad * 2;
+    const plotH = h - pad * 2;
+    const bestIdx = hfrs.indexOf(min);
+
+    if (bestEl) bestEl.textContent = min.toFixed(1) + 'px';
+
+    // Y axis labels
+    ctx.fillStyle = '#666';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(max.toFixed(1), pad - 3, pad + 4);
+    ctx.fillText(min.toFixed(1), pad - 3, h - pad + 4);
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+        const y = pad + (plotH * i) / 4;
+        ctx.beginPath();
+        ctx.moveTo(pad, y);
+        ctx.lineTo(w - pad, y);
+        ctx.stroke();
+    }
+
+    // Data line
+    if (_focHfrData.length >= 2) {
+        const xStep = plotW / (_focHfrData.length - 1);
+        ctx.beginPath();
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 1.5;
+        for (let i = 0; i < _focHfrData.length; i++) {
+            const x = pad + i * xStep;
+            const y = pad + plotH - ((hfrs[i] - min) / range) * plotH;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+
+    // Data points + best marker
+    const xStep = _focHfrData.length > 1 ? plotW / (_focHfrData.length - 1) : 0;
+    for (let i = 0; i < _focHfrData.length; i++) {
+        const x = pad + i * xStep;
+        const y = pad + plotH - ((hfrs[i] - min) / range) * plotH;
+
+        if (i === bestIdx) {
+            // Best point: filled cyan diamond
+            ctx.fillStyle = '#00ffcc';
+            ctx.beginPath();
+            ctx.moveTo(x, y - 5);
+            ctx.lineTo(x + 5, y);
+            ctx.lineTo(x, y + 5);
+            ctx.lineTo(x - 5, y);
+            ctx.closePath();
+            ctx.fill();
+        } else {
+            // Normal point: small dot
+            ctx.fillStyle = 'rgba(0,255,204,0.6)';
+            ctx.beginPath();
+            ctx.arc(x, y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
+    // Position labels on X axis (show first and last)
+    ctx.fillStyle = '#666';
+    ctx.font = '8px monospace';
+    ctx.textAlign = 'left';
+    if (_focHfrData.length > 0) {
+        ctx.fillText('pos:' + _focHfrData[0].position, pad, h - 2);
+        if (_focHfrData.length > 1) {
+            ctx.textAlign = 'right';
+            ctx.fillText('pos:' + _focHfrData[_focHfrData.length - 1].position, w - pad, h - 2);
+        }
+    }
+}
+
+// ── Camera selector for focuser ─────────────────────────────
+
+function _refreshCameraList() {
+    fetch('/api/cameras').then(r => r.json()).then(cameras => {
+        if (!_focCameraSelect) return;
+        const prev = _focCameraSelect.value;
+        _focCameraSelect.innerHTML = '<option value="">— aucune —</option>';
+        for (const c of cameras) {
+            const opt = document.createElement('option');
+            opt.value = c.name;
+            opt.textContent = c.name + (c.connected ? '' : ' (déco)');
+            _focCameraSelect.appendChild(opt);
+        }
+        if (prev && [..._focCameraSelect.options].some(o => o.value === prev)) {
+            _focCameraSelect.value = prev;
+        }
+    }).catch(() => {});
+}
+
+function _getSelectedCamera() {
+    return _selectedFocCamera || '';
+}
+
+// ── Autofocus sequence ──────────────────────────────────────
+
+async function _autofocusStart() {
+    if (_afRunning) return;
+    const f = findFocuser();
+    if (!f) { addLog('error', 'autofocus', 'Aucun focuser trouvé'); return; }
+
+    const range = parseInt(document.getElementById('af-range')?.value || '2000');
+    const points = parseInt(document.getElementById('af-points')?.value || '25');
+    const center = f.dev.position ?? 0;
+
+    _afRunning = true;
+    _afResults = [];
+    _afIndex = 0;
+    _afPositions = [];
+    if (_afStartBtn) _afStartBtn.disabled = true;
+    if (_afStopBtn) _afStopBtn.disabled = false;
+    if (_afProgressWrap) _afProgressWrap.style.display = '';
+    if (_afResult) _afResult.style.display = 'none';
+
+    // Start autofocus on server
+    const res = await fetch('/api/focuser/autofocus/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ center, range, points })
+    }).then(r => r.json()).catch(() => null);
+
+    if (!res?.ok) {
+        addLog('error', 'autofocus', res?.error || 'Échec démarrage');
+        _autofocusCleanup();
+        return;
+    }
+    _afPositions = res.positions || [];
+    _afExposureSec = 1.0;
+    addLog('info', 'autofocus', `V-curve: ${_afPositions.length} points, centre=${center}, plage=±${range}`);
+    _autofocusStep();
+}
+
+async function _autofocusStep() {
+    if (!_afRunning || _afIndex >= _afPositions.length) {
+        _autofocusFinish();
+        return;
+    }
+    const pos = _afPositions[_afIndex];
+    const total = _afPositions.length;
+
+    if (_afProgressText) _afProgressText.textContent = `${_afIndex + 1}/${total}`;
+    if (_afProgressBar) _afProgressBar.style.width = `${((_afIndex) / total) * 100}%`;
+    if (_afStatusText) _afStatusText.textContent = `→ ${pos}`;
+    _autofocusDrawVcurve();
+
+    // Move focuser
+    await fetch('/api/focuser/move', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: pos })
+    }).then(r => r.json()).catch(() => {});
+
+    // Wait for focuser to arrive
+    const arrived = await _autofocusWaitFocuser(pos, 15000);
+    if (!arrived) { _autofocusAbort('Focuser non arrivé à ' + pos); return; }
+
+    // Expose (short exposure)
+    if (_afStatusText) _afStatusText.textContent = `Expose ${pos}`;
+    await fetch('/api/camera/expose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: _getSelectedCamera(), duration: _afExposureSec })
+    }).then(r => r.json()).catch(() => {});
+
+    // Wait for image
+    const imgReady = await _autofocusWaitImage(30000);
+    if (!imgReady) { _autofocusAbort('Pas d\'image reçue'); return; }
+
+    // Measure HFR
+    if (_afStatusText) _afStatusText.textContent = `Mesure ${pos}`;
+    const metric = await fetch('/api/focuser/focus-metric' + (_getSelectedCamera() ? `?device=${encodeURIComponent(_getSelectedCamera())}` : ''))
+        .then(r => r.json()).catch(() => null);
+
+    if (!metric?.ok) { _autofocusAbort('Focus metric failed'); return; }
+
+    // Record step
+    await fetch('/api/focuser/autofocus/step', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: pos, hfr: metric.hfr, fwhm: metric.fwhm })
+    }).then(r => r.json()).catch(() => {});
+
+    _afResults.push({ position: pos, hfr: metric.hfr, fwhm: metric.fwhm });
+    _autofocusDrawVcurve();
+    _afIndex++;
+
+    // Also record in HFR history
+    _focHfrData.push({
+        step: _focHfrStep++,
+        position: pos,
+        hfr: metric.hfr,
+        fwhm: metric.fwhm,
+        timestamp: Date.now()
+    });
+    if (_focHfrData.length > 200) _focHfrData.shift();
+    _focDrawHfrChart();
+
+    // Next step
+    setTimeout(() => _autofocusStep(), 100);
+}
+
+async function _autofocusWaitFocuser(targetPos, timeoutMs) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        const f = findFocuser();
+        if (f && !f.dev.is_moving) return true;
+        await new Promise(r => setTimeout(r, 300));
+    }
+    return false;
+}
+
+async function _autofocusWaitImage(timeoutMs) {
+    const cam = _getSelectedCamera();
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        // Check if capture-preview has new data (simplified: just wait)
+        await new Promise(r => setTimeout(r, 500));
+        // For now, we trust the server timing. In a real flow we'd poll WS for BLOB ready.
+        return true;
+    }
+    return false;
+}
+
+async function _autofocusFinish() {
+    if (_afStatusText) _afStatusText.textContent = 'Analyse...';
+    const res = await fetch('/api/focuser/autofocus/finish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+    }).then(r => r.json()).catch(() => null);
+
+    if (res?.ok) {
+        if (_afBestPos) _afBestPos.textContent = res.best_position;
+        if (_afBestHfr) _afBestHfr.textContent = res.best_hfr ? res.best_hfr.toFixed(2) : '—';
+        if (_afResult) _afResult.style.display = '';
+        if (_afProgressBar) _afProgressBar.style.width = '100%';
+        addLog('info', 'autofocus', `Meilleur point: pos=${res.best_position}, HFR=${res.best_hfr ? res.best_hfr.toFixed(2) : '—'}`);
+    } else {
+        addLog('error', 'autofocus', res?.error || 'Analyse V-curve échouée');
+    }
+    _autofocusDrawVcurve();
+    _autofocusCleanup();
+}
+
+function _autofocusAbort(msg) {
+    addLog('error', 'autofocus', msg);
+    fetch('/api/focuser/autofocus/stop', { method: 'POST' }).catch(() => {});
+    _autofocusCleanup();
+}
+
+async function _autofocusStop() {
+    if (!_afRunning) return;
+    _afRunning = false;
+    if (_afTimer) { clearTimeout(_afTimer); _afTimer = null; }
+    await fetch('/api/focuser/autofocus/stop', { method: 'POST' }).catch(() => {});
+    addLog('warning', 'autofocus', 'Arrêté par l\'utilisateur');
+    _autofocusCleanup();
+}
+
+function _autofocusCleanup() {
+    _afRunning = false;
+    if (_afStartBtn) _afStartBtn.disabled = false;
+    if (_afStopBtn) _afStopBtn.disabled = true;
+}
+
+function _autofocusDrawVcurve() {
+    const canvas = _afVcurveCanvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const w = canvas.width, h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+
+    if (_afResults.length < 2) {
+        ctx.fillStyle = '#555';
+        ctx.font = '11px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText('En attente de données...', w / 2, h / 2);
+        return;
+    }
+
+    const pad = 30;
+    const positions = _afResults.map(r => r.position);
+    const hfrs = _afResults.map(r => r.hfr);
+    const minPos = Math.min(...positions), maxPos = Math.max(...positions);
+    const minHfr = Math.min(...hfrs), maxHfr = Math.max(...hfrs);
+    const posRange = maxPos - minPos || 1;
+    const hfrRange = (maxHfr - minHfr) || 1;
+
+    // Grid
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i <= 4; i++) {
+        const y = pad + (h - 2 * pad) * (i / 4);
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+    }
+
+    // Data points
+    ctx.strokeStyle = '#00ccff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let i = 0; i < _afResults.length; i++) {
+        const x = pad + ((positions[i] - minPos) / posRange) * (w - 2 * pad);
+        const y = pad + ((hfrs[i] - minHfr) / hfrRange) * (h - 2 * pad);
+        if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Dots
+    for (let i = 0; i < _afResults.length; i++) {
+        const x = pad + ((positions[i] - minPos) / posRange) * (w - 2 * pad);
+        const y = pad + ((hfrs[i] - minHfr) / hfrRange) * (h - 2 * pad);
+        ctx.fillStyle = '#00ffcc';
+        ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Best point
+    if (_afResults.length >= 3) {
+        let bestI = 0;
+        for (let i = 1; i < _afResults.length; i++) {
+            if (_afResults[i].hfr < _afResults[bestI].hfr) bestI = i;
+        }
+        const bx = pad + ((positions[bestI] - minPos) / posRange) * (w - 2 * pad);
+        const by = pad + ((hfrs[bestI] - minHfr) / hfrRange) * (h - 2 * pad);
+        ctx.strokeStyle = '#ff4444';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#ff4444';
+        ctx.font = '9px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(positions[bestI], bx, by - 10);
+    }
+
+    // Axis labels
+    ctx.fillStyle = '#555';
+    ctx.font = '9px monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${minPos}`, pad, h - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(`${maxPos}`, w - pad, h - 4);
+    ctx.textAlign = 'right';
+    ctx.fillText(minHfr.toFixed(1), pad - 4, pad + 4);
+    ctx.fillText(maxHfr.toFixed(1), pad - 4, h - pad + 4);
+}
+
+function initFocuserPanel() {
+    document.querySelectorAll('.foc-rel').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const steps = parseInt(btn.dataset.steps);
+            const dir = steps > 0 ? 'OUT' : 'IN';
+            apiPost('/api/focuser/move_relative', { direction: dir, steps: Math.abs(steps) });
+        });
+    });
+
+    const goBtn = document.getElementById('foc-abs-go');
+    if (goBtn) {
+        goBtn.addEventListener('click', () => {
+            const input = document.getElementById('foc-abs-input');
+            const pos = parseInt(input?.value);
+            if (!isNaN(pos)) {
+                apiPost('/api/focuser/move', { position: pos });
+                input.value = '';
+            }
+        });
+    }
+
+    const absInput = document.getElementById('foc-abs-input');
+    if (absInput) {
+        absInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                goBtn?.click();
+            }
+        });
+    }
+
+    const haltBtn = document.getElementById('foc-halt-btn');
+    if (haltBtn) {
+        haltBtn.addEventListener('click', () => {
+            apiPost('/api/focuser/halt');
+        });
+    }
+
+    // Speed control
+    const speedSet = document.getElementById('foc-speed-set');
+    const speedInput = document.getElementById('foc-speed-input');
+    if (speedSet && speedInput) {
+        const sendSpeed = () => {
+            const val = parseInt(speedInput.value);
+            if (!isNaN(val) && val > 0) apiPost('/api/focuser/speed', { speed: val });
+        };
+        speedSet.addEventListener('click', sendSpeed);
+        speedInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); sendSpeed(); }
+        });
+    }
+
+    // HFR chart reset
+    const hfrReset = document.getElementById('foc-hfr-reset');
+    if (hfrReset) {
+        hfrReset.addEventListener('click', () => {
+            _focHfrData.length = 0;
+            _focHfrStep = 0;
+            _focDrawHfrChart();
+            clearFocusOverlay();
+        });
+    }
+
+    // Camera selector for focuser mode
+    _focCameraSelect = document.getElementById('foc-camera-select');
+    if (_focCameraSelect) {
+        _refreshCameraList();
+        _focCameraSelect.addEventListener('change', () => {
+            _selectedFocCamera = _focCameraSelect.value;
+            addLog('info', 'focuser', `Caméra: ${_selectedFocCamera || 'aucune'}`);
+        });
+    }
+
+    // Autofocus wiring
+    _afStartBtn = document.getElementById('af-start');
+    _afStopBtn = document.getElementById('af-stop');
+    _afProgressBar = document.getElementById('af-progress-bar');
+    _afProgressText = document.getElementById('af-progress-text');
+    _afStatusText = document.getElementById('af-status-text');
+    _afProgressWrap = document.getElementById('af-progress-wrap');
+    _afResult = document.getElementById('af-result');
+    _afBestPos = document.getElementById('af-best-pos');
+    _afBestHfr = document.getElementById('af-best-hfr');
+    _afVcurveCanvas = document.getElementById('af-vcurve-canvas');
+
+    if (_afStartBtn) {
+        _afStartBtn.addEventListener('click', _autofocusStart);
+    }
+    if (_afStopBtn) {
+        _afStopBtn.addEventListener('click', _autofocusStop);
+    }
 }
 
 // ── Sky engine init ───────────────────────────────────────────
@@ -2765,6 +4496,300 @@ async function initSkyEngine() {
     const lonEl = document.getElementById('obs-lon');
     if (latEl) latEl.value = siteLat;
     if (lonEl) lonEl.value = siteLng;
+}
+
+// ── Guide (autoguidage) ─────────────────────────────────────
+
+function initGuidePanel() {
+    _guideDriftCanvas = document.getElementById('guide-drift-canvas');
+    _guideStartBtn = document.getElementById('guide-start-btn');
+    _guideStopBtn = document.getElementById('guide-stop-btn');
+    _guidePauseBtn = document.getElementById('guide-pause-btn');
+    _guideFrameCountEl = document.getElementById('guide-frame-count');
+    _guideDriftRAEl = document.getElementById('guide-drift-ra');
+    _guideDriftDECEl = document.getElementById('guide-drift-dec');
+    _guideCorrRAEl = document.getElementById('guide-corr-ra');
+    _guideCorrDECEl = document.getElementById('guide-corr-dec');
+    _guideCameraSelect = document.getElementById('guide-camera-select');
+
+    if (_guideCameraSelect) {
+        _refreshGuideCameraList();
+    }
+
+    const aggrSlider = document.getElementById('guide-aggressiveness');
+    const aggrVal = document.getElementById('guide-aggr-val');
+    if (aggrSlider && aggrVal) {
+        aggrSlider.addEventListener('input', () => {
+            aggrVal.textContent = aggrSlider.value;
+        });
+    }
+
+    if (_guideStartBtn) _guideStartBtn.addEventListener('click', _guideStart);
+    if (_guideStopBtn) _guideStopBtn.addEventListener('click', _guideStop);
+    if (_guidePauseBtn) _guidePauseBtn.addEventListener('click', _guidePause);
+
+    const resetBtn = document.getElementById('guide-reset-btn');
+    if (resetBtn) resetBtn.addEventListener('click', _guideReset);
+}
+
+function _refreshGuideCameraList() {
+    fetch('/api/cameras').then(r => r.json()).then(cameras => {
+        if (!_guideCameraSelect) return;
+        const prev = _guideCameraSelect.value;
+        _guideCameraSelect.innerHTML = '<option value="">— aucune —</option>';
+        for (const c of cameras) {
+            const opt = document.createElement('option');
+            opt.value = c.name;
+            opt.textContent = c.name + (c.connected ? '' : ' (déco)');
+            _guideCameraSelect.appendChild(opt);
+        }
+        if (prev && [..._guideCameraSelect.options].some(o => o.value === prev)) {
+            _guideCameraSelect.value = prev;
+        }
+    }).catch(() => {});
+}
+
+async function _guideStart() {
+    if (_guideRunning) return;
+    const cam = _guideCameraSelect?.value;
+    if (!cam) { addLog('error', 'guide', 'Sélectionnez une caméra guide'); return; }
+
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    const aggr = parseFloat(document.getElementById('guide-aggressiveness')?.value || '0.8');
+    const raGain = parseFloat(document.getElementById('guide-ra-gain')?.value || '1.0');
+    const decGain = parseFloat(document.getElementById('guide-dec-gain')?.value || '1.0');
+    const maxPulse = parseInt(document.getElementById('guide-max-pulse')?.value || '2000');
+
+    _guideRunning = true;
+    _guideDriftHistory = [];
+    if (_guideStartBtn) _guideStartBtn.disabled = true;
+    if (_guideStopBtn) _guideStopBtn.disabled = false;
+    if (_guidePauseBtn) _guidePauseBtn.disabled = false;
+
+    const res = await fetch('/api/guide/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            exposure, aggressiveness: aggr,
+            ra_gain: raGain, dec_gain: decGain,
+            max_pulse_ms: maxPulse
+        })
+    }).then(r => r.json()).catch(() => null);
+
+    if (!res?.ok) {
+        addLog('error', 'guide', res?.error || 'Échec démarrage');
+        _guideCleanup();
+        return;
+    }
+    addLog('info', 'guide', `Guidage démarré: expo=${exposure}s aggr=${aggr}`);
+    _guideLoop();
+}
+
+async function _guideLoop() {
+    if (!_guideRunning) return;
+    const cam = _guideCameraSelect?.value || '';
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+
+    // Expose guide camera
+    apiPost('/api/camera/expose', { device: cam, duration: exposure });
+
+    // Wait for image
+    await new Promise(r => setTimeout(r, Math.max(500, exposure * 1000 + 500)));
+
+    // Measure star centroid via focus-metric
+    const metricUrl = '/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : '');
+    const metric = await fetch(metricUrl).then(r => r.json()).catch(() => null);
+
+    if (metric?.ok && metric.stars?.length > 0) {
+        const star = metric.stars[0];
+        const x = star.x;
+        const y = star.y;
+        _guideLastCentroid = { x, y, imgW: metric.width || null, imgH: metric.height || null };
+
+        // Report to guide backend
+        const step = await fetch('/api/guide/step', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x, y })
+        }).then(r => r.json()).catch(() => null);
+
+        if (step?.ok) {
+            _guideRefSet = step.ref_set;
+            _guideUpdateUI(step);
+
+            // Send correction pulses to mount
+            if (step.ra_pulse_ms > 0 && step.ra_direction) {
+                const dir = step.ra_direction === 'E' ? 'EAST' : 'WEST';
+                apiPost('/api/mount/move', { direction: dir, rate: 'Guide' });
+                setTimeout(() => apiPost('/api/mount/halt'), step.ra_pulse_ms);
+            }
+            if (step.dec_pulse_ms > 0 && step.dec_direction) {
+                const dir = step.dec_direction === 'N' ? 'NORTH' : 'SOUTH';
+                apiPost('/api/mount/move', { direction: dir, rate: 'Guide' });
+                setTimeout(() => apiPost('/api/mount/halt'), step.dec_pulse_ms);
+            }
+        }
+    }
+
+    // Next frame
+    if (_guideRunning) {
+        _guideTimer = setTimeout(() => _guideLoop(), 200);
+    }
+}
+
+function _guideUpdateUI(status) {
+    if (_guideFrameCountEl) _guideFrameCountEl.textContent = status.frame_count;
+    if (_guideDriftRAEl) _guideDriftRAEl.textContent = status.drift_arcsec_x?.toFixed(1) ?? '0.0';
+    if (_guideDriftDECEl) _guideDriftDECEl.textContent = status.drift_arcsec_y?.toFixed(1) ?? '0.0';
+    if (_guideCorrRAEl) _guideCorrRAEl.textContent = `${status.ra_pulse_ms}ms ${status.ra_direction || '—'}`;
+    if (_guideCorrDECEl) _guideCorrDECEl.textContent = `${status.dec_pulse_ms}ms ${status.dec_direction || '—'}`;
+
+    if (status.history) {
+        _guideDriftHistory = status.history;
+        _guideDrawDrift();
+    }
+}
+
+let _guideDriftLastCSSW = 0, _guideDriftLastCSSH = 0;
+
+function _guideDrawDrift() {
+    const canvas = _guideDriftCanvas;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const dw = canvas.clientWidth;
+    const dh = canvas.clientHeight;
+    if (!dw || !dh) return;
+    const bw = Math.round(dw * dpr);
+    const bh = Math.round(dh * dpr);
+    if (canvas.width !== bw || canvas.height !== bh || dw !== _guideDriftLastCSSW || dh !== _guideDriftLastCSSH) {
+        canvas.width = bw;
+        canvas.height = bh;
+        _guideDriftLastCSSW = dw;
+        _guideDriftLastCSSH = dh;
+    }
+    const ctx = canvas.getContext('2d');
+    const w = bw, h = bh;
+    ctx.clearRect(0, 0, w, h);
+
+    const hist = _guideDriftHistory;
+    const pad = 30;
+    const midY = h / 2;
+    const yMax = 5.0; // Fixed ±5 arcsec scale for now
+
+    // Grid lines
+    ctx.strokeStyle = '#1a1a2e';
+    ctx.lineWidth = 0.5 * dpr;
+    for (let i = -2; i <= 2; i++) {
+        const y = midY + (i / 2) * (midY - pad);
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+    }
+
+    // Zero line (target)
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(w - pad, midY); ctx.stroke();
+
+    // Tolerance zone ±2 arcsec
+    const tol = 2.0 / yMax * (midY - pad);
+    ctx.fillStyle = 'rgba(255,68,68,0.08)';
+    ctx.fillRect(pad, midY - tol, w - 2 * pad, tol * 2);
+    ctx.strokeStyle = 'rgba(255,68,68,0.5)';
+    ctx.lineWidth = 1 * dpr;
+    ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.beginPath(); ctx.moveTo(pad, midY - tol); ctx.lineTo(w - pad, midY - tol); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(pad, midY + tol); ctx.lineTo(w - pad, midY + tol); ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (hist.length < 1) {
+        ctx.fillStyle = '#555';
+        ctx.font = `${11 * dpr}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('En attente de données...', w / 2, midY);
+        return;
+    }
+
+    // Sliding window: show last N points that fit
+    const maxPoints = Math.floor((w - 2 * pad) / 3); // 3px per point min
+    const startIdx = Math.max(0, hist.length - maxPoints);
+    const visible = hist.slice(startIdx);
+    const xStep = visible.length > 1 ? (w - 2 * pad) / (visible.length - 1) : 0;
+
+    function drawLine(data, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < data.length; i++) {
+            const x = pad + i * xStep;
+            const y = midY - (data[i] / yMax) * (midY - pad);
+            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // Draw last point dot
+        if (data.length > 0) {
+            const lx = pad + (data.length - 1) * xStep;
+            const ly = midY - (data[data.length - 1] / yMax) * (midY - pad);
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(lx, ly, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+        }
+    }
+
+    const raDrifts = visible.map(d => d.drift_arcsec_x);
+    const decDrifts = visible.map(d => d.drift_arcsec_y);
+
+    drawLine(raDrifts, '#44cc44');  // AD = vert
+    drawLine(decDrifts, '#4488ff');  // DEC = bleu
+
+    // Y axis labels
+    ctx.fillStyle = '#555';
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.fillText(`+${yMax.toFixed(0)}″`, pad - 4 * dpr, pad + 2 * dpr);
+    ctx.fillText(`-${yMax.toFixed(0)}″`, pad - 4 * dpr, h - pad + 2 * dpr);
+    ctx.fillText('0', pad - 4 * dpr, midY + 3 * dpr);
+
+    // X axis
+    ctx.textAlign = 'left';
+    ctx.fillText(`#${startIdx + 1}`, pad, h - 4 * dpr);
+    ctx.textAlign = 'right';
+    ctx.fillText(`#${hist.length}`, w - pad, h - 4 * dpr);
+}
+
+async function _guideStop() {
+    _guideRunning = false;
+    _guideRefSet = false;
+    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
+    await fetch('/api/guide/stop', { method: 'POST' }).catch(() => {});
+    addLog('warning', 'guide', 'Guidage arrêté');
+    _guideCleanup();
+}
+
+async function _guidePause() {
+    if (!_guideRunning) return;
+    _guideRunning = false;
+    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
+    await fetch('/api/guide/pause', { method: 'POST' }).catch(() => {});
+    addLog('info', 'guide', 'Guidage en pause');
+    if (_guideStartBtn) _guideStartBtn.disabled = false;
+    if (_guideStopBtn) _guideStopBtn.disabled = true;
+    if (_guidePauseBtn) _guidePauseBtn.disabled = true;
+}
+
+async function _guideReset() {
+    _guideRunning = false;
+    _guideRefSet = false;
+    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
+    await fetch('/api/guide/reset', { method: 'POST' }).catch(() => {});
+    _guideDriftHistory = [];
+    _guideDrawDrift();
+    _guideCleanup();
+    addLog('info', 'guide', 'Guidage réinitialisé');
+}
+
+function _guideCleanup() {
+    _guideRunning = false;
+    if (_guideStartBtn) _guideStartBtn.disabled = false;
+    if (_guideStopBtn) _guideStopBtn.disabled = true;
+    if (_guidePauseBtn) _guidePauseBtn.disabled = true;
 }
 
 // ── Layer toggles ─────────────────────────────────────────────
@@ -3022,6 +5047,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSaveImage();
     initHistogramControls();
     initSolverPanel();
+    initTargetPanel();
+    initPolarPanel();
+    initFocuserPanel();
+    initGuidePanel();
     await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();
