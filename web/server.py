@@ -64,6 +64,7 @@ class WebServer:
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
         self._last_image_data: bytes = b""
+        self._camera_images: dict[str, bytes] = {}  # device_name → last image bytes
 
         # Plate solver (lazy import to avoid circular dependency)
         from indigo.devices.solver import Solver
@@ -557,6 +558,164 @@ class WebServer:
             await f.halt()
             return {"ok": True}
 
+        @app.post("/api/focuser/move_relative")
+        async def focuser_move_relative(body: dict):
+            f = self.registry.get_focuser()
+            if not f:
+                return {"error": "no focuser"}
+            direction = body.get("direction", "OUT")
+            steps = int(body.get("steps", 100))
+            await f.move_relative(direction, steps)
+            return {"ok": True}
+
+        @app.post("/api/focuser/speed")
+        async def focuser_set_speed(body: dict):
+            f = self.registry.get_focuser()
+            if not f:
+                return {"error": "no focuser"}
+            speed = int(body.get("speed", 1))
+            await f.set_speed(speed)
+            return {"ok": True}
+
+        @app.get("/api/focuser/focus-metric")
+        async def focuser_focus_metric(device: str = ""):
+            img_data = self._camera_images.get(device, self._last_image_data) if device else self._last_image_data
+            if not img_data:
+                return {"ok": False, "error": "no image captured yet"}
+            from indigo.devices.focus_metrics import compute_focus_metrics
+            try:
+                result = compute_focus_metrics(img_data)
+                return SanitizedJSONResponse(result)
+            except Exception as e:
+                log.error("Focus metric error: %s", e)
+                return {"ok": False, "error": str(e)}
+
+        # ── Camera list ───────────────────────────────────────────
+
+        @app.get("/api/cameras")
+        async def get_cameras():
+            cameras = self.registry.get_all_cameras()
+            return [{"name": c.name, "connected": c.connected, "is_ready": c.is_ready} for c in cameras]
+
+        # ── Autofocus ─────────────────────────────────────────────
+
+        from indigo.devices.autofocus import AutoFocus
+        self._autofocus = AutoFocus()
+
+        @app.get("/api/focuser/autofocus/status")
+        async def autofocus_status():
+            return SanitizedJSONResponse(self._autofocus.status())
+
+        @app.post("/api/focuser/autofocus/start")
+        async def autofocus_start(body: dict):
+            center = int(body.get("center", 0))
+            search_range = int(body.get("range", 2000))
+            num_points = int(body.get("points", 25))
+            return SanitizedJSONResponse(self._autofocus.start(center, search_range, num_points))
+
+        @app.post("/api/focuser/autofocus/step")
+        async def autofocus_step(body: dict):
+            position = int(body.get("position", 0))
+            hfr = float(body.get("hfr", 0))
+            fwhm = float(body.get("fwhm", 0))
+            return SanitizedJSONResponse(self._autofocus.step_result(position, hfr, fwhm))
+
+        @app.post("/api/focuser/autofocus/finish")
+        async def autofocus_finish():
+            return SanitizedJSONResponse(self._autofocus.finish())
+
+        @app.post("/api/focuser/autofocus/stop")
+        async def autofocus_stop():
+            return SanitizedJSONResponse(self._autofocus.stop())
+
+        @app.post("/api/focuser/autofocus/reset")
+        async def autofocus_reset():
+            return SanitizedJSONResponse(self._autofocus.reset())
+
+        # ── Guide ───────────────────────────────────────────────
+
+        from indigo.devices.guide import Guide
+        self._guide = Guide()
+
+        @app.get("/api/guide/status")
+        async def guide_status():
+            return SanitizedJSONResponse(self._guide.status())
+
+        @app.post("/api/guide/start")
+        async def guide_start(body: dict):
+            exposure = float(body.get("exposure", 1.0))
+            aggressiveness = float(body.get("aggressiveness", 0.8))
+            ra_gain = float(body.get("ra_gain", 1.0))
+            dec_gain = float(body.get("dec_gain", 1.0))
+            max_pulse = int(body.get("max_pulse_ms", 2000))
+            min_pulse = int(body.get("min_pulse_ms", 50))
+            plate_scale = float(body.get("plate_scale", 1.0))
+            return SanitizedJSONResponse(self._guide.start(
+                exposure, aggressiveness, ra_gain, dec_gain, max_pulse, min_pulse, plate_scale))
+
+        @app.post("/api/guide/step")
+        async def guide_step(body: dict):
+            x = float(body.get("x", 0))
+            y = float(body.get("y", 0))
+            return SanitizedJSONResponse(self._guide.step_result(x, y))
+
+        @app.post("/api/guide/set-reference")
+        async def guide_set_reference(body: dict):
+            x = float(body.get("x", 0))
+            y = float(body.get("y", 0))
+            return SanitizedJSONResponse(self._guide.set_reference(x, y))
+
+        @app.post("/api/guide/pause")
+        async def guide_pause():
+            return SanitizedJSONResponse(self._guide.pause())
+
+        @app.post("/api/guide/resume")
+        async def guide_resume():
+            return SanitizedJSONResponse(self._guide.resume())
+
+        @app.post("/api/guide/stop")
+        async def guide_stop():
+            return SanitizedJSONResponse(self._guide.stop())
+
+        @app.post("/api/guide/reset")
+        async def guide_reset():
+            return SanitizedJSONResponse(self._guide.reset())
+
+        # ── Guide calibration ─────────────────────────────────────
+
+        from indigo.devices.guide_calibration import GuideCalibration
+        self._guide_cal = GuideCalibration()
+
+        @app.get("/api/guide/calibrate/status")
+        async def calibrate_status():
+            return SanitizedJSONResponse(self._guide_cal.status())
+
+        @app.post("/api/guide/calibrate/start")
+        async def calibrate_start(body: dict):
+            step_ms = int(body.get("step_ms", 500))
+            target_px = float(body.get("target_px", 25))
+            return SanitizedJSONResponse(self._guide_cal.start(step_ms, target_px))
+
+        @app.post("/api/guide/calibrate/step")
+        async def calibrate_step(body: dict):
+            direction = body.get("direction", "")
+            x = float(body.get("x", 0))
+            y = float(body.get("y", 0))
+            pulse_ms = int(body.get("pulse_ms", 500))
+            return SanitizedJSONResponse(self._guide_cal.record_step(direction, x, y, pulse_ms))
+
+        @app.post("/api/guide/calibrate/stop")
+        async def calibrate_stop():
+            return SanitizedJSONResponse(self._guide_cal.stop())
+
+        @app.post("/api/guide/calibrate/finish")
+        async def calibrate_finish():
+            return SanitizedJSONResponse(self._guide_cal.finish())
+
+        @app.post("/api/guide/calibrate/reset")
+        async def calibrate_reset():
+            return SanitizedJSONResponse(self._guide_cal.reset())
+
         # ── Generic property setter ──────────────────────────────
 
         @app.post("/api/property")
@@ -666,11 +825,13 @@ class WebServer:
 
         @app.post("/api/test/fits-store")
         async def test_fits_store(body: dict):
-            """Store a FITS image (base64) as last captured image for solver testing."""
+            """Store a FITS image (base64) as last captured image for solver testing.
+            Send empty/null data to clear the stored image."""
             import base64 as _b64
             b64_data = body.get("data", "")
             if not b64_data:
-                return {"error": "No data"}
+                self._last_image_data = b""
+                return {"ok": True, "size": 0, "cleared": True}
             self._last_image_data = _b64.b64decode(b64_data)
             log.info("Test FITS stored as last image (%d bytes)", len(self._last_image_data))
             return {"ok": True, "size": len(self._last_image_data)}
@@ -759,6 +920,7 @@ class WebServer:
                 return
             # Store last image for save endpoint
             self._last_image_data = data
+            self._camera_images[device_name] = data
             if not self._ws_clients:
                 return
             b64 = base64.b64encode(data).decode("ascii")
@@ -803,12 +965,14 @@ class WebServer:
                     log.debug("BLOB fetched: %d bytes from %s", len(data), fetch_url)
                     # Store last image for save endpoint
                     self._last_image_data = data
+                    self._camera_images[device_name] = data
 
                     if not self._ws_clients:
                         return
                     b64 = base64.b64encode(data).decode("ascii")
                     payload = json.dumps({
                         "type": "image",
+                        "device": device_name,
                         "format": fmt,
                         "data": b64,
                     })
