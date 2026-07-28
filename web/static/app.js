@@ -4566,7 +4566,10 @@ function initGuidePanel() {
             const wrap = document.getElementById('guide-crosshair-wrap');
             if (wrap) wrap.style.display = _guideCrosshairVisible ? '' : 'none';
             _guideExpandBtn.textContent = _guideCrosshairVisible ? '⊖ Cible' : '⊕ Cible';
-            if (_guideCrosshairVisible && _guideDriftHistory.length > 0) _guideDrawCrosshair();
+            if (_guideCrosshairVisible && _guideDriftHistory.length > 0) {
+                // Defer draw so browser reflows the newly-visible canvas
+                setTimeout(() => _guideDrawCrosshair(), 50);
+            }
         });
     }
 
