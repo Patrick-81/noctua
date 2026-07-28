@@ -73,6 +73,27 @@ Mis à jour à chaque step, réinitialisé au start.
 - `web/static/app.js` : _autofocusWaitImage(), _autofocusFinish(), _autofocusStart() + HFR info line
 - `web/static/index.html` : #af-info-line dans af-progress-wrap
 
+## Session 2026-07-28 (fin) — Crosshair cible, tolérance configurable, beep
+
+### Crosshair 2D RA/DEC
+Nouvelle fonction `_guideDrawCrosshair()` : vue scatter 2D avec RA horizontale, DEC verticale. Centre = (0,0). Trajectoire complète en points dégradés (alpha). Position courante : croix cyan brillante + point blanc. Boîte de tolérance rouge pointillée. Légende et valeurs numériques.
+
+### Graphique temporel amélioré
+`_guideDrawDrift()` repensé : polices bold plus grandes (`10px`), couleurs plus claires (`#999`/`#bbb`), lignes plus épaisses (`2px`), valeur du dernier point affichée sur chaque ligne. Échelle Y dynamique depuis le champ tolérance. Grille 4 divisions. Label `±X″` sur la zone.
+
+### Tolérance configurable
+Ajouté champ `#guide-tolerance` (±1–120″, défaut 10″) dans les paramètres de guidage. Contrôle l'échelle du graphique temporel ET la boîte du crosshair.
+
+### Bip de dépassement
+`_guideBeep()` : oscillateur Web Audio 880Hz square wave, 0.3s. Déclenché à chaque frame où RA ou DEC dépasse la tolérance.
+
+### Panneau extensible
+Bouton **⊕ Cible** dans l'en-tête du panneau dérive pour afficher/masquer la vue crosshair. Panneau élargi à 560px.
+
+### Fichiers modifiés
+- `web/static/app.js` : _guideDrawDrift() amélioré, _guideDrawCrosshair() nouveau, _guideBeep(), _guideUpdateUI() crosshair + beep, initGuidePanel() expand btn
+- `web/static/index.html` : #guide-tolerance, #guide-crosshair-canvas/wrap, #guide-expand-btn, panel 560px
+
 ## État des tests
 - **Via pytest** : 50/50 (incl. 16 autofocus unit)
 - **Guide flow (main)** : 38/38
