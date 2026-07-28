@@ -440,6 +440,32 @@
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLET: Calibration monture                           -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-calibration" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:380px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CALIBRATION MONTURE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div style="display:flex; gap:4px; margin-bottom:4px;">
+                    <button id="cal-start-btn" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.65rem;">▶ Calibrer</button>
+                    <button id="cal-stop-btn" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled>⏹ Stop</button>
+                </div>
+                <div id="cal-status-wrap" style="display:none; font-size:0.6rem; color:#aaa; margin-bottom:4px;">
+                    <span id="cal-phase">Phase: —</span>
+                    <span style="margin-left:8px;" id="cal-step-count">Steps: 0</span>
+                    <span style="margin-left:8px;" id="cal-quality"></span>
+                </div>
+                <canvas id="cal-graph-canvas" width="360" height="180" style="width:100%; height:180px; background:#0a0a12; border-radius:4px;"></canvas>
+                <div id="cal-results" style="display:none; margin-top:4px; font-size:0.55rem; color:#888;">
+                    <span>Taux RA: <span id="cal-x-rate" style="color:#44cc44;">—</span> px/ms</span>
+                    <span style="margin-left:6px;">DEC: <span id="cal-y-rate" style="color:#4488ff;">—</span> px/ms</span>
+                    <span style="margin-left:6px;">Angle: <span id="cal-ortho" style="color:#00ffcc;">—</span>°</span>
+                    <span style="margin-left:6px;">Qualité: <span id="cal-badge" style="color:#4a4;">—</span></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
         <!-- APPLETS MODE: CAPTURE (placeholder)                   -->
         <!-- ══════════════════════════════════════════════════════ -->
 

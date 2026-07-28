@@ -5055,6 +5055,307 @@ function _guideCleanup() {
     if (_guidePauseBtn) _guidePauseBtn.disabled = true;
 }
 
+// ── Calibration monture ─────────────────────────────────────
+
+let _calRunning = false;
+let _calStartBtn = null, _calStopBtn = null;
+let _calGraphCanvas = null;
+let _calPhaseEl = null, _calStepCountEl = null, _calQualityEl = null;
+let _calResultsEl = null;
+let _calXRatesEl = null, _calYRateEl = null, _calOrthoEl = null, _calBadgeEl = null;
+let _calTimer = null;
+
+function initCalibrationPanel() {
+    _calStartBtn = document.getElementById('cal-start-btn');
+    _calStopBtn = document.getElementById('cal-stop-btn');
+    _calGraphCanvas = document.getElementById('cal-graph-canvas');
+    _calPhaseEl = document.getElementById('cal-phase');
+    _calStepCountEl = document.getElementById('cal-step-count');
+    _calQualityEl = document.getElementById('cal-quality');
+    _calResultsEl = document.getElementById('cal-results');
+    _calXRatesEl = document.getElementById('cal-x-rate');
+    _calYRateEl = document.getElementById('cal-y-rate');
+    _calOrthoEl = document.getElementById('cal-ortho');
+    _calBadgeEl = document.getElementById('cal-badge');
+
+    if (_calStartBtn) _calStartBtn.addEventListener('click', _calibrateStart);
+    if (_calStopBtn) _calStopBtn.addEventListener('click', _calibrateStop);
+}
+
+async function _calibrateStart() {
+    if (_calRunning) return;
+    const cam = _guideCameraSelect?.value;
+    if (!cam) { addLog('error', 'calibration', 'Sélectionnez une caméra guide'); return; }
+
+    // Need a guide star — take a quick exposure to get centroid
+    addLog('info', 'calibration', 'Prévisualisation étoile guide...');
+    await fetch('/api/camera/expose', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({device: cam, duration: 1.0})
+    }).then(r => r.json()).catch(() => {});
+    await sleep(2000);
+
+    const metric = await fetch('/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : ''))
+        .then(r => r.json()).catch(() => null);
+    if (!metric?.ok || !metric.stars?.length) {
+        addLog('error', 'calibration', 'Aucune étoile détectée');
+        return;
+    }
+
+    const res = await fetch('/api/guide/calibrate/start', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({step_ms: 500, target_px: 25})
+    }).then(r => r.json()).catch(() => null);
+
+    if (!res?.ok) {
+        addLog('error', 'calibration', res?.error || 'Échec démarrage');
+        return;
+    }
+
+    _calRunning = true;
+    if (_calStartBtn) _calStartBtn.disabled = true;
+    if (_calStopBtn) _calStopBtn.disabled = false;
+    if (_calResultsEl) _calResultsEl.style.display = 'none';
+    const wrap = document.getElementById('cal-status-wrap');
+    if (wrap) wrap.style.display = '';
+    addLog('info', 'calibration', 'Calibration démarrée');
+    _calibrateLoop();
+}
+
+async function _calibrateLoop() {
+    if (!_calRunning) return;
+    const status = await fetch('/api/guide/calibrate/status', {method: 'GET'})
+        .then(r => r.json()).catch(() => null);
+    if (!status?.ok) { _calibrateAbort('Erreur statut'); return; }
+
+    const dir = status.next_direction;
+    const stepMs = status.step_ms || 500;
+    const cam = _guideCameraSelect?.value || '';
+
+    if (_calPhaseEl) {
+        const phaseNames = {W:'→ WEST', E:'← EAST', N:'↑ NORTH', S:'↓ SOUTH'};
+        _calPhaseEl.textContent = `Phase: ${phaseNames[dir] || dir}`;
+    }
+    if (_calStepCountEl) _calStepCountEl.textContent = `Steps: ${status.step_count}`;
+    _calibrateDrawGraph(status);
+
+    // Mount pulse
+    const mountDir = {W:'WEST', E:'EAST', N:'NORTH', S:'SOUTH'}[dir];
+    if (mountDir) {
+        await fetch('/api/mount/move', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({direction: mountDir, rate: 'Guide'})
+        }).then(r => r.json()).catch(() => {});
+        await sleep(stepMs);
+        await fetch('/api/mount/halt', {method: 'POST'}).catch(() => {});
+    }
+
+    // Expose guide camera
+    await fetch('/api/camera/expose', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({device: cam, duration: 0.5})
+    }).then(r => r.json()).catch(() => {});
+    await sleep(1500);
+
+    // Get centroid
+    const metric = await fetch('/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : ''))
+        .then(r => r.json()).catch(() => null);
+
+    if (!metric?.ok || !metric.stars?.length) {
+        _calibrateAbort('Étoile perdue');
+        return;
+    }
+    const star = metric.stars[0];
+
+    // Record step
+    const stepRes = await fetch('/api/guide/calibrate/step', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({direction: dir, x: star.x, y: star.y, pulse_ms: stepMs})
+    }).then(r => r.json()).catch(() => null);
+
+    if (!stepRes) { _calibrateAbort('Erreur step'); return; }
+
+    // Update UI
+    if (_calPhaseEl) {
+        const phaseNames = {W:'→ WEST', E:'← EAST', N:'↑ NORTH', S:'↓ SOUTH'};
+        _calPhaseEl.textContent = `Phase: ${phaseNames[stepRes.next_direction] || stepRes.next_direction}`;
+    }
+    if (_calStepCountEl) _calStepCountEl.textContent = `Steps: ${stepRes.step_count}`;
+    _calibrateDrawGraph(stepRes);
+
+    // Check completion
+    if (stepRes.state === 'complete') {
+        _calibrateDone(stepRes);
+        return;
+    }
+
+    if (_calRunning) {
+        _calTimer = setTimeout(() => _calibrateLoop(), 50);
+    }
+}
+
+function _calibrateDrawGraph(status) {
+    const canvas = _calGraphCanvas;
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width, h = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+
+    const steps = status.steps || [];
+    const west = steps.filter(s => s.direction === 'W');
+    const north = steps.filter(s => s.direction === 'N');
+
+    if (west.length < 1 && north.length < 1) {
+        ctx.fillStyle = '#555';
+        ctx.font = `${11 * dpr}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('En attente...', w / 2, h / 2);
+        return;
+    }
+
+    const pad = 40;
+    const plotW = w - 2 * pad;
+    const plotH = h - 2 * pad;
+    const midX = pad + plotW / 2;
+    const midY = pad + plotH / 2;
+
+    // Data bounds
+    const allX = steps.map(s => s.dx);
+    const allY = steps.map(s => s.dy);
+    const maxAbs = Math.max(1, ...allX.map(Math.abs), ...allY.map(Math.abs));
+    const range = maxAbs * 1.3;
+    const scale = Math.min(plotW, plotH) / (2 * range);
+
+    // Grid
+    ctx.strokeStyle = '#2a2a3e';
+    ctx.lineWidth = 0.5 * dpr;
+    for (let i = -4; i <= 4; i++) {
+        const x = midX + (i / 4) * range * scale;
+        const y = midY - (i / 4) * range * scale;
+        ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+    }
+
+    // Zero cross
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
+
+    // West steps — blue line + dots
+    if (west.length >= 2) {
+        ctx.strokeStyle = '#4488ff';
+        ctx.lineWidth = 2 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < west.length; i++) {
+            const x = midX + west[i].dx * scale;
+            const y = midY - west[i].dy * scale;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+    for (const s of west) {
+        ctx.fillStyle = '#4488ff';
+        ctx.beginPath(); ctx.arc(midX + s.dx * scale, midY - s.dy * scale, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // North steps — green line + dots
+    if (north.length >= 2) {
+        ctx.strokeStyle = '#44cc44';
+        ctx.lineWidth = 2 * dpr;
+        ctx.beginPath();
+        for (let i = 0; i < north.length; i++) {
+            const x = midX + north[i].dx * scale;
+            const y = midY - north[i].dy * scale;
+            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+    }
+    for (const s of north) {
+        ctx.fillStyle = '#44cc44';
+        ctx.beginPath(); ctx.arc(midX + s.dx * scale, midY - s.dy * scale, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Legend
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(pad + 2 * dpr, pad + 2 * dpr, 80 * dpr, 28 * dpr);
+    ctx.fillStyle = '#4488ff';
+    ctx.fillText('●', pad + 6 * dpr, pad + 5 * dpr);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('WEST', pad + 16 * dpr, pad + 5 * dpr);
+    ctx.fillStyle = '#44cc44';
+    ctx.fillText('●', pad + 6 * dpr, pad + 17 * dpr);
+    ctx.fillStyle = '#ccc';
+    ctx.fillText('NORTH', pad + 16 * dpr, pad + 17 * dpr);
+
+    // Axis labels
+    ctx.fillStyle = '#888';
+    ctx.font = `${9 * dpr}px monospace`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`+${range.toFixed(0)}`, pad - 4 * dpr, midY - range * scale);
+    ctx.fillText(`-${range.toFixed(0)}`, pad - 4 * dpr, midY + range * scale);
+    ctx.fillText('0', pad - 4 * dpr, midY + 3 * dpr);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`-${range.toFixed(0)}`, midX - range * scale, pad + plotH + 2 * dpr);
+    ctx.fillText(`+${range.toFixed(0)}`, midX + range * scale, pad + plotH + 2 * dpr);
+}
+
+function _calibrateDone(status) {
+    _calRunning = false;
+    if (_calTimer) { clearTimeout(_calTimer); _calTimer = null; }
+    if (_calStartBtn) _calStartBtn.disabled = false;
+    if (_calStopBtn) _calStopBtn.disabled = true;
+
+    if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ✅ Terminé';
+    if (_calStepCountEl) _calStepCountEl.textContent = `Steps: ${status.step_count}`;
+
+    // Results
+    if (_calResultsEl) _calResultsEl.style.display = '';
+    if (_calXRatesEl) _calXRatesEl.textContent = status.x_rate != null ? status.x_rate.toFixed(6) : '—';
+    if (_calYRateEl) _calYRateEl.textContent = status.y_rate != null ? status.y_rate.toFixed(6) : '—';
+    if (_calOrthoEl) _calOrthoEl.textContent = status.orthogonality != null ? status.orthogonality.toFixed(1) : '—';
+
+    const qColors = {good: '#4a4', acceptable: '#fa0', poor: '#f44', insufficient_data: '#888'};
+    if (_calBadgeEl) {
+        _calBadgeEl.textContent = status.quality || '—';
+        _calBadgeEl.style.color = qColors[status.quality] || '#888';
+    }
+    if (_calQualityEl) {
+        const flaws = status.quality_flaws || [];
+        _calQualityEl.textContent = flaws.length ? flaws.join(' ') : '';
+    }
+
+    _calibrateDrawGraph(status);
+    addLog('info', 'calibration', `Calibration terminée: qualité=${status.quality}`);
+}
+
+function _calibrateAbort(msg) {
+    _calRunning = false;
+    if (_calTimer) { clearTimeout(_calTimer); _calTimer = null; }
+    if (_calStartBtn) _calStartBtn.disabled = false;
+    if (_calStopBtn) _calStopBtn.disabled = true;
+    fetch('/api/guide/calibrate/stop', {method: 'POST'}).catch(() => {});
+    if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ❌ ' + msg;
+    addLog('error', 'calibration', msg);
+}
+
+async function _calibrateStop() {
+    if (!_calRunning) return;
+    _calRunning = false;
+    if (_calTimer) { clearTimeout(_calTimer); _calTimer = null; }
+    await fetch('/api/guide/calibrate/stop', {method: 'POST'}).catch(() => {});
+    if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ⏹ Arrêté';
+    if (_calStartBtn) _calStartBtn.disabled = false;
+    if (_calStopBtn) _calStopBtn.disabled = true;
+    addLog('warning', 'calibration', 'Arrêté par l\'utilisateur');
+}
+
 // ── Layer toggles ─────────────────────────────────────────────
 
 function initLayerToggles() {
@@ -5314,6 +5615,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPolarPanel();
     initFocuserPanel();
     initGuidePanel();
+    initCalibrationPanel();
     await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();
