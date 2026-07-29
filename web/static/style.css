@@ -1455,3 +1455,22 @@ body {
     from { opacity: 0.4; }
     to   { opacity: 1; }
 }
+
+/* ── Guide star markers ──────────────────────────────────────────── */
+.guide-star-marker {
+    stroke: #00ffcc;
+    fill: none;
+    stroke-width: 1.5;
+}
+.guide-star-marker.selected {
+    stroke: #ff6600;
+    stroke-width: 2.5;
+}
+.guide-star-label {
+    font: 8px monospace;
+    fill: #aaa;
+}
+.guide-star-label.selected {
+    fill: #ff6600;
+    font-weight: bold;
+}

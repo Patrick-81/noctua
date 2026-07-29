@@ -14,14 +14,17 @@
 - [x] Guidage : fenêtre temporelle 120s, graduation en secondes
 - [x] Binning guide : sélecteur 1×1/2×2/4×4 dans paramètres guidage
 - [x] Épingles : 📌 sur tous les panneaux mobiles (positions sauvegardées)
+- [x] Gaussian quality pour sélection étoile guide (SNR, HFR, saturation)
+- [x] Aperçu guidage : capture, marqueurs étoiles, clic sélection, zoom/pan
+- [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 
 ## À tester
-- [ ] Calibration : vérifier tracé correct (WEST -8,-16,-24,-32, EAST retour à 0)
-- [ ] Guidage : gains auto-populés depuis calibration, graphe 120s, binning
-- [ ] Épingles : cliquer 📌, redémarrer, vérifier restauration
+- [ ] Calibration : vérifier tracé correct + auto-population gains
+- [ ] Guidage : clic étoile → Capture → Auto → Lancer → graphe 120s
+- [ ] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻
 
 ## Améliorations possibles
-- [ ] Phase 6 Caméra guide (séparation guide/principale, plan_focuser.md)
+- [ ] Workflow automatique : bouton unique « Démarrer » qui enchaîne capture→sélection→calibration→guidage
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
 - [ ] Découper `app.js` en modules séparés
 

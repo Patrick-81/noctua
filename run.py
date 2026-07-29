@@ -64,7 +64,11 @@ def main():
     # Determine INDIGO server address
     protocol = indigo_cfg.get("protocol", "connect")
     if args.indigo_server:
-        indigo_host_port = args.indigo_server
+        if ":" not in args.indigo_server:
+            default_port = indigo_cfg.get("port", 7624)
+            indigo_host_port = f"{args.indigo_server}:{default_port}"
+        else:
+            indigo_host_port = args.indigo_server
     else:
         host = indigo_cfg.get("host", "192.168.1.100")
         port = indigo_cfg.get("port", 7624)

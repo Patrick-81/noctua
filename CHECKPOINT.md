@@ -122,6 +122,32 @@ Bouton 📌 dans chaque panneau pour figer la position (cyan = épinglé). Posit
 - `web/static/index.html` : panel sizes, tabs, binning selector, guide settings width
 - `web/static/style.css` : .cal-tab-active
 
+## Session 2026-07-29 (suite) — Aperçu guidage, sélection étoile, workflow
+
+### Aperçu guidage — Panneau dédié
+Nouveau panneau `applet-guide-preview` avec canvas 380×240 pour l'affichage de la caméra guide, overlay pour les marqueurs d'étoiles, support asinh stretch.
+
+### Sélection d'étoile — Manuel + Auto + Gaussian quality
+- **Manuel** : clic sur l'aperçu → étoile la plus proche sélectionnée → `POST /api/guide/set-reference`
+- **Auto** : appelle `focus-metric` → prend la meilleure étoile par `gaussian_quality`
+- **Python** `focus_metrics.py` : ajout de `gaussian_quality` (0–1) basé sur SNR, HFR idéal ~2.5px, pénalité saturation. Tri par qualité descendante.
+- **JS** `handleGuideImage` refactoré : rendu asinh stretch sur deux canvas (aperçu + vignette)
+
+### Zoom/Pan aperçu
+Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset, boutons 1:1 / ◻. Simple clic = sélection étoile.
+
+### Retrait doublons
+- Crosshair `_guideDrawCrosshair` supprimé du panneau Autoguidage (la cible reste dans l'onglet Calibration)
+- `applet-capture-preview` retiré du mode guiding
+- Boutons Rafraîchir/Effacer supprimés (remplacés par zoom controls)
+
+### Fichiers modifiés
+- `indigo/devices/focus_metrics.py` : gaussian_quality, tri par qualité
+- `tests/test_focus_metrics.py` : test gaussian_quality
+- `web/static/app.js` : handleGuideImage refactor, _guideDetectStars, zoom/pan, capture/auto/clear handlers, retrait _guideDrawCrosshair
+- `web/static/index.html` : nouveau panneau guide-preview, retrait crosshair du guiding-graph
+- `web/static/style.css` : classes .guide-star-marker
+
 ## État des tests
 - **Via pytest** : 50/50
 - **Guide flow (main)** : 38/38

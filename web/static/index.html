@@ -353,8 +353,27 @@
         <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
 
+        <div id="applet-guide-preview" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:400px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ GUIDAGE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div id="guide-preview-viewport" style="overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
+                    <canvas id="guide-preview-canvas" width="380" height="240" style="display:block; border-radius:4px;"></canvas>
+                    <canvas id="guide-preview-overlay" width="380" height="240" style="position:absolute; top:0; left:0; pointer-events:none; border-radius:4px;"></canvas>
+                </div>
+                <div id="guide-preview-status" style="font-size:0.6rem; color:#ffaa00; margin-top:4px; text-align:center;">Cliquez «📷 Capture» ou «⭐ Auto»</div>
+                <div style="display:flex; gap:4px; align-items:center; margin-top:4px;">
+                    <button id="guide-capture-btn" class="btn-glass" style="font-size:0.65rem;">📷 Capture</button>
+                    <button id="guide-autoselect-btn" class="btn-glass" style="font-size:0.65rem;">⭐ Auto</button>
+                    <div style="flex:1;"></div>
+                    <button id="guide-preview-zoom-reset" class="btn-glass" style="font-size:0.55rem; padding:1px 5px;">1:1</button>
+                    <button id="guide-preview-zoom-fit" class="btn-glass" style="font-size:0.55rem; padding:1px 5px;">◻</button>
+                    <span id="guide-preview-zoom-level" style="font-size:0.55rem; color:#888; min-width:30px;">100%</span>
+                </div>
+            </div>
+        </div>
+
         <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:620px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button id="guide-expand-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Afficher/Masquer la cible">⊕ Cible</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
                     <span style="font-size:0.6rem; color:#666;">Trames: <span id="guide-frame-count" style="color:#00ffcc;">0</span></span>
@@ -362,12 +381,9 @@
                     <span style="font-size:0.6rem; color:#666;">DEC: <span id="guide-drift-dec" style="color:#00ffcc;">0.0</span>″</span>
                 </div>
                 <div style="display:flex; gap:6px;">
-                    <canvas id="guide-star-canvas" width="120" height="120" style="width:120px; height:120px; background:#0a0a12; border-radius:4px; flex-shrink:0;"></canvas>
+                    <canvas id="guide-star-canvas" width="140" height="140" style="width:140px; height:140px; background:#0a0a12; border-radius:4px; flex-shrink:0;"></canvas>
                     <div style="flex:1; min-width:0;">
-                        <canvas id="guide-drift-canvas" width="400" height="140" style="width:100%; height:140px; background:#0a0a12; border-radius:4px;"></canvas>
-                        <div id="guide-crosshair-wrap" style="display:none; margin-top:4px;">
-                            <canvas id="guide-crosshair-canvas" width="400" height="240" style="width:100%; height:240px; background:#0a0a12; border-radius:4px;"></canvas>
-                        </div>
+                        <canvas id="guide-drift-canvas" width="460" height="140" style="width:100%; height:140px; background:#0a0a12; border-radius:4px;"></canvas>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; margin-top:4px; font-size:0.6rem; color:#888;">

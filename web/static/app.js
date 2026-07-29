@@ -54,7 +54,7 @@ const MODES = {
         driverType: 'focuser'
     },
     guiding: {
-        applets: ['applet-guiding-graph', 'applet-guiding-settings', 'applet-capture-preview', 'applet-calibration'],
+        applets: ['applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration'],
         driverType: 'ccd'
     },
     capture: {
@@ -1651,7 +1651,7 @@ function handleGuideImage(b64Data, fmt) {
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
     if (!(fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53))) return;
 
-    // Quick FITS parse for mini-preview
+    // Parse FITS header
     let offset = 0;
     const decoder = new TextDecoder('ascii');
     let headerStr = '';
@@ -1695,9 +1695,8 @@ function handleGuideImage(b64Data, fmt) {
             pixels[i] = view.getInt16(i * 2, false);
     } else return;
 
-    let min = Infinity, max = -Infinity;
+    let max = -Infinity;
     for (let i = 0; i < pixels.length; i++) {
-        if (pixels[i] < min) min = pixels[i];
         if (pixels[i] > max) max = pixels[i];
     }
     const sorted = Float64Array.from(pixels).sort();
@@ -1706,64 +1705,222 @@ function handleGuideImage(b64Data, fmt) {
     const k = Math.max(20, (max - sky) / sigma);
     const soft = sigma * 0.5;
 
-    const canvas = document.getElementById('guide-star-canvas');
-    if (!canvas) return;
+    // Render to BOTH the large preview and the small thumbnail
     const dpr = window.devicePixelRatio || 1;
-    const CW = 120, CH = 120;
-    const bw = Math.round(CW * dpr), bh = Math.round(CH * dpr);
-    if (canvas.width !== bw || canvas.height !== bh) {
-        canvas.width = bw;
-        canvas.height = bh;
-    }
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, bw, bh);
+    function renderToCanvas(canvasEl) {
+        if (!canvasEl) return;
+        const cw = canvasEl.clientWidth, ch = canvasEl.clientHeight;
+        if (!cw || !ch) return;
+        const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
+        if (canvasEl.width !== bw || canvasEl.height !== bh) {
+            canvasEl.width = bw;
+            canvasEl.height = bh;
+        }
+        const ctx = canvasEl.getContext('2d');
+        ctx.clearRect(0, 0, bw, bh);
 
-    // Draw into temp canvas at native res, then scale down
-    const tmp = document.createElement('canvas');
-    tmp.width = w; tmp.height = h;
-    const tctx = tmp.getContext('2d');
-    const imgData = tctx.createImageData(w, h);
-    const data = imgData.data;
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        const tctx = tmp.getContext('2d');
+        const imgData = tctx.createImageData(w, h);
+        const data = imgData.data;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const raw = pixels[y * w + x];
+                const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
+                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+                const dst = ((h - 1 - y) * w + x) * 4;
+                data[dst] = val; data[dst+1] = val; data[dst+2] = val; data[dst+3] = 255;
+            }
+        }
+        tctx.putImageData(imgData, 0, 0);
+
+        const scale = Math.min(bw / w, bh / h);
+        const dw = w * scale, dh = h * scale;
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(tmp, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
+
+        // Return metadata for this render
+        return { scale, offX: (bw - dw) / 2, offY: (bh - dh) / 2, cw: bw, ch: bh };
+    }
+
+    // Render to large preview (for star selection)
+    const previewCanvas = document.getElementById('guide-preview-canvas');
+    const previewMeta = renderToCanvas(previewCanvas);
+    // Also render to small thumbnail
+    renderToCanvas(document.getElementById('guide-star-canvas'));
+
+    // Store preview data for click remapping
+    if (previewMeta) {
+        _guidePreviewCapture = { width: w, height: h, pixels, sky, soft, k, ...previewMeta, dpr };
+    }
+
+    // Detect stars and draw markers on preview overlay
+    _guideDetectStars(w, h);
+}
+
+function _guideDetectStars(w, h) {
+    if (!_guidePreviewCapture) return;
+    const overlay = document.getElementById('guide-preview-overlay');
+    if (!overlay) return;
+    const { pixels, sky, soft, k, scale, offX, offY, canvasW, canvasH, dpr } = _guidePreviewCapture;
+
+    // Detect stars using centroid + peak search on the Asinh-stretched data
+    // We stretch once for display, then find local maxima in the stretched version
+    const stretched = new Float64Array(w * h);
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
             const raw = pixels[y * w + x];
             const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
-            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
-            const dst = ((h - 1 - y) * w + x) * 4;
-            data[dst] = val; data[dst+1] = val; data[dst+2] = val; data[dst+3] = 255;
+            stretched[y * w + x] = (v + 1) * 0.5; // normalize to 0..1
         }
     }
-    tctx.putImageData(imgData, 0, 0);
 
-    // Scale to fit bw×bh keeping aspect ratio
-    const scale = Math.min(bw / w, bh / h);
-    const dw = w * scale, dh = h * scale;
-    ctx.imageSmoothingEnabled = true;
-    ctx.drawImage(tmp, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
-
-    // Target crosshair at center (reference point)
-    const cx = bw / 2, cy = bh / 2;
-    ctx.strokeStyle = 'rgba(0,255,204,0.3)';
-    ctx.lineWidth = 1 * dpr;
-    ctx.setLineDash([4 * dpr, 4 * dpr]);
-    ctx.beginPath(); ctx.arc(cx, cy, 10 * dpr, 0, Math.PI * 2); ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Star centroid crosshair (green solid)
-    const c = _guideLastCentroid;
-    if (c && c.imgW && c.imgH) {
-        const sx = (c.x / c.imgW) * bw;
-        const sy = ((c.imgH - 1 - c.y) / c.imgH) * bh;
-        ctx.strokeStyle = '#00ffcc';
-        ctx.lineWidth = 1.5 * dpr;
-        ctx.beginPath(); ctx.moveTo(sx - 6 * dpr, sy); ctx.lineTo(sx + 6 * dpr, sy); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(sx, sy - 6 * dpr); ctx.lineTo(sx, sy + 6 * dpr); ctx.stroke();
-        ctx.beginPath(); ctx.arc(sx, sy, 4 * dpr, 0, Math.PI * 2); ctx.stroke();
+    // Find local maxima in stretched image
+    const threshold = 0.45; // 45% of stretched range
+    const minDist = 5;
+    const stars = [];
+    for (let y = minDist; y < h - minDist; y++) {
+        for (let x = minDist; x < w - minDist; x++) {
+            const val = stretched[y * w + x];
+            if (val < threshold) continue;
+            let isMax = true;
+            for (let dy = -minDist; dy <= minDist && isMax; dy++) {
+                for (let dx = -minDist; dx <= minDist && isMax; dx++) {
+                    if (dy === 0 && dx === 0) continue;
+                    if (stretched[(y + dy) * w + (x + dx)] > val) isMax = false;
+                }
+            }
+            if (isMax) {
+                // Compute quality: peak height * isolation
+                const peak = val;
+                // Look at radial falloff
+                let falloffScore = 0;
+                const outer = stretched[(y - 3) * w + x] + stretched[(y + 3) * w + x] +
+                              stretched[y * w + (x - 3)] + stretched[y * w + (x + 3)];
+                if (outer > 0) {
+                    const core = stretched[(y - 1) * w + x] + stretched[(y + 1) * w + x] +
+                                 stretched[y * w + (x - 1)] + stretched[y * w + (x + 1)];
+                    falloffScore = Math.min(core / outer, 5) / 5;
+                }
+                const gaussianQuality = Math.min(peak * 0.5 + falloffScore * 0.5, 1.0);
+                stars.push({ x, y, quality: gaussianQuality, peak: val });
+            }
+        }
     }
+
+    stars.sort((a, b) => b.quality - a.quality);
+    _guideStarList = stars.slice(0, 50);
+
+    // Draw markers
+    const ovCtx = overlay.getContext('2d');
+    // Sync overlay size to match canvas
+    const refCanvas = document.getElementById('guide-preview-canvas');
+    const syncW = refCanvas ? refCanvas.width : canvasW;
+    const syncH = refCanvas ? refCanvas.height : canvasH;
+    if (overlay.width !== syncW || overlay.height !== syncH) {
+        overlay.width = syncW;
+        overlay.height = syncH;
+    }
+    ovCtx.clearRect(0, 0, overlay.width, overlay.height);
+
+    for (let i = 0; i < _guideStarList.length; i++) {
+        const s = _guideStarList[i];
+        const px = offX + s.x * scale;
+        const py = offY + (h - 1 - s.y) * scale;
+        const selected = _guideSelectedStar && _guideSelectedStar.x === s.x && _guideSelectedStar.y === s.y;
+        const radius = selected ? 8 * dpr : 5 * dpr;
+        ovCtx.strokeStyle = selected ? '#ff6600' : 'rgba(0,255,204,0.8)';
+        ovCtx.lineWidth = selected ? 2.5 * dpr : 1.5 * dpr;
+        ovCtx.beginPath(); ovCtx.arc(px, py, radius, 0, Math.PI * 2); ovCtx.stroke();
+
+        // Crosshair
+        const ch = radius + 3 * dpr;
+        ovCtx.beginPath(); ovCtx.moveTo(px - ch, py); ovCtx.lineTo(px + ch, py); ovCtx.stroke();
+        ovCtx.beginPath(); ovCtx.moveTo(px, py - ch); ovCtx.lineTo(px, py + ch); ovCtx.stroke();
+
+        // Dimmest stars: smaller, fainter markers
+        if (i >= 5 && !selected) {
+            ovCtx.strokeStyle = 'rgba(0,255,204,0.3)';
+            ovCtx.lineWidth = 1 * dpr;
+            ovCtx.beginPath(); ovCtx.arc(px, py, 3 * dpr, 0, Math.PI * 2); ovCtx.stroke();
+        }
+
+        // Label top 5 or selected
+        if (i < 5 || selected) {
+            ovCtx.fillStyle = selected ? '#ff6600' : '#aaa';
+            ovCtx.font = `${selected ? 9 : 7}px monospace`;
+            ovCtx.textAlign = 'left';
+            ovCtx.fillText(`#${i + 1}`, px + radius + 4 * dpr, py + 3 * dpr);
+        }
+    }
+
+    // Update status
+    const statusEl = document.getElementById('guide-preview-status');
+    if (statusEl) {
+        if (_guideSelectedStar) {
+            const idx = _guideStarList.indexOf(_guideSelectedStar) + 1;
+            statusEl.textContent = `⭐ Étoile #${idx} (${_guideSelectedStar.x}, ${_guideSelectedStar.y}) — Prêt pour guidage`;
+            statusEl.style.color = '#00ffcc';
+        } else if (_guideStarList.length > 0) {
+            statusEl.textContent = `✨ ${_guideStarList.length} étoiles — cliquez une étoile ou «⭐ Auto»`;
+            statusEl.style.color = '#ffaa00';
+        } else {
+            statusEl.textContent = 'Pas d\'étoile détectée';
+            statusEl.style.color = '#ff4444';
+        }
+    }
+}
+
+function _guideSetStar(star) {
+    _guideSelectedStar = star;
+    if (star) {
+        const w = _guidePreviewCapture?.width || 1;
+        const h = _guidePreviewCapture?.height || 1;
+        apiPost('/api/guide/set-reference', { x: star.x, y: h - 1 - star.y });
+        const statusEl = document.getElementById('guide-preview-status');
+        if (statusEl) {
+            const idx = _guideStarList.indexOf(star) + 1;
+            statusEl.textContent = `⭐ Étoile #${idx} (${star.x}, ${star.y}) — Prêt pour guidage`;
+            statusEl.style.color = '#00ffcc';
+        }
+    }
+    if (_guidePreviewCapture) _guideDetectStars(_guidePreviewCapture.width, _guidePreviewCapture.height);
+}
+
+function _guideAutoSelect() {
+    // Dedicated button handler: re-fetch via API and pick best gaussian_quality star
+    const cam = _guideCameraSelect?.value || '';
+    if (!cam) { addLog('warn', 'guide', 'Aucune caméra guide sélectionnée'); return; }
+    const metricUrl = '/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : '');
+    fetch(metricUrl).then(r => r.json()).then(metric => {
+        if (!metric?.ok || !metric.stars?.length) {
+            addLog('warn', 'guide', 'Aucune étoile détectée');
+            return;
+        }
+        // Pick best by gaussian_quality (already sorted server-side)
+        const best = metric.stars[0];
+        const imgH = metric.height || 1;
+        _guideSelectedStar = { x: best.x, y: best.y, quality: best.gaussian_quality || 0 };
+        apiPost('/api/guide/set-reference', { x: best.x, y: imgH - 1 - best.y });
+        const statusEl = document.getElementById('guide-preview-status');
+        if (statusEl) {
+            statusEl.textContent = `⭐ Auto: étoile (${best.x}, ${best.y}) qualité=${best.gaussian_quality} — Prêt`;
+            statusEl.style.color = '#00ffcc';
+        }
+        if (_guidePreviewCapture) _guideDetectStars(_guidePreviewCapture.width, _guidePreviewCapture.height);
+        addLog('info', 'guide', `Étoile sélectionnée auto: (${best.x}, ${best.y}) qualité=${best.gaussian_quality}`);
+    }).catch(e => {
+        addLog('error', 'guide', `Erreur sélection auto: ${e.message}`);
+    });
 }
 
 let _guideRefSet = false;
 let _guideLastCentroid = null;
+let _guideStarList = [];
+let _guideSelectedStar = null;
+let _guidePreviewCapture = null;  // { width, height, pixels } for click remapping
+let _guideAutoStar = null;
 
 function handleCameraImage(b64Data, fmt) {
     clearOffsetOverlay();
@@ -4544,8 +4701,6 @@ async function initSkyEngine() {
 
 function initGuidePanel() {
     _guideDriftCanvas = document.getElementById('guide-drift-canvas');
-    _guideCrosshairCanvas = document.getElementById('guide-crosshair-canvas');
-    _guideExpandBtn = document.getElementById('guide-expand-btn');
     _guideStartBtn = document.getElementById('guide-start-btn');
     _guideStopBtn = document.getElementById('guide-stop-btn');
     _guidePauseBtn = document.getElementById('guide-pause-btn');
@@ -4558,20 +4713,6 @@ function initGuidePanel() {
 
     if (_guideCameraSelect) {
         _refreshGuideCameraList();
-    }
-
-    // Expand/collapse crosshair
-    if (_guideExpandBtn) {
-        _guideExpandBtn.addEventListener('click', () => {
-            _guideCrosshairVisible = !_guideCrosshairVisible;
-            const wrap = document.getElementById('guide-crosshair-wrap');
-            if (wrap) wrap.style.display = _guideCrosshairVisible ? '' : 'none';
-            _guideExpandBtn.textContent = _guideCrosshairVisible ? '⊖ Cible' : '⊕ Cible';
-            if (_guideCrosshairVisible && _guideDriftHistory.length > 0) {
-                // Defer draw so browser reflows the newly-visible canvas
-                setTimeout(() => _guideDrawCrosshair(), 50);
-            }
-        });
     }
 
     const aggrSlider = document.getElementById('guide-aggressiveness');
@@ -4603,6 +4744,19 @@ function initGuidePanel() {
             });
         });
     }
+
+    // Capture button
+    const captureBtn = document.getElementById('guide-capture-btn');
+    if (captureBtn) captureBtn.addEventListener('click', _guidePreviewCaptureHandler);
+
+    // Auto-select button
+    const autoBtn = document.getElementById('guide-autoselect-btn');
+    if (autoBtn) autoBtn.addEventListener('click', _guideAutoSelect);
+
+    // Zoom controls for guide preview
+    _initGuidePreviewZoom();
+
+
 }
 
 function _refreshGuideCameraList() {
@@ -4620,6 +4774,130 @@ function _refreshGuideCameraList() {
             _guideCameraSelect.value = prev;
         }
     }).catch(() => {});
+}
+
+function _guideApplyPreviewTransform() {
+    const viewport = document.getElementById('guide-preview-viewport');
+    if (!viewport) return;
+    const canvas = document.getElementById('guide-preview-canvas');
+    const overlay = document.getElementById('guide-preview-overlay');
+    const t = `translate(${_guidePreviewPanX}px, ${_guidePreviewPanY}px) scale(${_guidePreviewZoom})`;
+    if (canvas) canvas.style.transform = t;
+    if (overlay) overlay.style.transform = t;
+    const lvl = document.getElementById('guide-preview-zoom-level');
+    if (lvl) lvl.textContent = Math.round(_guidePreviewZoom * 100) + '%';
+}
+
+function _guideResetPreviewZoom() {
+    _guidePreviewZoom = 1;
+    _guidePreviewPanX = 0;
+    _guidePreviewPanY = 0;
+    _guideApplyPreviewTransform();
+}
+
+function _guideFitPreviewZoom() {
+    const viewport = document.getElementById('guide-preview-viewport');
+    const canvas = document.getElementById('guide-preview-canvas');
+    if (!viewport || !canvas) return;
+    const vpW = viewport.clientWidth, vpH = viewport.clientHeight;
+    const imgW = _guidePreviewCapture?.width || 380;
+    const imgH = _guidePreviewCapture?.height || 240;
+    _guidePreviewZoom = Math.min(vpW / imgW, vpH / imgH) * 0.95;
+    _guidePreviewPanX = 0;
+    _guidePreviewPanY = 0;
+    _guideApplyPreviewTransform();
+}
+
+function _initGuidePreviewZoom() {
+    const viewport = document.getElementById('guide-preview-viewport');
+    const canvas = document.getElementById('guide-preview-canvas');
+    if (!viewport || !canvas) return;
+
+    // Wheel zoom
+    viewport.addEventListener('wheel', (e) => {
+        if (e.ctrlKey || e.metaKey) return; // let browser handle page zoom
+        e.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+        const delta = -e.deltaY * 0.001;
+        const oldZoom = _guidePreviewZoom;
+        _guidePreviewZoom = Math.max(0.5, Math.min(20, _guidePreviewZoom * (1 + delta)));
+        // Adjust pan to keep mouse position fixed
+        const ratio = 1 - _guidePreviewZoom / oldZoom;
+        _guidePreviewPanX += mx * ratio;
+        _guidePreviewPanY += my * ratio;
+        _guideApplyPreviewTransform();
+    }, { passive: false });
+
+    // Drag to pan (or click to select star)
+    let dragging = false, didDrag = false, startX = 0, startY = 0, panStartX = 0, panStartY = 0;
+    viewport.addEventListener('mousedown', (e) => {
+        if (e.target.closest('button, input, select')) return;
+        dragging = true;
+        didDrag = false;
+        startX = e.clientX;
+        startY = e.clientY;
+        panStartX = _guidePreviewPanX;
+        panStartY = _guidePreviewPanY;
+        if (_guidePreviewZoom > 1) viewport.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', (e) => {
+        if (!dragging) return;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+        if (_guidePreviewZoom > 1) {
+            _guidePreviewPanX = panStartX + dx;
+            _guidePreviewPanY = panStartY + dy;
+            _guideApplyPreviewTransform();
+        }
+    });
+    window.addEventListener('mouseup', (e) => {
+        if (!dragging) return;
+        dragging = false;
+        viewport.style.cursor = '';
+        if (!didDrag && _guideStarList.length && _guidePreviewCapture) {
+            // Click — select nearest star
+            const rect = viewport.getBoundingClientRect();
+            const cx = e.clientX - rect.left;
+            const cy = e.clientY - rect.top;
+            const { scale, offX, offY, width: imgW, height: imgH, dpr } = _guidePreviewCapture;
+            // Account for zoom/pan transform
+            const imgX = ((cx - _guidePreviewPanX) / _guidePreviewZoom * dpr - offX) / scale;
+            const imgY = imgH - 1 - ((cy - _guidePreviewPanY) / _guidePreviewZoom * dpr - offY) / scale;
+            let bestDist = Infinity, bestStar = null;
+            for (const s of _guideStarList) {
+                const dx = s.x - imgX, dy = s.y - imgY;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < bestDist) { bestDist = dist; bestStar = s; }
+            }
+            if (bestStar && bestDist < 15) _guideSetStar(bestStar);
+        }
+    });
+
+    // Double-click reset
+    viewport.addEventListener('dblclick', (e) => {
+        if (e.target.closest('button, input, select')) return;
+        _guideResetPreviewZoom();
+    });
+
+    // Buttons
+    const zoomReset = document.getElementById('guide-preview-zoom-reset');
+    if (zoomReset) zoomReset.addEventListener('click', _guideResetPreviewZoom);
+    const zoomFit = document.getElementById('guide-preview-zoom-fit');
+    if (zoomFit) zoomFit.addEventListener('click', _guideFitPreviewZoom);
+
+    // Fit on first load
+    _guideFitPreviewZoom();
+}
+
+async function _guidePreviewCaptureHandler() {
+    const cam = _guideCameraSelect?.value;
+    if (!cam) { addLog('warn', 'guide', 'Sélectionnez une caméra guide'); return; }
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    addLog('info', 'guide', `Capture guide en cours (${exposure}s)...`);
+    // Set a flag so handleGuideImage knows to run star detection
+    apiPost('/api/camera/expose', { device: cam, duration: exposure });
 }
 
 async function _guideStart() {
@@ -4720,7 +4998,6 @@ function _guideUpdateUI(status) {
     if (status.history) {
         _guideDriftHistory = status.history;
         _guideDrawDrift();
-        if (_guideCrosshairVisible) _guideDrawCrosshair();
         _calDrawCalCrosshair();
     }
 
@@ -4735,9 +5012,11 @@ function _guideUpdateUI(status) {
 }
 
 let _guideDriftLastCSSW = 0, _guideDriftLastCSSH = 0;
-let _guideCrosshairCanvas = null, _guideExpandBtn = null;
-let _guideCrosshairVisible = false;
 let _guideAudioCtx = null;
+
+// ── Guide preview zoom/pan ──
+let _guidePreviewZoom = 1;
+let _guidePreviewPanX = 0, _guidePreviewPanY = 0;
 
 function _guideBeep() {
     try {
@@ -4824,234 +5103,96 @@ function _guideDrawDrift() {
         return;
     }
 
-    // Sliding window: show last 120s of data
+    // ── Fixed-size sliding window (120s) ──
     const windowSec = 120;
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
-    const windowFrames = Math.ceil(windowSec / exposure);
-    const maxPoints = Math.floor((w - 2 * pad) / 3);
-    const takeFrames = Math.min(windowFrames, maxPoints);
-    const startIdx = Math.max(0, hist.length - takeFrames);
-    const visible = hist.slice(startIdx);
-    const xStep = visible.length > 1 ? (w - 2 * pad) / (visible.length - 1) : 0;
+    const windowFrames = Math.max(2, Math.ceil(windowSec / exposure));
+    const plotWidth = w - 2 * pad;
+    const xStep = plotWidth / (windowFrames - 1);
 
-    function drawLine(data, color, name) {
+    // Determine which history indices fall in the window
+    const startIdx = Math.max(0, hist.length - windowFrames);
+
+    // Pre-allocate fixed-size array (null = no data yet)
+    const slots = new Array(windowFrames).fill(null);
+    for (let i = 0; i < windowFrames; i++) {
+        const hi = startIdx + i;
+        if (hi >= 0 && hi < hist.length) slots[i] = hist[hi];
+    }
+
+    // Find first/last non-null
+    let firstSlot = -1, lastSlot = -1;
+    for (let i = 0; i < windowFrames; i++) {
+        if (slots[i] !== null) {
+            if (firstSlot === -1) firstSlot = i;
+            lastSlot = i;
+        }
+    }
+    if (firstSlot === -1) return;
+
+    function drawLine(getVal, color) {
         ctx.strokeStyle = color;
         ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        for (let i = 0; i < data.length; i++) {
+        let started = false;
+        for (let i = firstSlot; i <= lastSlot; i++) {
+            const d = slots[i];
+            if (d === null) continue;
             const x = pad + i * xStep;
-            const y = midY - (data[i] / yMax) * (midY - pad);
-            if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            const y = midY - (getVal(d) / yMax) * (midY - pad);
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else ctx.lineTo(x, y);
         }
         ctx.stroke();
 
-        // Last value label at endpoint
-        if (data.length > 0) {
-            const lx = pad + (data.length - 1) * xStep;
-            const ly = midY - (data[data.length - 1] / yMax) * (midY - pad);
+        // Last value dot + label
+        const last = slots[lastSlot];
+        if (last) {
+            const lx = pad + lastSlot * xStep;
+            const ly = midY - (getVal(last) / yMax) * (midY - pad);
             ctx.fillStyle = color;
             ctx.beginPath(); ctx.arc(lx, ly, 4 * dpr, 0, Math.PI * 2); ctx.fill();
             ctx.font = `bold ${10 * dpr}px monospace`;
             ctx.textAlign = 'left';
-            const label = `${data[data.length - 1].toFixed(1)}″`;
-            const lxOff = lx + 6 * dpr;
-            const lyOff = ly - 6 * dpr;
-            ctx.fillText(label, lxOff, lyOff);
+            ctx.fillText(`${getVal(last).toFixed(1)}″`, lx + 6 * dpr, ly - 6 * dpr);
         }
     }
 
-    const raDrifts = visible.map(d => d.drift_arcsec_x);
-    const decDrifts = visible.map(d => d.drift_arcsec_y);
+    drawLine(d => d.drift_arcsec_x, '#44cc44');
+    drawLine(d => d.drift_arcsec_y, '#4488ff');
 
-    drawLine(raDrifts, '#44cc44', 'RA');
-    drawLine(decDrifts, '#4488ff', 'DEC');
-
-    // Y axis labels — brighter + bigger
+    // Y axis labels
     ctx.fillStyle = '#999';
     ctx.font = `bold ${10 * dpr}px monospace`;
     ctx.textAlign = 'right';
-    const labelStep = yMax / gridSteps;
     for (let i = -gridSteps; i <= gridSteps; i++) {
         const y = midY + (i / gridSteps) * (midY - pad);
         if (y < pad - 4 * dpr || y > h - padBottom + 4 * dpr) continue;
         const val = (i / gridSteps) * yMax;
-        if (val === 0) ctx.fillStyle = '#bbb';
-        else ctx.fillStyle = '#777';
+        ctx.fillStyle = val === 0 ? '#bbb' : '#777';
         ctx.fillText(val.toFixed(0), pad - 6 * dpr, y + 3.5 * dpr);
     }
 
-    // X axis — time graduation with frame ticks
-    ctx.fillStyle = '#666';
-    ctx.font = `bold ${9 * dpr}px monospace`;
+    // X axis — time ticks (relative to now)
     ctx.textAlign = 'center';
-    const totalSec = hist.length * (parseFloat(document.getElementById('guide-exposure')?.value || '1.0'));
-    const tickCount = Math.min(10, visible.length);
+    const tickCount = Math.min(6, windowFrames);
     for (let i = 0; i <= tickCount; i++) {
-        const idx = Math.round((i / tickCount) * (visible.length - 1));
-        if (idx < 0 || idx >= visible.length) continue;
+        const idx = Math.round((i / tickCount) * (windowFrames - 1));
         const x = pad + idx * xStep;
-        const frameNum = startIdx + idx + 1;
-        const timeSec = (frameNum - 1) * (parseFloat(document.getElementById('guide-exposure')?.value || '1.0'));
-        ctx.fillStyle = '#555';
-        ctx.font = `${7.5 * dpr}px monospace`;
-        ctx.fillText(`${timeSec.toFixed(0)}s`, x, h - padBottom + 4 * dpr);
-        // Tick mark
+        const relSec = -(windowFrames - 1 - idx) * exposure;
         ctx.strokeStyle = '#444';
         ctx.lineWidth = 0.5 * dpr;
         ctx.beginPath(); ctx.moveTo(x, h - padBottom); ctx.lineTo(x, h - padBottom + 4 * dpr); ctx.stroke();
+        ctx.fillStyle = '#666';
+        ctx.font = `${7.5 * dpr}px monospace`;
+        ctx.fillText(`${relSec}s`, x, h - padBottom + 14 * dpr);
     }
     ctx.textAlign = 'left';
     ctx.fillStyle = '#555';
     ctx.font = `${7.5 * dpr}px monospace`;
-    ctx.fillText(`#${startIdx + 1} (0s)`, pad, h - padBottom + 14 * dpr);
+    ctx.fillText(`-${(windowFrames - 1) * exposure}s`, pad + 2 * dpr, h - padBottom + 4 * dpr);
     ctx.textAlign = 'right';
-    ctx.fillText(`#${hist.length} (${totalSec.toFixed(0)}s)`, w - pad, h - padBottom + 14 * dpr);
-}
-
-function _guideDrawCrosshair() {
-    const canvas = _guideCrosshairCanvas;
-    if (!canvas) return;
-    const dpr = window.devicePixelRatio || 1;
-    const dw = canvas.clientWidth;
-    const dh = canvas.clientHeight;
-    if (!dw || !dh) return;
-    const bw = Math.round(dw * dpr);
-    const bh = Math.round(dh * dpr);
-    canvas.width = bw;
-    canvas.height = bh;
-    const ctx = canvas.getContext('2d');
-    const w = bw, h = bh;
-    ctx.clearRect(0, 0, w, h);
-
-    const hist = _guideDriftHistory;
-    if (hist.length < 1) {
-        ctx.fillStyle = '#555';
-        ctx.font = `${11 * dpr}px monospace`;
-        ctx.textAlign = 'center';
-        ctx.fillText('En attente de données...', w / 2, h / 2);
-        return;
-    }
-
-    const tolInput = document.getElementById('guide-tolerance');
-    const tolArcsec = parseFloat(tolInput?.value || '10');
-    const half = Math.max(5, tolArcsec);
-
-    const pad = 48;
-    const plotW = w - 2 * pad;
-    const plotH = h - 2 * pad;
-    const midX = pad + plotW / 2;
-    const midY = pad + plotH / 2;
-    const maxR = Math.min(plotW, plotH) / 2 - 4 * dpr;
-    const scale = maxR / half;
-
-    // ── Concentric tolerance zones ──
-    const tolR = tolArcsec * scale;        // full tolerance radius
-    const safeR = tolR / 2;                // safe zone = inner half
-
-    // Orange zone (tol/2 → tol)
-    const gradOrg = ctx.createRadialGradient(midX, midY, safeR, midX, midY, tolR);
-    gradOrg.addColorStop(0, 'rgba(255,165,0,0.0)');
-    gradOrg.addColorStop(1, 'rgba(255,165,0,0.12)');
-    ctx.fillStyle = gradOrg;
-    ctx.beginPath(); ctx.arc(midX, midY, tolR, 0, Math.PI * 2); ctx.fill();
-
-    // Green zone (0 → tol/2)
-    const gradGrn = ctx.createRadialGradient(midX, midY, 0, midX, midY, safeR);
-    gradGrn.addColorStop(0, 'rgba(0,255,100,0.08)');
-    gradGrn.addColorStop(1, 'rgba(0,255,100,0.15)');
-    ctx.fillStyle = gradGrn;
-    ctx.beginPath(); ctx.arc(midX, midY, safeR, 0, Math.PI * 2); ctx.fill();
-
-    // Graduated concentric circles every tol/4
-    for (let r = 1; r <= 4; r++) {
-        const radius = (tolR * r) / 4;
-        const isBoundary = r % 2 === 0;
-        ctx.strokeStyle = isBoundary ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.10)';
-        ctx.lineWidth = isBoundary ? 1.5 * dpr : 0.5 * dpr;
-        ctx.setLineDash(isBoundary ? [] : [3 * dpr, 3 * dpr]);
-        ctx.beginPath(); ctx.arc(midX, midY, radius, 0, Math.PI * 2); ctx.stroke();
-    }
-    ctx.setLineDash([]);
-
-    // Grid crosshair lines
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth = 1 * dpr;
-    ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
-
-    // ── Data trail ──
-    for (let i = 0; i < hist.length; i++) {
-        const d = hist[i];
-        const px = midX + (d.drift_arcsec_x || 0) * scale;
-        const py = midY - (d.drift_arcsec_y || 0) * scale;
-        const alpha = 0.15 + 0.85 * (i / hist.length);
-        const radius = i === hist.length - 1 ? 5 * dpr : 2.5 * dpr;
-        ctx.fillStyle = i === hist.length - 1 ? '#ffffff' : `rgba(180,200,255,${alpha * 0.6})`;
-        ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // ── Current position — bright crosshair ──
-    const last = hist[hist.length - 1];
-    const cx = midX + (last.drift_arcsec_x || 0) * scale;
-    const cy = midY - (last.drift_arcsec_y || 0) * scale;
-    ctx.strokeStyle = '#00ffcc';
-    ctx.lineWidth = 2.5 * dpr;
-    const ch = 10 * dpr;
-    ctx.beginPath(); ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch); ctx.stroke();
-    ctx.fillStyle = '#00ffcc';
-    ctx.beginPath(); ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2); ctx.fill();
-
-    // ── Ring labels (right side) ──
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.font = `${8 * dpr}px monospace`;
-    const labelPositions = [
-        { r: 1, label: `±${(tolArcsec * 0.25).toFixed(1)}″`, color: '#555' },
-        { r: 2, label: `±${(tolArcsec * 0.5).toFixed(1)}″`, color: '#4a4' },
-        { r: 3, label: `±${(tolArcsec * 0.75).toFixed(1)}″`, color: '#555' },
-        { r: 4, label: `±${tolArcsec}″`, color: '#f44' },
-    ];
-    for (const lp of labelPositions) {
-        const rPx = (tolR * lp.r) / 4;
-        const lx = midX + rPx + 4 * dpr;
-        const ly = midY;
-        ctx.fillStyle = lp.color;
-        ctx.fillText(lp.label, lx, ly);
-    }
-
-    // ── Axis labels ──
-    ctx.fillStyle = '#999';
-    ctx.font = `bold ${10 * dpr}px monospace`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    ctx.fillText('RA (″)', midX, h - 4 * dpr);
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('DEC (″)', pad - 8 * dpr, midY);
-
-    // ── RA/DEC numeric readout ──
-    ctx.fillStyle = '#fff';
-    ctx.font = `bold ${11 * dpr}px monospace`;
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(`RA: ${(last.drift_arcsec_x || 0).toFixed(2)}″`, w - pad, h - pad);
-    ctx.fillText(`DEC: ${(last.drift_arcsec_y || 0).toFixed(2)}″`, w - pad, h - pad + 14 * dpr);
-
-    // ── Zone legend ──
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.font = `${8 * dpr}px monospace`;
-    const legX = pad + 4 * dpr;
-    const legY = pad + 4 * dpr;
-    ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(legX - 2 * dpr, legY - 2 * dpr, 82 * dpr, 36 * dpr);
-    ctx.fillStyle = '#4a4';
-    ctx.fillText('● Zone sûre', legX, legY);
-    ctx.fillStyle = '#fa0';
-    ctx.fillText('● Attention', legX, legY + 12 * dpr);
-    ctx.fillStyle = '#f44';
-    ctx.fillText('● Alerte (bip)', legX, legY + 24 * dpr);
+    ctx.fillText(`0s`, w - pad - 2 * dpr, h - padBottom + 4 * dpr);
 }
 
 async function _guideStop() {
@@ -5081,10 +5222,6 @@ async function _guideReset() {
     await fetch('/api/guide/reset', { method: 'POST' }).catch(() => {});
     _guideDriftHistory = [];
     _guideDrawDrift();
-    if (_guideCrosshairCanvas) {
-        const ctx = _guideCrosshairCanvas.getContext('2d');
-        ctx.clearRect(0, 0, _guideCrosshairCanvas.width, _guideCrosshairCanvas.height);
-    }
     _guideCleanup();
     addLog('info', 'guide', 'Guidage réinitialisé');
 }
