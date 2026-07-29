@@ -22,6 +22,7 @@
 - [ ] Calibration : vérifier tracé correct + auto-population gains
 - [ ] Guidage : clic étoile → Capture → Auto → Lancer → graphe 120s
 - [ ] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻
+- [ ] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh).
 
 ## Améliorations possibles
 - [ ] Workflow automatique : bouton unique « Démarrer » qui enchaîne capture→sélection→calibration→guidage

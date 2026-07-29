@@ -222,6 +222,7 @@ function connectWS() {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
             const guideCam = _guideCameraSelect?.value || '';
+            console.log('WS image: device=%s format=%s guideCam=%s match=%s', msg.device, msg.format, guideCam, msg.device === guideCam);
             if (guideCam && msg.device === guideCam) {
                 handleGuideImage(msg.data, msg.format);
             } else {
@@ -1650,7 +1651,39 @@ function handleGuideImage(b64Data, fmt) {
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    if (!(fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53))) return;
+    console.log('handleGuideImage: fmt=%s size=%d firstByte=%s', fmt, bytes.length, String.fromCharCode(bytes[0]));
+    const statusEl = document.getElementById('guide-preview-status');
+    function setStatus(msg, color) {
+        if (statusEl) { statusEl.textContent = msg; if (color) statusEl.style.color = color; }
+    }
+    if (!(fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53))) {
+        console.warn('handleGuideImage: not a FITS image (fmt=%s, firstByte=%d)', fmt, bytes[0]);
+        // Try to render as PNG/JPEG (DSLR guide camera)
+        const blob = new Blob([bytes], { type: fmt || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.getElementById('guide-preview-canvas');
+            if (canvas) {
+                canvas.width = img.width;
+                canvas.height = img.height;
+                canvas.getContext('2d').drawImage(img, 0, 0);
+            }
+            const starCanvas = document.getElementById('guide-star-canvas');
+            if (starCanvas) {
+                const sctx = starCanvas.getContext('2d');
+                const scale = Math.min(starCanvas.width / img.width, starCanvas.height / img.height);
+                const dw = img.width * scale, dh = img.height * scale;
+                sctx.clearRect(0, 0, starCanvas.width, starCanvas.height);
+                sctx.drawImage(img, (starCanvas.width - dw) / 2, (starCanvas.height - dh) / 2, dw, dh);
+            }
+            setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
+            URL.revokeObjectURL(url);
+        };
+        img.onerror = () => { setStatus('⚠️ Format non supporté: ' + fmt, '#ff4444'); URL.revokeObjectURL(url); };
+        img.src = url;
+        return;
+    }
 
     // Parse FITS header
     let offset = 0;
@@ -1685,7 +1718,10 @@ function handleGuideImage(b64Data, fmt) {
     const w = parseInt(get('NAXIS1') || '0');
     const h = parseInt(get('NAXIS2') || '0');
     const bitpix = parseInt(get('BITPIX') || '16');
-    if (naxis < 2 || !w || !h) return;
+    if (naxis < 2 || !w || !h) {
+        setStatus('⚠️ En-tête FITS invalide', '#ff4444');
+        return;
+    }
 
     const dataStart = offset;
     const remaining = bytes.length - dataStart;
@@ -1710,8 +1746,12 @@ function handleGuideImage(b64Data, fmt) {
     const dpr = window.devicePixelRatio || 1;
     function renderToCanvas(canvasEl) {
         if (!canvasEl) return;
-        const cw = canvasEl.clientWidth, ch = canvasEl.clientHeight;
-        if (!cw || !ch) return;
+        let cw = canvasEl.clientWidth, ch = canvasEl.clientHeight;
+        // Fallback to HTML attributes if client rect is 0 (hidden panel etc.)
+        if (!cw || !ch) {
+            cw = parseInt(canvasEl.getAttribute('width')) || 380;
+            ch = parseInt(canvasEl.getAttribute('height')) || 240;
+        }
         const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
         if (canvasEl.width !== bw || canvasEl.height !== bh) {
             canvasEl.width = bw;
@@ -1742,7 +1782,7 @@ function handleGuideImage(b64Data, fmt) {
         ctx.drawImage(tmp, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
 
         // Return metadata for this render
-        return { scale, offX: (bw - dw) / 2, offY: (bh - dh) / 2, cw: bw, ch: bh };
+        return { scale, offX: (bw - dw) / 2, offY: (bh - dh) / 2, canvasW: bw, canvasH: bh };
     }
 
     // Render to large preview (for star selection)
@@ -1751,6 +1791,17 @@ function handleGuideImage(b64Data, fmt) {
     // Also render to small thumbnail
     renderToCanvas(document.getElementById('guide-star-canvas'));
 
+    // Ensure guide preview panel is visible
+    const previewPanel = document.getElementById('applet-guide-preview');
+    if (previewPanel && previewPanel.style.display === 'none' && currentMode === 'guiding') {
+        previewPanel.style.display = '';
+        if (previewPanel.classList.contains('collapsed')) toggleMinimize(previewPanel);
+    } else if (previewPanel && previewPanel.style.display === 'none') {
+        // Also show during calibration
+        previewPanel.style.display = '';
+        if (previewPanel.classList.contains('collapsed')) toggleMinimize(previewPanel);
+    }
+
     // Store preview data for click remapping
     if (previewMeta) {
         _guidePreviewCapture = { width: w, height: h, pixels, sky, soft, k, ...previewMeta, dpr };
@@ -1758,7 +1809,8 @@ function handleGuideImage(b64Data, fmt) {
 
     // Detect stars and draw markers on preview overlay
     _guideDetectStars(w, h);
-    } catch (e) { console.error('handleGuideImage error:', e); }
+    setStatus(`Image ${w}×${h} ✓`, '#44cc44');
+    } catch (e) { console.error('handleGuideImage error:', e); setStatus('⚠️ Erreur: ' + e.message, '#ff4444'); }
 }
 
 function _guideDetectStars(w, h) {
@@ -2094,8 +2146,10 @@ function renderFITSImage(bytes) {
 }
 
 function showPreviewInfo(text) {
+    // Only show capture preview if current mode includes it
+    const modeApplets = MODES[currentMode]?.applets || [];
     const panel = document.getElementById('applet-capture-preview');
-    if (panel) {
+    if (panel && modeApplets.includes('applet-capture-preview')) {
         panel.style.display = '';
         if (panel.classList.contains('collapsed')) toggleMinimize(panel);
     }
