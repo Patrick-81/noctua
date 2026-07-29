@@ -71,6 +71,7 @@ class Focuser(BaseDevice):
     async def move_to(self, position: int) -> None:
         """Move focuser to an absolute position."""
         self.target_position = position
+        self.is_moving = True
         await self.send_number("FOCUSER_POSITION", [
             {"name": "TARGET_POSITION", "value": position},
         ])
@@ -79,6 +80,7 @@ class Focuser(BaseDevice):
     async def move_relative(self, direction: str, steps: int) -> None:
         """Move focuser relative to current position. direction: IN/OUT"""
         d = direction.upper()
+        self.is_moving = True
         await self.send_switch("FOCUSER_DIRECTION", [
             {"name": d, "value": True},
         ])

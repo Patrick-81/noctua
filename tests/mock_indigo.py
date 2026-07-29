@@ -52,6 +52,7 @@ def _make_fits(width: int, height: int, stars: list[tuple[int, int, float, float
                bg: float = 100.0) -> bytes:
     """Generate a minimal FITS image with Gaussian stars."""
     import array
+    import sys
     img = array.array('h')  # signed short (BITPIX=16)
     # Pre-compute background
     bg_val = int(bg)
@@ -75,6 +76,9 @@ def _make_fits(width: int, height: int, stars: list[tuple[int, int, float, float
         "END",
     ]
     header = "".join(c.ljust(80) for c in cards).ljust(2880)
+    # FITS requires big-endian byte order; array('h') uses native order
+    if sys.byteorder == 'little':
+        img.byteswap()
     return header.encode("ascii") + img.tobytes()
 
 
@@ -120,6 +124,11 @@ PROP_DEFS = [
     '<defSwitchVector device="Mount" name="MOUNT_MOTION_WE" state="Ok" perm="rw" rule="AtMostOne" label="E/W Motion">'
     '<defSwitch name="EAST" value="Off" label="East"/>'
     '<defSwitch name="WEST" value="Off" label="West"/>'
+    '</defSwitchVector>',
+
+    '<defSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok" perm="rw" rule="OneOfMany" label="Drift Simulation">'
+    '<defSwitch name="ENABLED" value="On" label="Enabled"/>'
+    '<defSwitch name="DISABLED" value="Off" label="Disabled"/>'
     '</defSwitchVector>',
 
     # ── Focuser ──
@@ -250,6 +259,10 @@ class GuideDriftSim:
         self.star_y = max(margin, min(self.img_h - margin, self.star_y))
         return (self.star_x, self.star_y)
 
+    def get_position(self) -> tuple[float, float]:
+        """Return current star position without advancing drift."""
+        return (self.star_x, self.star_y)
+
     def apply_correction_we(self, direction: str) -> None:
         """Apply WEST/EAST guide correction: moves star toward center."""
         if direction == 'WEST':
@@ -285,6 +298,7 @@ class MockMount:
         self.drift_sim = drift_sim  # Optional: guide drift sim to correct
         self._guide_moving_ns = False
         self._guide_moving_we = False
+        self.drift_enabled = True
 
     def coords_xml(self, state="Ok"):
         return (
@@ -399,11 +413,27 @@ class MockMount:
             else:
                 self._guide_moving_we = False
                 responses.append(self.motion_we_xml())
+        elif prop_name == "DRIFT_SIM_ENABLE":
+            enabled = items.get("ENABLED", "off").lower() in ("on", "true", "1")
+            self.drift_enabled = enabled
+            log.info("Drift sim %s", "enabled" if enabled else "disabled")
+            responses.append(
+                f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
+                f'<oneSwitch name="ENABLED">{"On" if enabled else "Off"}</oneSwitch>'
+                f'<oneSwitch name="DISABLED">{"Off" if enabled else "On"}</oneSwitch>'
+                f'</setSwitchVector>'
+            )
         return responses
 
     async def send_state(self, writer):
+        enabled = "On" if self.drift_enabled else "Off"
+        disabled = "Off" if self.drift_enabled else "On"
         for xml in [self.connection_xml(), self.coords_xml(), self.tracking_xml(),
-                     self.park_xml(), self.motion_ns_xml(), self.motion_we_xml()]:
+                     self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(),
+                     f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
+                     f'<oneSwitch name="ENABLED">{enabled}</oneSwitch>'
+                     f'<oneSwitch name="DISABLED">{disabled}</oneSwitch>'
+                     f'</setSwitchVector>']:
             writer.write((xml + "\n").encode())
             await writer.drain()
             await asyncio.sleep(0.03)
@@ -738,7 +768,10 @@ class MockIndigoServer:
                     elif device_name in self.cameras:
                         self.cameras[device_name].handle_number(prop_name, items)
                         if prop_name == "CCD_EXPOSURE" and device_name == "Guide Camera":
-                            sx, sy = self.drift_sim.step()
+                            if self.mount.drift_enabled:
+                                sx, sy = self.drift_sim.step()
+                            else:
+                                sx, sy = self.drift_sim.get_position()
                             self.cameras["Guide Camera"].star_override = (sx, sy, 8000, 3.0)
                         asyncio.ensure_future(self.cameras[device_name].simulate_exposure(writer))
 

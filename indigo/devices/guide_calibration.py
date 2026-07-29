@@ -50,6 +50,7 @@ class GuideCalibration:
 
         # Per-phase start position (for cumulative distance tracking)
         self._phase_origin: tuple[float, float] | None = None
+        self._original_origin: tuple[float, float] | None = None
         self._phase_count: int = 0
         self._return_last_dist: float | None = None
 
@@ -69,6 +70,7 @@ class GuideCalibration:
         self.target_px = max(5.0, min(100.0, target_px))
         self.steps = []
         self._phase_origin = None
+        self._original_origin = None
         self._phase_count = 0
         self.x_rate = None
         self.y_rate = None
@@ -79,6 +81,13 @@ class GuideCalibration:
         log.info("Calibration started: step=%dms target=%.1fpx", self.step_ms, self.target_px)
         return self.status()
 
+    def set_origin(self, x: float, y: float) -> None:
+        """Set the origin for the current phase without recording a step.
+        Call before the first correction pulse to anchor the true origin."""
+        self._phase_origin = (x, y)
+        if self.state in (CalState.WEST, CalState.NORTH):
+            self._original_origin = (x, y)
+
     def record_step(self, direction: str, x: float, y: float, pulse_ms: int) -> dict:
         if self.state in (CalState.IDLE, CalState.COMPLETE, CalState.FAILED):
             return {"ok": False, "error": "calibration inactive"}
@@ -87,8 +96,16 @@ class GuideCalibration:
 
         if self._phase_origin is None:
             self._phase_origin = (x, y)
+            # Save the true origin when starting outward phases
+            if self.state in (CalState.WEST, CalState.NORTH):
+                self._original_origin = (x, y)
 
-        ox, oy = self._phase_origin
+        # For return phases, measure distance from the original origin
+        if self.state in (CalState.EAST, CalState.SOUTH) and self._original_origin is not None:
+            ox, oy = self._original_origin
+        else:
+            ox, oy = self._phase_origin
+
         dx = x - ox
         dy = y - oy
         dist = math.sqrt(dx * dx + dy * dy)
@@ -269,6 +286,7 @@ class GuideCalibration:
         self.state = CalState.IDLE
         self.steps = []
         self._phase_origin = None
+        self._original_origin = None
         self._phase_count = 0
         self.x_rate = None
         self.y_rate = None

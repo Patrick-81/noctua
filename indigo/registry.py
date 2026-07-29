@@ -74,6 +74,9 @@ class DeviceRegistry:
                     return dev
         return None
 
+    def get_all_cameras(self) -> list[Camera]:
+        return [dev for dev in self._devices.values() if isinstance(dev, Camera)]
+
     def get_focuser(self) -> Focuser | None:
         for dev in self._devices.values():
             if isinstance(dev, Focuser):

@@ -191,7 +191,7 @@ def generate_star_field(
     pixel_size_um: float = 2.9,
     focal_length_mm: float = 1200.0,
     fwhm_px: float = 4.0,
-    noise_level: float = 10.0,
+    noise_level: float = 3.0,
     seed: int | None = None,
 ) -> tuple[np.ndarray, dict]:
     """Generate a synthetic star field image.
@@ -222,7 +222,7 @@ def generate_star_field(
             for ra, dec, vmag in catalog_stars:
                 x, y = _wcs_to_pixel(ra, dec, center_ra, center_dec, scale_arcsec_px, width_px, height_px)
                 if 0 < x < width_px and 0 < y < height_px:
-                    flux = 10 ** ((8.0 - vmag) / 2.5) * 80
+                    flux = 10 ** ((8.0 - vmag) / 2.5) * 50
                     field_stars.append((x, y, flux, vmag, f"tycho_{len(field_stars)}", ra, dec))
         except Exception as e:
             print(f"  WARNING: catalog search failed: {e}")
@@ -233,14 +233,14 @@ def generate_star_field(
             x, y = _wcs_to_pixel(ra, dec, center_ra, center_dec, scale_arcsec_px, width_px, height_px)
             margin = max(width_px, height_px) * (fov_margin - 1) / 2
             if -margin < x < width_px + margin and -margin < y < height_px + margin:
-                flux = 10 ** ((8.0 - vmag) / 2.5) * 80
+                flux = 10 ** ((8.0 - vmag) / 2.5) * 50
                 field_stars.append((x, y, flux, vmag, name, ra, dec))
 
     # Create image
     img = rng.normal(0, noise_level, (height_px, width_px)).astype(np.float32)
 
     # Add sky background
-    img += 50.0
+    img += 200.0
 
     # Draw stars with Gaussian PSF
     sigma = fwhm_px / 2.355
@@ -253,7 +253,7 @@ def generate_star_field(
                 d2 = (dx - x) ** 2 + (dy - y) ** 2
                 img[dy, dx] += flux * np.exp(-0.5 * d2 / (sigma ** 2))
 
-    # Clip to uint16 range
+    # Clip to uint16 range (unsigned int16, like real camera drivers)
     img = np.clip(img, 0, 65535).astype(np.uint16)
 
     # Build metadata
@@ -275,7 +275,7 @@ def generate_star_field(
 def write_fits(img: np.ndarray, filepath: str, meta: dict) -> None:
     """Write a FITS file with proper WCS headers."""
     h, w = img.shape
-    bitspix = 16
+    bitspix = -16
 
     # Build FITS header
     header_lines = []
@@ -323,8 +323,8 @@ def write_fits(img: np.ndarray, filepath: str, meta: dict) -> None:
     # Write FITS
     with open(filepath, 'wb') as f:
         f.write(header_bytes)
-        # Write image data (big-endian int16)
-        data_bytes = img.astype('>i2').tobytes()
+        # Write image data (big-endian unsigned int16)
+        data_bytes = img.astype('>u2').tobytes()
         f.write(data_bytes)
         # Pad data to multiple of 2880
         pad = (2880 - len(data_bytes) % 2880) % 2880

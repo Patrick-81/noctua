@@ -353,7 +353,7 @@
         <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:560px;">
+        <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:620px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button id="guide-expand-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Afficher/Masquer la cible">⊕ Cible</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px;">
@@ -378,7 +378,7 @@
             </div>
         </div>
 
-        <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:220px;">
+        <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:280px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div class="cap-section">
@@ -392,6 +392,16 @@
                     <div class="cap-row">
                         <input id="guide-exposure" type="number" class="input-glass" style="flex:1; width:60px;" value="1.0" min="0.1" max="30" step="0.5">
                         <span style="font-size:0.6rem; color:#666;">sec</span>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label">Binning</div>
+                    <div class="cap-row">
+                        <select id="guide-binning" class="input-glass" style="flex:1; font-size:0.65rem;">
+                            <option value="1">1×1</option>
+                            <option value="2">2×2</option>
+                            <option value="4">4×4</option>
+                        </select>
                     </div>
                 </div>
                 <div class="cap-section">
@@ -443,24 +453,32 @@
         <!-- APPLET: Calibration monture                           -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-calibration" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:380px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CALIBRATION MONTURE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="padding:6px 8px;">
-                <div style="display:flex; gap:4px; margin-bottom:4px;">
-                    <button id="cal-start-btn" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.65rem;">▶ Calibrer</button>
-                    <button id="cal-stop-btn" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled>⏹ Stop</button>
+        <div id="applet-calibration" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:520px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.85rem;">◎ CALIBRATION MONTURE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:8px 10px;">
+                <div style="display:flex; gap:6px; margin-bottom:4px;">
+                    <button id="cal-start-btn" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;">▶ Calibrer</button>
+                    <button id="cal-stop-btn" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;" disabled>⏹ Stop</button>
                 </div>
-                <div id="cal-status-wrap" style="display:none; font-size:0.6rem; color:#aaa; margin-bottom:4px;">
+                <div id="cal-status-wrap" style="display:none; font-size:0.75rem; color:#aaa; margin-bottom:6px;">
                     <span id="cal-phase">Phase: —</span>
-                    <span style="margin-left:8px;" id="cal-step-count">Steps: 0</span>
-                    <span style="margin-left:8px;" id="cal-quality"></span>
+                    <span style="margin-left:10px;" id="cal-step-count">Steps: 0</span>
+                    <span style="margin-left:10px;">
+                        Pulse: <input type="number" id="cal-pulse-ms" value="500" min="100" max="5000" step="50" style="width:55px; background:#1a1a2a; color:#ccc; border:1px solid #333; border-radius:2px; font-size:0.75rem; text-align:center;">ms
+                    </span>
+                    <span style="margin-left:10px;" id="cal-quality"></span>
                 </div>
-                <canvas id="cal-graph-canvas" width="360" height="180" style="width:100%; height:180px; background:#0a0a12; border-radius:4px;"></canvas>
-                <div id="cal-results" style="display:none; margin-top:4px; font-size:0.55rem; color:#888;">
+                <div style="display:flex; gap:4px; margin-bottom:4px;">
+                    <button id="cal-tab-graph" class="btn-glass cap-btn-sm cal-tab-active" style="flex:1; font-size:0.7rem; padding:3px;">📊 Graphe</button>
+                    <button id="cal-tab-crosshair" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.7rem; padding:3px;">◎ Cible</button>
+                </div>
+                <canvas id="cal-graph-canvas" width="500" height="260" style="width:100%; height:260px; background:#0a0a12; border-radius:4px;"></canvas>
+                <canvas id="cal-crosshair-canvas" width="500" height="260" style="width:100%; height:260px; background:#0a0a12; border-radius:4px; display:none;"></canvas>
+                <div id="cal-results" style="display:none; margin-top:6px; font-size:0.7rem; color:#888;">
                     <span>Taux RA: <span id="cal-x-rate" style="color:#44cc44;">—</span> px/ms</span>
-                    <span style="margin-left:6px;">DEC: <span id="cal-y-rate" style="color:#4488ff;">—</span> px/ms</span>
-                    <span style="margin-left:6px;">Angle: <span id="cal-ortho" style="color:#00ffcc;">—</span>°</span>
-                    <span style="margin-left:6px;">Qualité: <span id="cal-badge" style="color:#4a4;">—</span></span>
+                    <span style="margin-left:10px;">DEC: <span id="cal-y-rate" style="color:#4488ff;">—</span> px/ms</span>
+                    <span style="margin-left:10px;">Angle: <span id="cal-ortho" style="color:#00ffcc;">—</span>°</span>
+                    <span style="margin-left:10px;">Qualité: <span id="cal-badge" style="color:#4a4;">—</span></span>
                 </div>
             </div>
         </div>
@@ -512,7 +530,6 @@
                     <select id="cap-binning" class="cap-select">
                         <option value="1">1×1</option>
                         <option value="2">2×2</option>
-                        <option value="3">3×3</option>
                         <option value="4">4×4</option>
                     </select>
                     <span class="cap-info" id="cap-sensor-info"></span>

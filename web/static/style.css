@@ -281,6 +281,7 @@ body {
 .btn-glass.warning:hover { background: rgba(255, 204, 0, 0.15); }
 .btn-glass.danger { color: #ff5577; border-color: rgba(255, 85, 119, 0.3); }
 .btn-glass.danger:hover { background: rgba(255, 85, 119, 0.15); }
+.cal-tab-active { background: rgba(0, 255, 204, 0.15) !important; border-color: #00ffcc !important; color: #00ffcc !important; }
 
 /* ── Inputs ─────────────────────────────────────────────────── */
 
@@ -502,6 +503,12 @@ body {
 #cap-preview-canvas {
     transform-origin: 0 0;
     image-rendering: pixelated;
+    max-width: 100%;
+    display: block;
+}
+#cap-zoom-level.flash {
+    color: rgba(0,255,204,1);
+    text-shadow: 0 0 6px rgba(0,255,204,0.5);
 }
 #offset-overlay-canvas {
     transform-origin: 0 0;
@@ -1238,6 +1245,12 @@ body {
 .solver-mode-btn {
     flex: 1; padding: 4px 8px; font-size: 0.6rem;
 }
+.solver-mode-btn.active {
+    background: rgba(0,255,204,0.2);
+    border-color: rgba(0,255,204,0.4);
+    color: #00ffcc;
+}
+.polar-manual-only.hidden { display: none; }
 
 .solver-input {
     background: rgba(0,255,204,0.06);
@@ -1294,6 +1307,80 @@ body {
     border-radius: 4px;
     color: #ff5577;
     font-size: 0.65rem;
+}
+
+/* ── Target centering panel ────────────────────────────────── */
+
+.nudge-amount-btn, .nudge-dir-btn {
+    padding: 3px 8px !important;
+    font-size: 0.6rem !important;
+    min-width: 36px;
+    text-align: center;
+}
+.nudge-dir-btn {
+    min-width: 50px;
+}
+
+/* ── Polar alignment panel ─────────────────────────────────── */
+
+.polar-instructions {
+    font-size: 0.6rem; color: #888; line-height: 1.4;
+    padding: 4px 0;
+}
+.polar-step {
+    padding: 4px 8px;
+    border-left: 2px solid rgba(0,255,204,0.15);
+    margin-left: 6px;
+    margin-bottom: 6px;
+}
+.polar-step-num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; border-radius: 50%;
+    background: rgba(0,255,204,0.15); color: #00ffcc;
+    font-size: 0.6rem; font-weight: bold; flex-shrink: 0;
+}
+.polar-step-done .polar-step-num {
+    background: rgba(0,255,136,0.3); color: #00ff88;
+}
+.polar-step-active {
+    border-left-color: #ffcc00;
+}
+.polar-step-active .polar-step-num {
+    background: rgba(255,204,0,0.2); color: #ffcc00;
+    animation: polar-pulse 1.2s ease-in-out infinite;
+}
+@keyframes polar-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(255,204,0,0.3); }
+    50% { box-shadow: 0 0 8px 2px rgba(255,204,0,0.2); }
+}
+.polar-step-status {
+    margin-left: auto;
+    font-size: 0.7rem;
+}
+.polar-step-fail .polar-step-status { color: #ff5577; }
+.polar-step-ok .polar-step-status { color: #00ff88; }
+
+.polar-capture-btn {
+    font-size: 0.6rem !important;
+}
+
+.polar-result-row {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.65rem; margin-bottom: 2px;
+}
+.polar-result-value {
+    color: #00ffcc; font-family: monospace;
+}
+.polar-arrow {
+    font-size: 0.8rem;
+    margin-left: 4px;
+}
+
+.polar-canvas {
+    width: 100%;
+    margin-top: 6px;
+    border-radius: 4px;
+    background: rgba(0,0,0,0.3);
 }
 
 /* ── Responsive ─────────────────────────────────────────────── */
@@ -1357,4 +1444,14 @@ body {
     #applet-log { left: 8px; bottom: 220px; width: calc(100vw - 16px); }
     #applet-search { top: 6px; right: 8px; }
     #applet-props { right: 8px; width: 260px; }
+}
+
+/* ── Focuser ─────────────────────────────────────────────── */
+
+.foc-moving { animation: foc-pulse 0.6s ease-in-out infinite alternate; color: #00ffcc !important; }
+.foc-idle { color: #666; }
+
+@keyframes foc-pulse {
+    from { opacity: 0.4; }
+    to   { opacity: 1; }
 }

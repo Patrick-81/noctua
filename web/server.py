@@ -650,6 +650,8 @@ class WebServer:
             max_pulse = int(body.get("max_pulse_ms", 2000))
             min_pulse = int(body.get("min_pulse_ms", 50))
             plate_scale = float(body.get("plate_scale", 1.0))
+            # Re-enable drift sim if it was disabled by calibration
+            await _calibrate_set_drift(True)
             return SanitizedJSONResponse(self._guide.start(
                 exposure, aggressiveness, ra_gain, dec_gain, max_pulse, min_pulse, plate_scale))
 
@@ -683,18 +685,45 @@ class WebServer:
 
         # ── Guide calibration ─────────────────────────────────────
 
-        from indigo.devices.guide_calibration import GuideCalibration
+        from indigo.devices.guide_calibration import GuideCalibration, CalState
         self._guide_cal = GuideCalibration()
 
         @app.get("/api/guide/calibrate/status")
         async def calibrate_status():
             return SanitizedJSONResponse(self._guide_cal.status())
 
+        async def _calibrate_set_drift(enabled: bool):
+            """Toggle mock drift sim (fire-and-forget, safe if property doesn't exist)."""
+            try:
+                name = "ENABLED" if enabled else "DISABLED"
+                await self.registry.client.send_new_switch(
+                    "Mount", "DRIFT_SIM_ENABLE",
+                    [{"name": name, "value": True}])
+            except Exception:
+                pass
+
         @app.post("/api/guide/calibrate/start")
         async def calibrate_start(body: dict):
             step_ms = int(body.get("step_ms", 500))
             target_px = float(body.get("target_px", 25))
-            return SanitizedJSONResponse(self._guide_cal.start(step_ms, target_px))
+            # Safety reset — if previous calibration crashed mid-state
+            if self._guide_cal.state not in (CalState.IDLE, CalState.COMPLETE, CalState.FAILED):
+                log.warning("Calibration start called while state=%s — resetting first", self._guide_cal.state.value)
+                self._guide_cal.reset()
+            # Disable drift NOW (synchronous) so the first calibration exposure isn't affected
+            await _calibrate_set_drift(False)
+            try:
+                return SanitizedJSONResponse(self._guide_cal.start(step_ms, target_px))
+            except Exception as e:
+                log.error("Calibrate start exception: %s", e, exc_info=True)
+                return {"ok": False, "error": str(e)}
+
+        @app.post("/api/guide/calibrate/set-origin")
+        async def calibrate_set_origin(body: dict):
+            x = float(body.get("x", 0))
+            y = float(body.get("y", 0))
+            self._guide_cal.set_origin(x, y)
+            return SanitizedJSONResponse({"ok": True})
 
         @app.post("/api/guide/calibrate/step")
         async def calibrate_step(body: dict):
@@ -702,18 +731,24 @@ class WebServer:
             x = float(body.get("x", 0))
             y = float(body.get("y", 0))
             pulse_ms = int(body.get("pulse_ms", 500))
-            return SanitizedJSONResponse(self._guide_cal.record_step(direction, x, y, pulse_ms))
+            result = self._guide_cal.record_step(direction, x, y, pulse_ms)
+            if result.get("state") in ("complete", "failed"):
+                asyncio.ensure_future(_calibrate_set_drift(True))
+            return SanitizedJSONResponse(result)
 
         @app.post("/api/guide/calibrate/stop")
         async def calibrate_stop():
+            asyncio.ensure_future(_calibrate_set_drift(True))
             return SanitizedJSONResponse(self._guide_cal.stop())
 
         @app.post("/api/guide/calibrate/finish")
         async def calibrate_finish():
+            asyncio.ensure_future(_calibrate_set_drift(True))
             return SanitizedJSONResponse(self._guide_cal.finish())
 
         @app.post("/api/guide/calibrate/reset")
         async def calibrate_reset():
+            asyncio.ensure_future(_calibrate_set_drift(True))
             return SanitizedJSONResponse(self._guide_cal.reset())
 
         # ── Generic property setter ──────────────────────────────

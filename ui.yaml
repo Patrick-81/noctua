@@ -1,4 +1,4 @@
-mode: astrometry
+mode: guiding
 log_levels:
   info: true
   warning: true
@@ -134,17 +134,99 @@ modes:
         transform: translateX(-50%)
   guiding:
     driver: null
-    collapsed: {}
+    collapsed:
+      applet-log: true
     applets:
-      applet-guiding-graph:
+      applet-legend:
+        left: 1700px
+        top: 650px
+        right: null
+        bottom: null
+      applet-log:
+        left: 9px
+        top: 822px
+        right: null
+        bottom: null
+      applet-status:
+        left: 1691px
+        top: 12px
+        right: null
+        bottom: null
+      applet-joystick:
+        left: 56px
+        top: 120px
+        right: null
+        bottom: null
+      applet-commands:
+        left: 56px
+        top: 380px
+        right: null
+        bottom: null
+      applet-hud:
+        left: 1591.39px
+        top: 166px
+        right: null
+        bottom: null
+      applet-search:
+        left: 16px
+        top: 560px
+        right: null
+        bottom: null
+      applet-focuser-control:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-focuser-position:
         left: 50%
         top: 200px
         right: null
         bottom: null
         transform: translateX(-50%)
+      applet-autofocus:
+        left: null
+        top: null
+        right: 16px
+        bottom: 16px
+      applet-guiding-graph:
+        left: 674px
+        top: 631px
+        right: null
+        bottom: null
       applet-guiding-settings:
+        left: 1595px
+        top: 41px
+        right: null
+        bottom: null
+      applet-calibration:
+        left: 11px
+        top: 89px
+        right: null
+        bottom: null
+      applet-capture-settings:
         left: null
         top: 80px
+        right: 16px
+        bottom: null
+      applet-capture-preview:
+        left: 597px
+        top: 167px
+        right: null
+        bottom: null
+      applet-solver:
+        left: 50%
+        top: 200px
+        right: null
+        bottom: null
+        transform: translateX(-50%)
+      applet-target:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
+      applet-polar:
+        left: null
+        top: 340px
         right: 16px
         bottom: null
   capture:
@@ -212,6 +294,31 @@ modes:
         top: 638px
         right: null
         bottom: null
+      applet-status:
+        left: 1691px
+        top: 12px
+        right: null
+        bottom: null
+      applet-joystick:
+        left: 56px
+        top: 120px
+        right: null
+        bottom: null
+      applet-commands:
+        left: 56px
+        top: 380px
+        right: null
+        bottom: null
+      applet-hud:
+        left: 1591.39px
+        top: 166px
+        right: null
+        bottom: null
+      applet-search:
+        left: 16px
+        top: 560px
+        right: null
+        bottom: null
       applet-focuser-control:
         left: null
         top: 80px
@@ -223,6 +330,11 @@ modes:
         right: null
         bottom: null
         transform: translateX(-50%)
+      applet-autofocus:
+        left: null
+        top: null
+        right: 16px
+        bottom: 16px
       applet-guiding-graph:
         left: 50%
         top: 200px
@@ -234,25 +346,35 @@ modes:
         top: 80px
         right: 16px
         bottom: null
+      applet-calibration:
+        left: 16px
+        top: 80px
+        right: null
+        bottom: null
       applet-capture-settings:
         left: null
         top: 80px
         right: 16px
         bottom: null
       applet-capture-preview:
-        left: 58px
-        top: 164px
+        left: 1332px
+        top: 55px
         right: null
         bottom: null
       applet-solver:
-        left: 1433px
-        top: 255px
+        left: 1082px
+        top: 180px
+        right: null
+        bottom: null
+      applet-target:
+        left: 1441px
+        top: 564px
         right: null
         bottom: null
       applet-polar:
-        left: null
-        top: 80px
-        right: 16px
+        left: 60px
+        top: 140px
+        right: null
         bottom: null
     histo_auto: false
     histo_black_pct: 0

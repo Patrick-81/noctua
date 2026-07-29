@@ -123,7 +123,8 @@ def _parse_xml_item(el: ET.Element, vector_type: VectorType) -> Item:
         try:
             item.value = float(text) if text else 0.0
         except ValueError:
-            item.value = 0.0
+            sv = parse_sexagesimal(text)
+            item.value = sv if sv is not None else 0.0
         target_attr = el.get("target")
         if target_attr is not None:
             try:

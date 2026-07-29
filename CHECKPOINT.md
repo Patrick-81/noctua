@@ -94,10 +94,38 @@ Bouton **⊕ Cible** dans l'en-tête du panneau dérive pour afficher/masquer la
 - `web/static/app.js` : _guideDrawDrift() amélioré, _guideDrawCrosshair() nouveau, _guideBeep(), _guideUpdateUI() crosshair + beep, initGuidePanel() expand btn
 - `web/static/index.html` : #guide-tolerance, #guide-crosshair-canvas/wrap, #guide-expand-btn, panel 560px
 
+## Session 2026-07-29 — Calibration fix + guidage + UI
+
+### Fix calibration — Origin des phases retour (EAST/SOUTH)
+`GuideCalibration._check_transition()` mesurait la distance depuis le départ de la phase retour au lieu de l'origine réelle, rendant `at_origin` impossible et `went_past` prématuré.
+**Correction** : `_original_origin` sauvegardé au début des phases aller (WEST/NORTH) et utilisé pour les phases retour (EAST/SOUTH). Ajout de `set_origin(x,y)` pour fixer l'origine AVANT le premier pulse.
+
+### Fix guide — Drift réactivé après calibration
+`_calibrate_set_drift(False)` désactivait la dérive mock pendant la calibration mais `guide_start` ne la réactivait pas. Passage de `asyncio.ensure_future` à `await` pour garantir la synchronisation.
+
+### UI calibration — Panneau agrandi
+Panneau 380→520px, polices 0.55→0.75rem, canvas 360×180→500×260. Onglets Graphe/Cible dans le panneau.
+
+### UI guidage — Fenêtre 120s + graduation temporelle
+Graphe de dérive : fenêtre glissante remplacée par fenêtre fixe de 120s. Graduation en secondes sur l'axe X.
+
+### Binning guide — Nouveau sélecteur
+Ajout binning 1×1/2×2/4×4 dans les paramètres d'autoguidage.
+
+### Épingles — Tous les panneaux
+Bouton 📌 dans chaque panneau pour figer la position (cyan = épinglé). Positions épinglées restaurées depuis localStorage.
+
+### Fichiers modifiés
+- `indigo/devices/guide_calibration.py` : _original_origin, set_origin()
+- `web/server.py` : await _calibrate_set_drift, set-origin endpoint, guide binning
+- `web/static/app.js` : calibration graph refactor, tabs, crosshair tab, 120s window, pin buttons, guide binning
+- `web/static/index.html` : panel sizes, tabs, binning selector, guide settings width
+- `web/static/style.css` : .cal-tab-active
+
 ## État des tests
-- **Via pytest** : 50/50 (incl. 16 autofocus unit)
+- **Via pytest** : 50/50
 - **Guide flow (main)** : 38/38
 - **Autofocus flow (main)** : 34/34
 - **Playwright** : 19/19
 - **Polar math JS** : 53/53
-- **Total : 194/194****
+- **Total : 194/194**

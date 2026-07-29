@@ -54,7 +54,7 @@ const MODES = {
         driverType: 'focuser'
     },
     guiding: {
-        applets: ['applet-guiding-graph', 'applet-guiding-settings', 'applet-capture-preview'],
+        applets: ['applet-guiding-graph', 'applet-guiding-settings', 'applet-capture-preview', 'applet-calibration'],
         driverType: 'ccd'
     },
     capture: {
@@ -191,6 +191,7 @@ function connectWS() {
 
     ws.onopen = () => {
         addLog('info', 'ws', 'WebSocket connecté');
+        _refreshGuideCameraList();
     };
 
     ws.onclose = () => {
@@ -4587,6 +4588,21 @@ function initGuidePanel() {
 
     const resetBtn = document.getElementById('guide-reset-btn');
     if (resetBtn) resetBtn.addEventListener('click', _guideReset);
+
+    // Guide camera binning
+    const guideBin = document.getElementById('guide-binning');
+    if (guideBin) {
+        guideBin.addEventListener('change', () => {
+            const v = parseInt(guideBin.value);
+            const cam = _guideCameraSelect?.value;
+            if (!cam) return;
+            apiPost('/api/property', {
+                device: cam,
+                property: 'CCD_BINNING',
+                items: [{ name: 'HOR_BIN', value: v }, { name: 'VER_BIN', value: v }]
+            });
+        });
+    }
 }
 
 function _refreshGuideCameraList() {
@@ -4705,6 +4721,7 @@ function _guideUpdateUI(status) {
         _guideDriftHistory = status.history;
         _guideDrawDrift();
         if (_guideCrosshairVisible) _guideDrawCrosshair();
+        _calDrawCalCrosshair();
     }
 
     // Beep if outside tolerance
@@ -4758,7 +4775,8 @@ function _guideDrawDrift() {
     ctx.clearRect(0, 0, w, h);
 
     const hist = _guideDriftHistory;
-    const pad = 36;
+    const pad = 42;
+    const padBottom = 18;
     const midY = h / 2;
 
     // Dynamic yMax from tolerance input (minimum ±5)
@@ -4772,7 +4790,7 @@ function _guideDrawDrift() {
     const gridSteps = 4;
     for (let i = -gridSteps; i <= gridSteps; i++) {
         const y = midY + (i / gridSteps) * (midY - pad);
-        if (y < pad || y > h - pad) continue;
+        if (y < pad || y > h - padBottom) continue;
         ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
     }
 
@@ -4806,9 +4824,13 @@ function _guideDrawDrift() {
         return;
     }
 
-    // Sliding window: show last N points that fit
+    // Sliding window: show last 120s of data
+    const windowSec = 120;
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    const windowFrames = Math.ceil(windowSec / exposure);
     const maxPoints = Math.floor((w - 2 * pad) / 3);
-    const startIdx = Math.max(0, hist.length - maxPoints);
+    const takeFrames = Math.min(windowFrames, maxPoints);
+    const startIdx = Math.max(0, hist.length - takeFrames);
     const visible = hist.slice(startIdx);
     const xStep = visible.length > 1 ? (w - 2 * pad) / (visible.length - 1) : 0;
 
@@ -4851,20 +4873,39 @@ function _guideDrawDrift() {
     const labelStep = yMax / gridSteps;
     for (let i = -gridSteps; i <= gridSteps; i++) {
         const y = midY + (i / gridSteps) * (midY - pad);
-        if (y < pad - 4 * dpr || y > h - pad + 4 * dpr) continue;
+        if (y < pad - 4 * dpr || y > h - padBottom + 4 * dpr) continue;
         const val = (i / gridSteps) * yMax;
         if (val === 0) ctx.fillStyle = '#bbb';
         else ctx.fillStyle = '#777';
         ctx.fillText(val.toFixed(0), pad - 6 * dpr, y + 3.5 * dpr);
     }
 
-    // X axis — brighter
+    // X axis — time graduation with frame ticks
     ctx.fillStyle = '#666';
-    ctx.font = `9px monospace`;
+    ctx.font = `bold ${9 * dpr}px monospace`;
+    ctx.textAlign = 'center';
+    const totalSec = hist.length * (parseFloat(document.getElementById('guide-exposure')?.value || '1.0'));
+    const tickCount = Math.min(10, visible.length);
+    for (let i = 0; i <= tickCount; i++) {
+        const idx = Math.round((i / tickCount) * (visible.length - 1));
+        if (idx < 0 || idx >= visible.length) continue;
+        const x = pad + idx * xStep;
+        const frameNum = startIdx + idx + 1;
+        const timeSec = (frameNum - 1) * (parseFloat(document.getElementById('guide-exposure')?.value || '1.0'));
+        ctx.fillStyle = '#555';
+        ctx.font = `${7.5 * dpr}px monospace`;
+        ctx.fillText(`${timeSec.toFixed(0)}s`, x, h - padBottom + 4 * dpr);
+        // Tick mark
+        ctx.strokeStyle = '#444';
+        ctx.lineWidth = 0.5 * dpr;
+        ctx.beginPath(); ctx.moveTo(x, h - padBottom); ctx.lineTo(x, h - padBottom + 4 * dpr); ctx.stroke();
+    }
     ctx.textAlign = 'left';
-    ctx.fillText(`#${startIdx + 1}`, pad, h - 4 * dpr);
+    ctx.fillStyle = '#555';
+    ctx.font = `${7.5 * dpr}px monospace`;
+    ctx.fillText(`#${startIdx + 1} (0s)`, pad, h - padBottom + 14 * dpr);
     ctx.textAlign = 'right';
-    ctx.fillText(`#${hist.length}`, w - pad, h - 4 * dpr);
+    ctx.fillText(`#${hist.length} (${totalSec.toFixed(0)}s)`, w - pad, h - padBottom + 14 * dpr);
 }
 
 function _guideDrawCrosshair() {
@@ -5080,12 +5121,125 @@ function initCalibrationPanel() {
 
     if (_calStartBtn) _calStartBtn.addEventListener('click', _calibrateStart);
     if (_calStopBtn) _calStopBtn.addEventListener('click', _calibrateStop);
+
+    // Tab switching: Graphe / Cible
+    const tabGraph = document.getElementById('cal-tab-graph');
+    const tabCross = document.getElementById('cal-tab-crosshair');
+    const crossCanvas = document.getElementById('cal-crosshair-canvas');
+    if (tabGraph && tabCross && crossCanvas) {
+        tabGraph.addEventListener('click', () => {
+            tabGraph.classList.add('cal-tab-active');
+            tabCross.classList.remove('cal-tab-active');
+            _calGraphCanvas.style.display = '';
+            crossCanvas.style.display = 'none';
+            _calibrateDrawGraph({steps: []});
+        });
+        tabCross.addEventListener('click', () => {
+            tabCross.classList.add('cal-tab-active');
+            tabGraph.classList.remove('cal-tab-active');
+            _calGraphCanvas.style.display = 'none';
+            crossCanvas.style.display = '';
+            _calDrawCalCrosshair();
+        });
+    }
+}
+
+function _calDrawCalCrosshair() {
+    const canvas = document.getElementById('cal-crosshair-canvas');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.width, h = canvas.height;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, w, h);
+
+    const hist = _guideDriftHistory;
+    if (hist.length < 1) {
+        ctx.fillStyle = '#555';
+        ctx.font = `${11 * dpr}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('En attente des données de guidage...', w / 2, h / 2);
+        return;
+    }
+
+    const pad = 48;
+    const plotW = w - 2 * pad;
+    const plotH = h - 2 * pad;
+    const midX = pad + plotW / 2;
+    const midY = pad + plotH / 2;
+    const half = Math.max(5, parseFloat(document.getElementById('guide-tolerance')?.value || '10'));
+    const maxR = Math.min(plotW, plotH) / 2 - 4 * dpr;
+    const scale = maxR / half;
+
+    // Tolerance zones
+    const tolR = half * scale, safeR = tolR / 2;
+    const gradOrg = ctx.createRadialGradient(midX, midY, safeR, midX, midY, tolR);
+    gradOrg.addColorStop(0, 'rgba(255,165,0,0.0)');
+    gradOrg.addColorStop(1, 'rgba(255,165,0,0.12)');
+    ctx.fillStyle = gradOrg;
+    ctx.beginPath(); ctx.arc(midX, midY, tolR, 0, Math.PI * 2); ctx.fill();
+    const gradGrn = ctx.createRadialGradient(midX, midY, 0, midX, midY, safeR);
+    gradGrn.addColorStop(0, 'rgba(0,255,100,0.08)');
+    gradGrn.addColorStop(1, 'rgba(0,255,100,0.15)');
+    ctx.fillStyle = gradGrn;
+    ctx.beginPath(); ctx.arc(midX, midY, safeR, 0, Math.PI * 2); ctx.fill();
+
+    // Concentric rings
+    for (let r = 1; r <= 4; r++) {
+        const radius = (tolR * r) / 4;
+        const isB = r % 2 === 0;
+        ctx.strokeStyle = isB ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = isB ? 1.5 * dpr : 0.5 * dpr;
+        ctx.setLineDash(isB ? [] : [3 * dpr, 3 * dpr]);
+        ctx.beginPath(); ctx.arc(midX, midY, radius, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Crosshair lines
+    ctx.strokeStyle = '#555';
+    ctx.lineWidth = 1 * dpr;
+    ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
+
+    // Data trail
+    for (let i = 0; i < hist.length; i++) {
+        const d = hist[i];
+        const px = midX + (d.drift_arcsec_x || 0) * scale;
+        const py = midY - (d.drift_arcsec_y || 0) * scale;
+        const alpha = 0.15 + 0.85 * (i / hist.length);
+        const radius = i === hist.length - 1 ? 5 * dpr : 2.5 * dpr;
+        ctx.fillStyle = i === hist.length - 1 ? '#ffffff' : `rgba(180,200,255,${alpha * 0.6})`;
+        ctx.beginPath(); ctx.arc(px, py, radius, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Current crosshair
+    if (hist.length > 0) {
+        const last = hist[hist.length - 1];
+        const cx = midX + (last.drift_arcsec_x || 0) * scale;
+        const cy = midY - (last.drift_arcsec_y || 0) * scale;
+        ctx.strokeStyle = '#00ffcc';
+        ctx.lineWidth = 2.5 * dpr;
+        const ch = 10 * dpr;
+        ctx.beginPath(); ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch); ctx.stroke();
+        ctx.fillStyle = '#00ffcc';
+        ctx.beginPath(); ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+        // Readout
+        ctx.fillStyle = '#fff';
+        ctx.font = `bold ${11 * dpr}px monospace`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(`RA: ${(last.drift_arcsec_x || 0).toFixed(2)}″`, w - pad, h - pad);
+        ctx.fillText(`DEC: ${(last.drift_arcsec_y || 0).toFixed(2)}″`, w - pad, h - pad + 14 * dpr);
+    }
 }
 
 async function _calibrateStart() {
     if (_calRunning) return;
     const cam = _guideCameraSelect?.value;
     if (!cam) { addLog('error', 'calibration', 'Sélectionnez une caméra guide'); return; }
+
+    // Reset calibration state machine
+    await fetch('/api/guide/calibrate/reset', { method: 'POST' }).catch(() => {});
 
     // Need a guide star — take a quick exposure to get centroid
     addLog('info', 'calibration', 'Prévisualisation étoile guide...');
@@ -5102,15 +5256,22 @@ async function _calibrateStart() {
         return;
     }
 
+    const pulseMs = parseInt(document.getElementById('cal-pulse-ms')?.value || '500');
     const res = await fetch('/api/guide/calibrate/start', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({step_ms: 500, target_px: 25})
+        body: JSON.stringify({step_ms: pulseMs, target_px: 25})
     }).then(r => r.json()).catch(() => null);
 
     if (!res?.ok) {
         addLog('error', 'calibration', res?.error || 'Échec démarrage');
         return;
     }
+
+    // Set true origin from the pre-calibration star position
+    await fetch('/api/guide/calibrate/set-origin', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({x: metric.stars[0].x, y: metric.stars[0].y})
+    }).catch(() => {});
 
     _calRunning = true;
     if (_calStartBtn) _calStartBtn.disabled = true;
@@ -5173,7 +5334,7 @@ async function _calibrateLoop() {
         body: JSON.stringify({direction: dir, x: star.x, y: star.y, pulse_ms: stepMs})
     }).then(r => r.json()).catch(() => null);
 
-    if (!stepRes) { _calibrateAbort('Erreur step'); return; }
+    if (!stepRes?.ok) { _calibrateAbort(stepRes?.error || 'Erreur step'); return; }
 
     // Update UI
     if (_calPhaseEl) {
@@ -5183,9 +5344,13 @@ async function _calibrateLoop() {
     if (_calStepCountEl) _calStepCountEl.textContent = `Steps: ${stepRes.step_count}`;
     _calibrateDrawGraph(stepRes);
 
-    // Check completion
+    // Check completion / failure
     if (stepRes.state === 'complete') {
         _calibrateDone(stepRes);
+        return;
+    }
+    if (stepRes.state === 'failed') {
+        _calibrateAbort(stepRes.error || 'Échec calibration');
         return;
     }
 
@@ -5204,9 +5369,11 @@ function _calibrateDrawGraph(status) {
 
     const steps = status.steps || [];
     const west = steps.filter(s => s.direction === 'W');
+    const east = steps.filter(s => s.direction === 'E');
     const north = steps.filter(s => s.direction === 'N');
+    const south = steps.filter(s => s.direction === 'S');
 
-    if (west.length < 1 && north.length < 1) {
+    if (steps.length < 1) {
         ctx.fillStyle = '#555';
         ctx.font = `${11 * dpr}px monospace`;
         ctx.textAlign = 'center';
@@ -5214,96 +5381,112 @@ function _calibrateDrawGraph(status) {
         return;
     }
 
-    const pad = 40;
+    const pad = 44;
     const plotW = w - 2 * pad;
     const plotH = h - 2 * pad;
     const midX = pad + plotW / 2;
     const midY = pad + plotH / 2;
 
-    // Data bounds
+    // Data bounds — use a fixed minimum range so points don't jump
     const allX = steps.map(s => s.dx);
     const allY = steps.map(s => s.dy);
+    const targetPx = status.target_px || 25;
     const maxAbs = Math.max(1, ...allX.map(Math.abs), ...allY.map(Math.abs));
-    const range = maxAbs * 1.3;
+    const range = Math.max(maxAbs * 1.3, targetPx * 2);
     const scale = Math.min(plotW, plotH) / (2 * range);
 
-    // Grid
-    ctx.strokeStyle = '#2a2a3e';
-    ctx.lineWidth = 0.5 * dpr;
+    // Grid with graduation labels
+    ctx.font = `${8 * dpr}px monospace`;
+    ctx.fillStyle = '#555';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
     for (let i = -4; i <= 4; i++) {
-        const x = midX + (i / 4) * range * scale;
-        const y = midY - (i / 4) * range * scale;
+        if (i === 0) continue;
+        const frac = i / 4;
+        const val = (frac * range).toFixed(0);
+        const x = midX + frac * range * scale;
+        const y = midY - frac * range * scale;
+        ctx.strokeStyle = '#2a2a3e';
+        ctx.lineWidth = 0.5 * dpr;
         ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, pad + plotH); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad + plotW, y); ctx.stroke();
+        // X tick label
+        ctx.fillStyle = '#555';
+        ctx.fillText(val, x, pad + plotH + 2 * dpr);
+        // Y tick label
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(val, pad - 4 * dpr, y);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
     }
 
     // Zero cross
-    ctx.strokeStyle = '#555';
+    ctx.strokeStyle = '#666';
     ctx.lineWidth = 1 * dpr;
     ctx.beginPath(); ctx.moveTo(pad, midY); ctx.lineTo(pad + plotW, midY); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(midX, pad); ctx.lineTo(midX, pad + plotH); ctx.stroke();
-
-    // West steps — blue line + dots
-    if (west.length >= 2) {
-        ctx.strokeStyle = '#4488ff';
-        ctx.lineWidth = 2 * dpr;
-        ctx.beginPath();
-        for (let i = 0; i < west.length; i++) {
-            const x = midX + west[i].dx * scale;
-            const y = midY - west[i].dy * scale;
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-    }
-    for (const s of west) {
-        ctx.fillStyle = '#4488ff';
-        ctx.beginPath(); ctx.arc(midX + s.dx * scale, midY - s.dy * scale, 3 * dpr, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // North steps — green line + dots
-    if (north.length >= 2) {
-        ctx.strokeStyle = '#44cc44';
-        ctx.lineWidth = 2 * dpr;
-        ctx.beginPath();
-        for (let i = 0; i < north.length; i++) {
-            const x = midX + north[i].dx * scale;
-            const y = midY - north[i].dy * scale;
-            i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-    }
-    for (const s of north) {
-        ctx.fillStyle = '#44cc44';
-        ctx.beginPath(); ctx.arc(midX + s.dx * scale, midY - s.dy * scale, 3 * dpr, 0, Math.PI * 2); ctx.fill();
-    }
-
-    // Legend
-    ctx.font = `${9 * dpr}px monospace`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(pad + 2 * dpr, pad + 2 * dpr, 80 * dpr, 28 * dpr);
-    ctx.fillStyle = '#4488ff';
-    ctx.fillText('●', pad + 6 * dpr, pad + 5 * dpr);
-    ctx.fillStyle = '#ccc';
-    ctx.fillText('WEST', pad + 16 * dpr, pad + 5 * dpr);
-    ctx.fillStyle = '#44cc44';
-    ctx.fillText('●', pad + 6 * dpr, pad + 17 * dpr);
-    ctx.fillStyle = '#ccc';
-    ctx.fillText('NORTH', pad + 16 * dpr, pad + 17 * dpr);
-
-    // Axis labels
     ctx.fillStyle = '#888';
-    ctx.font = `${9 * dpr}px monospace`;
     ctx.textAlign = 'right';
     ctx.textBaseline = 'middle';
-    ctx.fillText(`+${range.toFixed(0)}`, pad - 4 * dpr, midY - range * scale);
-    ctx.fillText(`-${range.toFixed(0)}`, pad - 4 * dpr, midY + range * scale);
     ctx.fillText('0', pad - 4 * dpr, midY + 3 * dpr);
+
+    // Axis labels
+    const labelStyle = '#777';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
-    ctx.fillText(`-${range.toFixed(0)}`, midX - range * scale, pad + plotH + 2 * dpr);
-    ctx.fillText(`+${range.toFixed(0)}`, midX + range * scale, pad + plotH + 2 * dpr);
+    ctx.fillStyle = labelStyle;
+    ctx.font = `${8 * dpr}px monospace`;
+    ctx.fillText('W ← dx (px) → E', w / 2, pad + plotH + 14 * dpr);
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('S ← dy (px) → N', pad - 2 * dpr, h / 2);
+
+    // Helper: draw step series
+    function drawSteps(series, color, label, showLabels) {
+        if (series.length < 1) return;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.5 * dpr;
+        if (series.length >= 2) {
+            ctx.beginPath();
+            for (let i = 0; i < series.length; i++) {
+                const x = midX + series[i].dx * scale;
+                const y = midY - series[i].dy * scale;
+                i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+            }
+            ctx.stroke();
+        }
+        for (let i = 0; i < series.length; i++) {
+            const x = midX + series[i].dx * scale;
+            const y = midY - series[i].dy * scale;
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(x, y, 3 * dpr, 0, Math.PI * 2); ctx.fill();
+            if (showLabels) {
+                ctx.fillStyle = '#aaa';
+                ctx.font = `${7 * dpr}px monospace`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText((i + 1).toString(), x + 4 * dpr, y - 2 * dpr);
+            }
+        }
+        // Legend entry
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        const lx = pad + 2 * dpr;
+        const ly = pad + 2 * dpr + (['#4488ff','#ff8844','#44cc44','#cc44cc'].indexOf(color) * 12 * dpr);
+        ctx.fillRect(lx, ly, 70 * dpr, 10 * dpr);
+        ctx.fillStyle = color;
+        ctx.font = `${8 * dpr}px monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'top';
+        ctx.fillText('●', lx + 2 * dpr, ly + 1 * dpr);
+        ctx.fillStyle = '#ccc';
+        ctx.fillText(label, lx + 14 * dpr, ly + 1 * dpr);
+    }
+
+    drawSteps(west, '#4488ff', 'WEST', true);
+    drawSteps(east, '#ff8844', 'EAST', false);
+    drawSteps(north, '#44cc44', 'NORTH', true);
+    drawSteps(south, '#cc44cc', 'SOUTH', false);
 }
 
 function _calibrateDone(status) {
@@ -5329,6 +5512,16 @@ function _calibrateDone(status) {
     if (_calQualityEl) {
         const flaws = status.quality_flaws || [];
         _calQualityEl.textContent = flaws.length ? flaws.join(' ') : '';
+    }
+
+    // Auto-populate guide gains from calibration results
+    if (status.x_rate != null && status.x_rate > 0) {
+        const raGain = document.getElementById('guide-ra-gain');
+        if (raGain) raGain.value = (1 / status.x_rate).toFixed(1);
+    }
+    if (status.y_rate != null && status.y_rate > 0) {
+        const decGain = document.getElementById('guide-dec-gain');
+        if (decGain) decGain.value = (1 / status.y_rate).toFixed(1);
     }
 
     _calibrateDrawGraph(status);
@@ -5546,11 +5739,39 @@ function initDraggableApplets() {
             });
         }
 
+        // Pin button
         const handle = panel.querySelector('.applet-drag');
         if (!handle) return;
+        const pinBtn = document.createElement('button');
+        pinBtn.className = 'applet-pin';
+        pinBtn.title = 'Épingler / détacher';
+        pinBtn.textContent = '📌';
+        pinBtn.style.cssText = 'font-size:0.55rem; background:none; border:none; color:#555; cursor:pointer; padding:0 4px; margin-left:auto;';
+        handle.insertBefore(pinBtn, handle.lastElementChild);
+        const isPinned = currentModeConfig().pinned?.[panel.id];
+        if (isPinned) {
+            panel.dataset.pinned = 'true';
+            pinBtn.style.color = '#00ffcc';
+        }
+        pinBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const modeCfg = currentModeConfig();
+            modeCfg.pinned = modeCfg.pinned || {};
+            if (panel.dataset.pinned) {
+                delete panel.dataset.pinned;
+                pinBtn.style.color = '#555';
+                modeCfg.pinned[panel.id] = false;
+            } else {
+                panel.dataset.pinned = 'true';
+                pinBtn.style.color = '#00ffcc';
+                modeCfg.pinned[panel.id] = true;
+            }
+            saveUiConfig();
+        });
 
         handle.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+            if (panel.dataset.pinned) return;
             e.preventDefault();
 
             // Convert CSS right/bottom positioning to explicit left/top

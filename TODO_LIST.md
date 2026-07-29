@@ -9,11 +9,16 @@
 - [x] Crosshair cible RA/DEC + graphique temporel amélioré
 - [x] Tolérance configurable (±1–120″) + beep de dépassement
 - [x] Panneau extensible (bouton ⊕ Cible pour crosshair)
+- [x] Calibration : origine vraie (set_origin), _original_origin pour phases retour
+- [x] Calibration : graphe avec échelle fixe (target_px*2), onglets Graphe/Cible
+- [x] Guidage : fenêtre temporelle 120s, graduation en secondes
+- [x] Binning guide : sélecteur 1×1/2×2/4×4 dans paramètres guidage
+- [x] Épingles : 📌 sur tous les panneaux mobiles (positions sauvegardées)
 
 ## À tester
-- [ ] Rafraîchir le navigateur et tester visuellement
-  - Guidage : drift canvas (temporel + crosshair), tolérance, beep
-  - Autofocus : V-curve avec move to best + vérification
+- [ ] Calibration : vérifier tracé correct (WEST -8,-16,-24,-32, EAST retour à 0)
+- [ ] Guidage : gains auto-populés depuis calibration, graphe 120s, binning
+- [ ] Épingles : cliquer 📌, redémarrer, vérifier restauration
 
 ## Améliorations possibles
 - [ ] Phase 6 Caméra guide (séparation guide/principale, plan_focuser.md)
