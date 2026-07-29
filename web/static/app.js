@@ -222,7 +222,7 @@ function connectWS() {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
             const guideCam = _guideCameraSelect?.value || '';
-            if (guideCam && msg.device === guideCam && currentMode === 'guiding') {
+            if (guideCam && msg.device === guideCam) {
                 handleGuideImage(msg.data, msg.format);
             } else {
                 handleCameraImage(msg.data, msg.format);
@@ -1646,6 +1646,7 @@ function renderCapturePanel() {
 // ── FITS image handling ──────────────────────────────────────
 
 function handleGuideImage(b64Data, fmt) {
+    try {
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
@@ -1757,6 +1758,7 @@ function handleGuideImage(b64Data, fmt) {
 
     // Detect stars and draw markers on preview overlay
     _guideDetectStars(w, h);
+    } catch (e) { console.error('handleGuideImage error:', e); }
 }
 
 function _guideDetectStars(w, h) {
@@ -4727,6 +4729,10 @@ function initGuidePanel() {
     if (_guideStopBtn) _guideStopBtn.addEventListener('click', _guideStop);
     if (_guidePauseBtn) _guidePauseBtn.addEventListener('click', _guidePause);
 
+    // Refresh button for drift graph
+    const guideRefresh = document.getElementById('guide-refresh-btn');
+    if (guideRefresh) guideRefresh.addEventListener('click', () => _guideDrawDrift());
+
     const resetBtn = document.getElementById('guide-reset-btn');
     if (resetBtn) resetBtn.addEventListener('click', _guideReset);
 
@@ -4895,9 +4901,19 @@ async function _guidePreviewCaptureHandler() {
     const cam = _guideCameraSelect?.value;
     if (!cam) { addLog('warn', 'guide', 'Sélectionnez une caméra guide'); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
-    addLog('info', 'guide', `Capture guide en cours (${exposure}s)...`);
-    // Set a flag so handleGuideImage knows to run star detection
-    apiPost('/api/camera/expose', { device: cam, duration: exposure });
+    const statusEl = document.getElementById('guide-preview-status');
+    if (statusEl) { statusEl.textContent = '📷 Capture en cours...'; statusEl.style.color = '#ffaa00'; }
+    addLog('info', 'guide', `Capture guide (${exposure}s)...`);
+    const res = await fetch('/api/camera/expose', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ device: cam, duration: exposure })
+    }).then(r => r.json()).catch(() => null);
+    if (!res?.ok) {
+        const msg = res?.error || 'Échec capture';
+        if (statusEl) { statusEl.textContent = `❌ ${msg}`; statusEl.style.color = '#ff4444'; }
+        addLog('error', 'guide', msg);
+    }
 }
 
 async function _guideStart() {
@@ -5242,6 +5258,7 @@ let _calPhaseEl = null, _calStepCountEl = null, _calQualityEl = null;
 let _calResultsEl = null;
 let _calXRatesEl = null, _calYRateEl = null, _calOrthoEl = null, _calBadgeEl = null;
 let _calTimer = null;
+let _calLastStatus = null;
 
 function initCalibrationPanel() {
     _calStartBtn = document.getElementById('cal-start-btn');
@@ -5259,6 +5276,20 @@ function initCalibrationPanel() {
     if (_calStartBtn) _calStartBtn.addEventListener('click', _calibrateStart);
     if (_calStopBtn) _calStopBtn.addEventListener('click', _calibrateStop);
 
+    // Refresh button
+    const calRefresh = document.getElementById('cal-refresh-btn');
+    if (calRefresh) {
+        calRefresh.addEventListener('click', () => {
+            const tabGraph = document.getElementById('cal-tab-graph');
+            const isGraph = tabGraph?.classList.contains('cal-tab-active');
+            if (isGraph) {
+                _calibrateDrawGraph(_calLastStatus);
+            } else {
+                _calDrawCalCrosshair();
+            }
+        });
+    }
+
     // Tab switching: Graphe / Cible
     const tabGraph = document.getElementById('cal-tab-graph');
     const tabCross = document.getElementById('cal-tab-crosshair');
@@ -5269,7 +5300,7 @@ function initCalibrationPanel() {
             tabCross.classList.remove('cal-tab-active');
             _calGraphCanvas.style.display = '';
             crossCanvas.style.display = 'none';
-            _calibrateDrawGraph({steps: []});
+            _calibrateDrawGraph(_calLastStatus);
         });
         tabCross.addEventListener('click', () => {
             tabCross.classList.add('cal-tab-active');
@@ -5497,6 +5528,7 @@ async function _calibrateLoop() {
 }
 
 function _calibrateDrawGraph(status) {
+    if (status) _calLastStatus = status;
     const canvas = _calGraphCanvas;
     if (!canvas) return;
     const dpr = window.devicePixelRatio || 1;
@@ -5881,14 +5913,18 @@ function initDraggableApplets() {
         if (!handle) return;
         const pinBtn = document.createElement('button');
         pinBtn.className = 'applet-pin';
-        pinBtn.title = 'Épingler / détacher';
-        pinBtn.textContent = '📌';
-        pinBtn.style.cssText = 'font-size:0.55rem; background:none; border:none; color:#555; cursor:pointer; padding:0 4px; margin-left:auto;';
+        pinBtn.title = 'Épingler (empêche le déplacement)';
+        pinBtn.style.cssText = 'font-size:0.6rem; background:none; border:none; cursor:pointer; padding:0 4px; margin-left:auto; transition:color 0.2s;';
         handle.insertBefore(pinBtn, handle.lastElementChild);
         const isPinned = currentModeConfig().pinned?.[panel.id];
         if (isPinned) {
             panel.dataset.pinned = 'true';
+            pinBtn.textContent = '🔒';
             pinBtn.style.color = '#00ffcc';
+            pinBtn.title = 'Détacher (autoriser le déplacement)';
+        } else {
+            pinBtn.textContent = '📌';
+            pinBtn.style.color = '#555';
         }
         pinBtn.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -5896,11 +5932,15 @@ function initDraggableApplets() {
             modeCfg.pinned = modeCfg.pinned || {};
             if (panel.dataset.pinned) {
                 delete panel.dataset.pinned;
+                pinBtn.textContent = '📌';
                 pinBtn.style.color = '#555';
+                pinBtn.title = 'Épingler (empêche le déplacement)';
                 modeCfg.pinned[panel.id] = false;
             } else {
                 panel.dataset.pinned = 'true';
+                pinBtn.textContent = '🔒';
                 pinBtn.style.color = '#00ffcc';
+                pinBtn.title = 'Détacher (autoriser le déplacement)';
                 modeCfg.pinned[panel.id] = true;
             }
             saveUiConfig();

@@ -34,6 +34,13 @@ body {
 
 /* ── Glass panel (base de tous les applets) ─────────────────── */
 
+.glass-panel[data-pinned] {
+    border-color: rgba(0, 255, 204, 0.5) !important;
+}
+.glass-panel[data-pinned]:hover {
+    border-color: rgba(0, 255, 204, 0.7) !important;
+}
+
 .glass-panel {
     background: rgba(8, 8, 25, 0.65);
     backdrop-filter: blur(10px);
