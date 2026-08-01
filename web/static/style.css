@@ -556,6 +556,24 @@ body {
     max-height: calc(100vh - 120px);
 }
 
+#applet-guide-preview.enlarged {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: 100% !important;
+    transform: none !important;
+    border-radius: 0 !important;
+    z-index: 9999;
+    overflow-y: auto;
+}
+#applet-guide-preview.enlarged #guide-preview-viewport {
+    max-height: calc(100vh - 120px);
+}
+
 /* Resize handle */
 .cap-resize-handle {
     position: absolute;

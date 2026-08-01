@@ -41,6 +41,702 @@ function currentModeConfig() {
     return uiConfig.modes[currentMode];
 }
 
+// ── Checklist Panel ─────────────────────────────────────────────
+
+class ChecklistPanel {
+    constructor(containerId, items) {
+        this.container = document.getElementById(containerId);
+        this.items = items;
+        this._els = [];
+        if (this.container) this._build();
+    }
+    _build() {
+        this.container.innerHTML = '';
+        for (const item of this.items) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex; align-items:center; gap:6px; padding:4px 0; cursor:pointer;';
+            const cb = document.createElement('span');
+            cb.style.cssText = 'width:16px; height:16px; border:1.5px solid #555; border-radius:3px; display:flex; align-items:center; justify-content:center; font-size:0.55rem; flex-shrink:0; transition:0.2s;';
+            const label = document.createElement('span');
+            label.style.cssText = 'font-size:0.6rem; color:#ccc;';
+            label.textContent = item.label;
+            row.appendChild(cb);
+            row.appendChild(label);
+            row.addEventListener('click', () => {
+                if (!item.checked) item.action?.();
+            });
+            this.container.appendChild(row);
+            this._els.push({ row, cb, label, item });
+        }
+    }
+    update() {
+        for (const el of this._els) {
+            const checked = !!el.item.check();
+            el.item.checked = checked;
+            if (checked) {
+                el.cb.textContent = '✓';
+                el.cb.style.background = '#00cc88';
+                el.cb.style.borderColor = '#00cc88';
+                el.cb.style.color = '#000';
+                el.label.style.color = '#888';
+            } else {
+                el.cb.textContent = '';
+                el.cb.style.background = 'transparent';
+                el.cb.style.borderColor = '#555';
+                el.cb.style.color = '#ccc';
+                el.label.style.color = '#ff6644';
+            }
+        }
+    }
+}
+
+// ── Viewer Configurable ──────────────────────────────────────────
+
+class Viewer {
+    static MODES = {
+        capture: {
+            containerId: 'applet-capture-preview', canvasId: 'cap-preview-canvas',
+            viewportId: 'cap-preview-viewport', emptyId: 'cap-preview-empty',
+            wrapId: 'cap-preview-wrap', infoId: 'cap-preview-info',
+            resizeHandleId: 'cap-resize-handle',
+            zoomLevelId: 'cap-zoom-level', zoomResetId: 'cap-zoom-reset',
+            zoomFitId: 'cap-zoom-fit', zoomEnlargeId: 'cap-zoom-enlarge',
+            overlayIds: ['offset-overlay-canvas', 'focus-overlay-canvas'],
+            features: { histogram: true, save: true, enlarge: true, resize: true,
+                        starSelect: false, guideButtons: false, focusMetrics: false, offsetVector: false }
+        },
+        guiding: {
+            containerId: 'applet-guide-preview', canvasId: 'guide-preview-canvas',
+            viewportId: 'guide-preview-viewport',
+            overlayIds: ['guide-preview-overlay'],
+            resizeHandleId: 'guide-resize-handle',
+            zoomLevelId: 'guide-preview-zoom-level', zoomResetId: 'guide-preview-zoom-reset',
+            zoomFitId: 'guide-preview-zoom-fit', zoomEnlargeId: 'guide-zoom-enlarge',
+            features: { starSelect: true, guideButtons: true, histogram: false,
+                        save: false, enlarge: true, resize: true,
+                        focusMetrics: false, offsetVector: false }
+        },
+        focuser: {
+            containerId: 'applet-capture-preview', canvasId: 'cap-preview-canvas',
+            viewportId: 'cap-preview-viewport', emptyId: 'cap-preview-empty',
+            wrapId: 'cap-preview-wrap', infoId: 'cap-preview-info',
+            resizeHandleId: 'cap-resize-handle',
+            zoomLevelId: 'cap-zoom-level', zoomResetId: 'cap-zoom-reset',
+            zoomFitId: 'cap-zoom-fit', zoomEnlargeId: 'cap-zoom-enlarge',
+            overlayIds: ['focus-overlay-canvas'],
+            features: { histogram: true, focusMetrics: true, enlarge: true, resize: true,
+                        save: false, starSelect: false, guideButtons: false, offsetVector: false }
+        },
+        astrometry: {
+            containerId: 'applet-capture-preview', canvasId: 'cap-preview-canvas',
+            viewportId: 'cap-preview-viewport', emptyId: 'cap-preview-empty',
+            wrapId: 'cap-preview-wrap', infoId: 'cap-preview-info',
+            resizeHandleId: 'cap-resize-handle',
+            zoomLevelId: 'cap-zoom-level', zoomResetId: 'cap-zoom-reset',
+            zoomFitId: 'cap-zoom-fit', zoomEnlargeId: 'cap-zoom-enlarge',
+            overlayIds: ['offset-overlay-canvas'],
+            features: { histogram: true, offsetVector: true, enlarge: true, resize: true,
+                        save: false, starSelect: false, guideButtons: false, focusMetrics: false }
+        }
+    };
+
+    constructor(mode) {
+        this.mode = mode;
+        Object.assign(this, Viewer.MODES[mode]);
+        this.zoom = 1;
+        this.panX = 0;
+        this.panY = 0;
+        this.pixels = null;
+        this.imgW = 0;
+        this.imgH = 0;
+        this.sky = 0;
+        this.soft = 0;
+        this.k = 0;
+        this.histPixels = null;
+        this.histAuto = true;
+        this.histBlackPct = 0;
+        this.histMin = 0;
+        this.histMax = 0;
+        this.histDataMin = 0;
+        this.histDataMax = 0;
+        this._touchState = null;
+    }
+
+    configure(mode) {
+        const cfg = Viewer.MODES[mode];
+        if (!cfg) return;
+        this.mode = mode;
+        Object.assign(this, cfg);
+        const container = document.getElementById(this.containerId);
+        const titleEl = container?.querySelector('.hud-title') || document.getElementById('viewer-title');
+        const cfg2 = Viewer.MODES[mode];
+        if (titleEl && cfg2) {
+            const titles = { capture: '◎ CAPTURE — Aperçu', guiding: '◎ GUIDAGE — Aperçu',
+                            focuser: '◎ FOCUSER — Aperçu', astrometry: '◎ ASTROMÉTRIE — Aperçu' };
+            titleEl.textContent = titles[mode] || '◎ Aperçu';
+        }
+        this._applyFeatures();
+    }
+
+    _applyFeatures() {
+        const f = this.features;
+        // Histogram controls
+        for (const id of ['cap-histo-canvas', 'cap-histo-slider', 'cap-histo-auto']) {
+            const el = document.getElementById(id);
+            if (el) el.style.display = f.histogram ? '' : 'none';
+        }
+        for (const sel of ['.cap-histo-label', '.cap-histo-row']) {
+            const el = document.querySelector(sel);
+            if (el) el.style.display = f.histogram ? '' : 'none';
+        }
+        const hval = document.getElementById('cap-histo-val');
+        if (hval) hval.style.display = f.histogram ? '' : 'none';
+        // Save section
+        const saveSection = document.getElementById('cap-save-dir')?.closest('.cap-section');
+        if (saveSection) saveSection.style.display = f.save ? '' : 'none';
+        // Enlarge button
+        const enlargeBtn = document.getElementById(this.zoomEnlargeId);
+        if (enlargeBtn) enlargeBtn.style.display = f.enlarge ? '' : 'none';
+        // Hide the other viewer's enlarge button
+        const otherEnlId = this.zoomEnlargeId === 'cap-zoom-enlarge' ? 'guide-zoom-enlarge' : 'cap-zoom-enlarge';
+        const otherEnl = document.getElementById(otherEnlId);
+        if (otherEnl && otherEnl !== enlargeBtn) otherEnl.style.display = 'none';
+        // Resize handle
+        const resizeH = document.getElementById(this.resizeHandleId);
+        if (resizeH) resizeH.style.display = f.resize ? '' : 'none';
+        // Also try the other viewer's handle if in shared panel context
+        const otherId = this.resizeHandleId === 'cap-resize-handle' ? 'guide-resize-handle' : 'cap-resize-handle';
+        const otherH = document.getElementById(otherId);
+        if (otherH && otherH !== resizeH) otherH.style.display = 'none';
+    }
+
+    setStatus(msg, color) {
+        const el = document.getElementById(this.canvasId.replace('-canvas', '-status'));
+        if (el) { el.textContent = msg; if (color) el.style.color = color; }
+    }
+
+    setInfo(text) {
+        const info = document.getElementById('cap-preview-info');
+        if (info) info.textContent = text;
+    }
+
+    // ── FITS parsing ──
+
+    _parseFITS(bytes) {
+        let offset = 0, headerStr = '';
+        const decoder = new TextDecoder('ascii');
+        while (offset < bytes.length) {
+            headerStr += decoder.decode(bytes.slice(offset, offset + 2880));
+            offset += 2880;
+            for (let c = headerStr.length - 2880; c < headerStr.length; c += 80)
+                if (headerStr.substring(c, c + 3).trim() === 'END') return this._decodeFITS(bytes, headerStr, offset);
+        }
+        return null;
+    }
+
+    _decodeFITS(bytes, headerStr, dataStart) {
+        const get = (key) => {
+            for (let i = 0; i < headerStr.length; i += 80) {
+                const card = headerStr.substring(i, i + 80);
+                if (card.substring(0, 8).trim() !== key) continue;
+                const eqIdx = card.indexOf('=');
+                if (eqIdx < 0) continue;
+                let val = card.substring(eqIdx + 1).trim();
+                const si = val.indexOf('/');
+                if (si >= 0) val = val.substring(0, si);
+                return val.trim().replace(/^['"]|['"]$/g, '').split(/\s+/)[0];
+            }
+            return null;
+        };
+        const naxis = parseInt(get('NAXIS') || '0');
+        const w = parseInt(get('NAXIS1') || '0');
+        const h = parseInt(get('NAXIS2') || '0');
+        const bitpix = parseInt(get('BITPIX') || '16');
+        if (naxis < 2 || !w || !h) return null;
+
+        const remaining = bytes.length - dataStart;
+        const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
+        const pixels = new Float64Array(w * h);
+        if (bitpix === 32 || bitpix === -32)
+            for (let i = 0; i < w * h && i * 4 + 4 <= remaining; i++) pixels[i] = view.getFloat32(i * 4, false);
+        else if (bitpix === 16)
+            for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++) pixels[i] = view.getInt16(i * 2, false);
+        else if (bitpix === -16)
+            for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++) pixels[i] = view.getUint16(i * 2, false);
+        else if (bitpix === 64)
+            for (let i = 0; i < w * h && i * 8 + 8 <= remaining; i++) pixels[i] = view.getFloat64(i * 8, false);
+        else if (bitpix === 8)
+            for (let i = 0; i < w * h && i < remaining; i++) pixels[i] = bytes[dataStart + i];
+        else return null;
+
+        let max = -Infinity;
+        for (let i = 0; i < pixels.length; i++) if (pixels[i] > max) max = pixels[i];
+        const sorted = Float64Array.from(pixels).sort();
+        const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
+        const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
+        return { w, h, pixels, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma) };
+    }
+
+    // ── Rendering ──
+
+    render(bytes, fmt) {
+        if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
+            this._renderFITS(bytes);
+        } else {
+            this._renderNonFITS(bytes, fmt);
+        }
+    }
+
+    _renderFITS(bytes) {
+        const result = this._parseFITS(bytes);
+        if (!result) { this.setStatus('⚠️ En-tête FITS invalide', '#ff4444'); return; }
+        const { w, h, pixels, sky, soft, k } = result;
+        this.pixels = pixels;
+        this.imgW = w;
+        this.imgH = h;
+        this.sky = sky;
+        this.soft = soft;
+        this.k = k;
+
+        _fitCanvasToPanel(this.containerId, this.canvasId);
+        this._renderStretched();
+
+        // Sync overlays
+        for (const id of this.overlayIds || []) {
+            const ov = document.getElementById(id);
+            if (ov) { ov.width = w; ov.height = h; ov.style.width = w + 'px'; ov.style.height = h + 'px'; }
+        }
+
+        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+            this.histPixels = pixels;
+            this.histDataMin = sky - 3 * (soft * 2);
+            this.histDataMax = sky + k * (soft * 2);
+            this.histMin = this.histDataMin;
+            this.histMax = this.histDataMax;
+            // Set legacy globals for overlay/save/solver compatibility
+            _histPixels = pixels;
+            _histWidth = w; _histHeight = h;
+            _histDataMin = this.histDataMin; _histDataMax = this.histDataMax;
+            _histMin = this.histMin; _histMax = this.histMax;
+            this.fitZoom();
+            this.renderHistogram();
+            this.setInfo(`${w}×${h} — FITS`);
+        } else {
+            this.setStatus(`Image ${w}×${h} ✓`, '#44cc44');
+            this.fitZoom();
+        }
+    }
+
+    _renderNonFITS(bytes, fmt) {
+        const blob = new Blob([bytes], { type: fmt || 'image/png' });
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.getElementById(this.canvasId);
+            if (canvas) { canvas.width = img.width; canvas.height = img.height; canvas.getContext('2d').drawImage(img, 0, 0); }
+            for (const id of this.overlayIds || []) {
+                const ov = document.getElementById(id);
+                if (ov) { ov.width = img.width; ov.height = img.height; ov.style.width = img.width + 'px'; ov.style.height = img.height + 'px'; }
+            }
+            if (this.mode === 'capture') this.setInfo(`${img.width}×${img.height} — ${fmt}`);
+            else this.setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
+            URL.revokeObjectURL(url);
+        };
+        img.onerror = () => { this.setStatus('⚠️ Format: ' + fmt, '#ff4444'); URL.revokeObjectURL(url); };
+        img.src = url;
+    }
+
+    _renderStretched(canvasEl) {
+        canvasEl = canvasEl || document.getElementById(this.canvasId);
+        if (!canvasEl || !this.pixels) return;
+        const ctx = canvasEl.getContext('2d');
+        const w = this.imgW, h = this.imgH;
+        const dpr = window.devicePixelRatio || 1;
+        const cw = canvasEl.clientWidth || parseInt(canvasEl.getAttribute('width')) || w;
+        const ch = canvasEl.clientHeight || parseInt(canvasEl.getAttribute('height')) || h;
+        const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
+        if (canvasEl.width !== bw || canvasEl.height !== bh) { canvasEl.width = bw; canvasEl.height = bh; }
+        ctx.clearRect(0, 0, bw, bh);
+
+        const tmp = document.createElement('canvas');
+        tmp.width = w; tmp.height = h;
+        const tctx = tmp.getContext('2d');
+        const imgData = tctx.createImageData(w, h);
+        const data = imgData.data;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const raw = this.pixels[y * w + x];
+                const v = Math.asinh((raw - this.sky) / this.soft) / Math.asinh(this.k);
+                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+                const dst = ((h - 1 - y) * w + x) * 4;
+                data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
+            }
+        }
+        tctx.putImageData(imgData, 0, 0);
+        const scale = Math.min(bw / w, bh / h);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(tmp, (bw - w * scale) / 2, (bh - h * scale) / 2, w * scale, h * scale);
+        return { scale, offX: (bw - w * scale) / 2, offY: (bh - h * scale) / 2, canvasW: bw, canvasH: bh };
+    }
+
+    // ── Zoom / Pan ──
+
+    resetZoom() {
+        this.zoom = 1; this.panX = 0; this.panY = 0;
+        this._applyTransform();
+    }
+
+    fitZoom() {
+        const canvas = document.getElementById(this.canvasId);
+        if (!canvas || !this.imgW || !this.imgH) return;
+        const vp = document.getElementById(this.viewportId);
+        if (!vp) return;
+        const vpW = vp.clientWidth, vpH = vp.clientHeight;
+        if (!vpW || !vpH) return;
+        this.zoom = Math.min(vpW / this.imgW, vpH / this.imgH) * 0.95;
+        this.panX = 0; this.panY = 0;
+        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+            const wrap = vp.parentElement;
+            const maxH = Math.max(100, (wrap ? wrap.clientHeight : 400) - 80);
+            const fs = Math.min(vpW / this.imgW, maxH / this.imgH, 1);
+            this.zoom = fs;
+            this.panX = (vpW - this.imgW * fs) / 2;
+            this.panY = 0;
+            const canvasEl = document.getElementById(this.canvasId);
+            if (canvasEl) { canvasEl.style.width = this.imgW + 'px'; canvasEl.style.height = this.imgH + 'px'; }
+            for (const id of this.overlayIds || []) {
+                const ov = document.getElementById(id);
+                if (ov) { ov.style.width = this.imgW + 'px'; ov.style.height = this.imgH + 'px'; }
+            }
+            vp.style.height = Math.round(this.imgH * fs) + 'px';
+        }
+        this._applyTransform();
+    }
+
+    _applyTransform() {
+        const canvas = document.getElementById(this.canvasId);
+        if (!canvas) return;
+        const t = `translate(${this.panX}px, ${this.panY}px) scale(${this.zoom})`;
+        canvas.style.transform = t;
+        for (const id of this.overlayIds || []) {
+            const ov = document.getElementById(id);
+            if (ov) ov.style.transform = t;
+        }
+        const lvl = document.getElementById(this.zoomLevelId);
+        if (lvl) lvl.textContent = Math.round(this.zoom * 100) + '%';
+        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+            const vp = document.getElementById(this.viewportId);
+            if (vp) vp.classList.toggle('zoomed', this.zoom > 1.05);
+            // Legacy globals for overlay functions
+            _previewZoom = this.zoom;
+            _previewPanX = this.panX;
+            _previewPanY = this.panY;
+        } else {
+            _guidePreviewZoom = this.zoom;
+            _guidePreviewPanX = this.panX;
+            _guidePreviewPanY = this.panY;
+        }
+    }
+
+    initZoomPan() {
+        const vp = document.getElementById(this.viewportId);
+        const canvas = document.getElementById(this.canvasId);
+        if (!vp || !canvas) return;
+
+        const isGuide = this.mode === 'guiding';
+
+        // Wheel zoom
+        vp.addEventListener('wheel', (e) => {
+            if (e.ctrlKey || e.metaKey) return;
+            e.preventDefault();
+            const rect = vp.getBoundingClientRect();
+            const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+            const old = this.zoom;
+            if (isGuide) {
+                this.zoom = Math.max(0.5, Math.min(20, this.zoom * (1 - e.deltaY * 0.001)));
+            } else {
+                if (!this.imgW) return;
+                this.zoom = Math.max(0.1, Math.min(50, this.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+            }
+            const ratio = 1 - this.zoom / old;
+            this.panX += mx * ratio; this.panY += my * ratio;
+            this._applyTransform();
+        }, { passive: false });
+
+        // Pan / click (guide star select)
+        let dragging = false, didDrag = false, sx = 0, sy = 0, psx = 0, psy = 0;
+        vp.addEventListener('mousedown', (e) => {
+            if (e.target.closest('button, input, select')) return;
+            dragging = true; didDrag = false;
+            sx = e.clientX; sy = e.clientY;
+            psx = this.panX; psy = this.panY;
+            if (isGuide && this.zoom > 1) vp.style.cursor = 'grabbing';
+            else vp.classList.add('panning');
+        });
+        window.addEventListener('mousemove', (e) => {
+            if (!dragging) return;
+            const dx = e.clientX - sx, dy = e.clientY - sy;
+            if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
+            if ((isGuide && this.zoom > 1) || this.zoom > 1.05) {
+                this.panX = psx + dx; this.panY = psy + dy;
+                this._applyTransform();
+            }
+        });
+        window.addEventListener('mouseup', (e) => {
+            if (!dragging) return;
+            dragging = false; vp.style.cursor = ''; vp.classList.remove('panning');
+            if (!didDrag && isGuide && typeof _guideClick === 'function') {
+                const rect = vp.getBoundingClientRect();
+                _guideClick(e.clientX - rect.left, e.clientY - rect.top);
+            }
+        });
+
+        // Double-click reset
+        vp.addEventListener('dblclick', () => {
+            if (this.features?.enlarge) {
+                const btn = document.getElementById('cap-zoom-enlarge');
+                if (btn) btn.click();
+            } else {
+                this.resetZoom();
+            }
+        });
+
+        // Buttons
+        const resetBtn = document.getElementById(this.zoomResetId);
+        if (resetBtn) resetBtn.addEventListener('click', () => this.resetZoom());
+        const fitBtn = document.getElementById(this.zoomFitId);
+        if (fitBtn) fitBtn.addEventListener('click', () => this.fitZoom());
+
+        // Enlarge button
+        const enlBtn = document.getElementById(this.zoomEnlargeId);
+        if (enlBtn) {
+            enlBtn.addEventListener('click', () => {
+                const panel = document.getElementById(this.containerId);
+                if (!panel) return;
+                const enlarged = panel.classList.toggle('enlarged');
+                if (enlarged) { panel.style.cssText = ''; setTimeout(() => this.fitZoom(), 50); }
+                else { panel.style.cssText = ''; this.resetZoom(); }
+            });
+        }
+
+        // Touch: pinch-to-zoom + single-finger pan
+        if (!isGuide) {
+            vp.addEventListener('touchstart', (e) => {
+                if (!this.imgW) return;
+                if (e.touches.length === 2) {
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const rect = vp.getBoundingClientRect();
+                    this._touchState = {
+                        mode: 'pinch', startDist: Math.hypot(dx, dy),
+                        startZoom: this.zoom, startPanX: this.panX, startPanY: this.panY,
+                        midX: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
+                        midY: (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
+                    };
+                } else if (e.touches.length === 1 && this.zoom > 1.05) {
+                    this._touchState = { mode: 'pan', startX: e.touches[0].clientX, startY: e.touches[0].clientY, startPanX: this.panX, startPanY: this.panY };
+                    vp.classList.add('panning');
+                }
+            }, { passive: false });
+            vp.addEventListener('touchmove', (e) => {
+                const ts = this._touchState;
+                if (!ts) return;
+                if (ts.mode === 'pinch' && e.touches.length === 2) {
+                    e.preventDefault();
+                    const dx = e.touches[0].clientX - e.touches[1].clientX;
+                    const dy = e.touches[0].clientY - e.touches[1].clientY;
+                    const dist = Math.hypot(dx, dy);
+                    const newZoom = Math.max(0.1, Math.min(50, ts.startZoom * (dist / ts.startDist)));
+                    const sc = newZoom / ts.startZoom;
+                    this.panX = ts.midX - sc * (ts.midX - ts.startPanX);
+                    this.panY = ts.midY - sc * (ts.midY - ts.startPanY);
+                    this.zoom = newZoom;
+                    this._applyTransform();
+                } else if (ts.mode === 'pan' && e.touches.length === 1) {
+                    e.preventDefault();
+                    this.panX = ts.startPanX + (e.touches[0].clientX - ts.startX);
+                    this.panY = ts.startPanY + (e.touches[0].clientY - ts.startY);
+                    this._applyTransform();
+                }
+            }, { passive: false });
+            vp.addEventListener('touchend', () => { if (this._touchState?.mode === 'pan') vp.classList.remove('panning'); this._touchState = null; });
+            vp.addEventListener('touchcancel', () => { vp.classList.remove('panning'); this._touchState = null; });
+        }
+
+        // Keyboard: Escape to exit enlarge
+        if (!isGuide) {
+            document.addEventListener('keydown', (e) => {
+                if (e.key !== 'Escape') return;
+                const panel = document.getElementById('applet-capture-preview');
+                if (panel?.classList.contains('enlarged')) {
+                    e.preventDefault();
+                    document.getElementById('cap-zoom-enlarge')?.click();
+                }
+            });
+        }
+
+        this.fitZoom();
+    }
+
+    // ── Histogram ──
+
+    renderHistogram() {
+        const canvas = document.getElementById('cap-histo-canvas');
+        if (!canvas || !this.histPixels) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width = canvas.offsetWidth * 2;
+        const H = canvas.height = canvas.offsetHeight * 2;
+        const bins = new Uint32Array(256);
+        const range = this.histDataMax - this.histDataMin || 1;
+        for (let i = 0; i < this.histPixels.length; i++) {
+            let v = Math.round((this.histPixels[i] - this.histDataMin) / range * 255);
+            if (v < 0) v = 0; if (v > 255) v = 255;
+            bins[v]++;
+        }
+        let maxBin = 0;
+        for (let i = 1; i < 256; i++) if (bins[i] > maxBin) maxBin = bins[i];
+        if (maxBin === 0) maxBin = 1;
+        ctx.clearRect(0, 0, W, H);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(0, 0, W, H);
+        const blackFrac = this.histAuto ? 0 : this.histBlackPct / 100;
+        const blX = blackFrac * W;
+        ctx.fillStyle = 'rgba(0,255,204,0.08)';
+        ctx.fillRect(blX, 0, W - blX, H);
+        for (let i = 0; i < 256; i++) {
+            const bh = Math.max(1, (bins[i] / maxBin) * H);
+            ctx.fillStyle = 'rgba(0,255,204,0.5)';
+            ctx.fillRect(i * W / 256, H - bh, W / 256 + 1, bh);
+        }
+        ctx.strokeStyle = '#ff5577';
+        ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(blX, 0); ctx.lineTo(blX, H); ctx.stroke();
+        const slider = document.getElementById('cap-histo-slider');
+        if (slider) slider.value = this.histAuto ? 0 : this.histBlackPct;
+        const val = document.getElementById('cap-histo-val');
+        if (val) val.textContent = this.histAuto ? 'AUTO' : Math.round(this.histBlackPct) + '%';
+    }
+
+    applyHistogramStretch() {
+        const canvas = document.getElementById(this.canvasId);
+        if (!canvas || !this.histPixels || !this.imgW || !this.imgH) return;
+        const ctx = canvas.getContext('2d');
+        const w = this.imgW, h = this.imgH;
+        const imgData = ctx.createImageData(w, h);
+        const data = imgData.data;
+        if (this.histAuto) {
+            this.histMin = this.histDataMin;
+            this.histMax = this.histDataMax;
+        } else {
+            const range = this.histDataMax - this.histDataMin;
+            this.histMin = this.histDataMin + (this.histBlackPct / 100) * range;
+            this.histMax = this.histDataMax;
+        }
+        const stretchRange = this.histMax - this.histMin || 1;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                const raw = this.histPixels[y * w + x];
+                let val;
+                if (raw <= this.histMin) val = 0;
+                else if (raw >= this.histMax) val = 255;
+                else val = Math.round(((raw - this.histMin) / stretchRange) * 255);
+                const dst = ((h - 1 - y) * w + x) * 4;
+                data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
+            }
+        }
+        ctx.putImageData(imgData, 0, 0);
+        const minEl = document.getElementById('cap-histo-min');
+        const maxEl = document.getElementById('cap-histo-max');
+        if (minEl) minEl.textContent = this.histMin.toFixed(1);
+        if (maxEl) maxEl.textContent = this.histMax.toFixed(1);
+    }
+
+    // ── Guide-specific render (preserves star detection data) ──
+
+    renderGuide(bytes, fmt, onDone) {
+        if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
+            const result = this._parseFITS(bytes);
+            if (!result) { this.setStatus('⚠️ En-tête FITS invalide', '#ff4444'); onDone?.(); return; }
+            Object.assign(this, result);
+            this.imgW = result.w; this.imgH = result.h;
+            this.pixels = result.pixels;
+
+            _fitCanvasToPanel(this.containerId, this.canvasId);
+            const meta = this._renderStretched();
+            if (meta) {
+                this._guideCaptureData = { width: result.w, height: result.h, pixels: result.pixels,
+                    sky: result.sky, soft: result.soft, k: result.k, ...meta,
+                    dpr: window.devicePixelRatio || 1 };
+            }
+
+            // Ensure guide panel visible
+            const panel = document.getElementById('applet-guide-preview');
+            if (panel && panel.style.display === 'none') { panel.style.display = ''; if (panel.classList.contains('collapsed')) toggleMinimize(panel); }
+            if (this.zoom <= 0) this.resetZoom();
+
+            this.setStatus(`Image ${result.w}×${result.h} ✓`, '#44cc44');
+            onDone?.();
+        } else {
+            // Non-FITS guide image
+            const blob = new Blob([bytes], { type: fmt || 'image/png' });
+            const url = URL.createObjectURL(blob);
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.getElementById(this.canvasId);
+                if (canvas) { canvas.width = img.width; canvas.height = img.height; canvas.getContext('2d').drawImage(img, 0, 0); }
+                this._guideCaptureData = { width: img.width, height: img.height };
+                this.setStatus(`Image ${img.width}×${img.height} ✓`, '#44cc44');
+                URL.revokeObjectURL(url);
+                onDone?.();
+            };
+            img.onerror = () => { this.setStatus('⚠️ Format: ' + fmt, '#ff4444'); URL.revokeObjectURL(url); onDone?.(); };
+            img.src = url;
+        }
+    }
+
+    // ── Histogram ──
+
+    initHistogramControls() {
+        if (this.mode === 'guiding') return;
+        const slider = document.getElementById('cap-histo-slider');
+        const autoBtn = document.getElementById('cap-histo-auto');
+        if (slider) {
+            slider.addEventListener('input', () => {
+                this.histBlackPct = parseInt(slider.value);
+                this.histAuto = false;
+                if (autoBtn) autoBtn.classList.remove('active');
+                this.applyHistogramStretch();
+                this.renderHistogram();
+                const mc = currentModeConfig();
+                mc.histo_auto = false; mc.histo_black_pct = this.histBlackPct;
+                saveUiConfig();
+            });
+        }
+        if (autoBtn) {
+            autoBtn.addEventListener('click', () => {
+                this.histAuto = !this.histAuto;
+                autoBtn.classList.toggle('active', this.histAuto);
+                this.applyHistogramStretch();
+                this.renderHistogram();
+                const mc = currentModeConfig();
+                mc.histo_auto = this.histAuto;
+                saveUiConfig();
+            });
+        }
+        const mc = currentModeConfig();
+        if (mc.histo_auto === false) {
+            this.histAuto = false;
+            if (autoBtn) autoBtn.classList.remove('active');
+            if (mc.histo_black_pct != null) this.histBlackPct = mc.histo_black_pct;
+        }
+        if (mc.save_dir) { const el = document.getElementById('cap-save-dir'); if (el) el.value = mc.save_dir; }
+    }
+}
+
+// Viewer instances (initialized later)
+let captureViewer = null;
+let guideViewer = null;
+
 // ── Mode Manager ──────────────────────────────────────────────
 
 const MODES = {
@@ -54,7 +750,7 @@ const MODES = {
         driverType: 'focuser'
     },
     guiding: {
-        applets: ['applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration'],
+        applets: ['applet-guide-checklist', 'applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration'],
         driverType: 'ccd'
     },
     capture: {
@@ -143,38 +839,13 @@ function switchMode(mode) {
     saveUiConfig();
 }
 
-const VIEWER_MODE_CONFIG = {
-    capture:   { title: '◎ CAPTURE — Aperçu',   save: true,  histogram: true,  stretch: true  },
-    focuser:   { title: '◎ FOCUSER — Aperçu',   save: false, histogram: true,  stretch: true  },
-    guiding:   { title: '◎ GUIDAGE — Aperçu',   save: false, histogram: false, stretch: true  },
-    astrometry:{ title: '◎ ASTROMÉTRIE — Aperçu', save: false, histogram: true,  stretch: true  },
-};
-
 function configureViewerForMode(mode) {
-    const cfg = VIEWER_MODE_CONFIG[mode];
-    const titleEl = document.getElementById('viewer-title');
-    if (titleEl && cfg) titleEl.textContent = cfg.title;
-
-    const show = cfg && cfg.histogram;
-
-    // Save button
-    const saveSection = document.getElementById('cap-save-dir')?.closest('.cap-section');
-    if (saveSection) saveSection.style.display = (cfg && cfg.save) ? '' : 'none';
-
-    // Histogram controls — hide individually (they share a flex row with zoom buttons)
-    const histoCanvas = document.getElementById('cap-histo-canvas');
-    const histoSlider = document.getElementById('cap-histo-slider');
-    const histoAuto = document.getElementById('cap-histo-auto');
-    const noirLabel = document.querySelector('.cap-histo-label');
-    const noirVal = document.getElementById('cap-histo-val');
-    const histoRow = document.querySelector('.cap-histo-row');
-
-    if (histoCanvas) histoCanvas.style.display = show ? '' : 'none';
-    if (histoSlider) histoSlider.style.display = show ? '' : 'none';
-    if (histoAuto) histoAuto.style.display = show ? '' : 'none';
-    if (noirLabel) noirLabel.style.display = show ? '' : 'none';
-    if (noirVal) noirVal.style.display = show ? '' : 'none';
-    if (histoRow) histoRow.style.display = show ? '' : 'none';
+    if (mode === 'guiding') {
+        if (guideViewer) guideViewer.configure('guiding');
+        if (captureViewer) captureViewer.configure('guiding');
+    } else {
+        if (captureViewer) captureViewer.configure(mode);
+    }
 }
 
 function initModeBar() {
@@ -1651,173 +2322,24 @@ function handleGuideImage(b64Data, fmt) {
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    console.log('handleGuideImage: fmt=%s size=%d firstByte=%s', fmt, bytes.length, String.fromCharCode(bytes[0]));
-    const statusEl = document.getElementById('guide-preview-status');
-    function setStatus(msg, color) {
-        if (statusEl) { statusEl.textContent = msg; if (color) statusEl.style.color = color; }
-    }
-    if (!(fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53))) {
-        console.warn('handleGuideImage: not a FITS image (fmt=%s, firstByte=%d)', fmt, bytes[0]);
-        // Try to render as PNG/JPEG (DSLR guide camera)
-        const blob = new Blob([bytes], { type: fmt || 'image/png' });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.getElementById('guide-preview-canvas');
-            if (canvas) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-                canvas.getContext('2d').drawImage(img, 0, 0);
+
+    if (guideViewer) {
+        guideViewer.renderGuide(bytes, fmt, () => {
+            const w = guideViewer.imgW, h = guideViewer.imgH;
+            if (w && h) {
+                _guideRenderStarMedallion();
+                _guideDetectStars(w, h);
             }
-            const starCanvas = document.getElementById('guide-star-canvas');
-            if (starCanvas) {
-                const sctx = starCanvas.getContext('2d');
-                const scale = Math.min(starCanvas.width / img.width, starCanvas.height / img.height);
-                const dw = img.width * scale, dh = img.height * scale;
-                sctx.clearRect(0, 0, starCanvas.width, starCanvas.height);
-                sctx.drawImage(img, (starCanvas.width - dw) / 2, (starCanvas.height - dh) / 2, dw, dh);
-            }
-            setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
-            URL.revokeObjectURL(url);
-        };
-        img.onerror = () => { setStatus('⚠️ Format non supporté: ' + fmt, '#ff4444'); URL.revokeObjectURL(url); };
-        img.src = url;
-        return;
+        });
     }
-
-    // Parse FITS header
-    let offset = 0;
-    const decoder = new TextDecoder('ascii');
-    let headerStr = '';
-    while (offset < bytes.length) {
-        const block = decoder.decode(bytes.slice(offset, offset + 2880));
-        headerStr += block;
-        offset += 2880;
-        let foundEnd = false;
-        for (let c = headerStr.length - 2880; c < headerStr.length; c += 80) {
-            if (headerStr.substring(c, c + 3).trim() === 'END') { foundEnd = true; break; }
-        }
-        if (foundEnd) break;
-    }
-    const get = (key) => {
-        for (let i = 0; i < headerStr.length; i += 80) {
-            const card = headerStr.substring(i, i + 80);
-            if (card.substring(0, 8).trim() === key) {
-                const eqIdx = card.indexOf('=');
-                if (eqIdx < 0) continue;
-                let val = card.substring(eqIdx + 1).trim();
-                const slashIdx = val.indexOf('/');
-                if (slashIdx >= 0) val = val.substring(0, slashIdx);
-                val = val.trim().replace(/^['"]|['"]$/g, '');
-                return val.split(/\s+/)[0] || null;
-            }
-        }
-        return null;
-    };
-    const naxis = parseInt(get('NAXIS') || '0');
-    const w = parseInt(get('NAXIS1') || '0');
-    const h = parseInt(get('NAXIS2') || '0');
-    const bitpix = parseInt(get('BITPIX') || '16');
-    if (naxis < 2 || !w || !h) {
-        setStatus('⚠️ En-tête FITS invalide', '#ff4444');
-        return;
-    }
-
-    const dataStart = offset;
-    const remaining = bytes.length - dataStart;
-    const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
-    const pixels = new Float64Array(w * h);
-    if (bitpix === 16) {
-        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
-            pixels[i] = view.getInt16(i * 2, false);
-    } else return;
-
-    let max = -Infinity;
-    for (let i = 0; i < pixels.length; i++) {
-        if (pixels[i] > max) max = pixels[i];
-    }
-    const sorted = Float64Array.from(pixels).sort();
-    const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
-    const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
-    const k = Math.max(20, (max - sky) / sigma);
-    const soft = sigma * 0.5;
-
-    // Render to BOTH the large preview and the small thumbnail
-    const dpr = window.devicePixelRatio || 1;
-    function renderToCanvas(canvasEl) {
-        if (!canvasEl) return;
-        let cw = canvasEl.clientWidth, ch = canvasEl.clientHeight;
-        // Fallback to HTML attributes if client rect is 0 (hidden panel etc.)
-        if (!cw || !ch) {
-            cw = parseInt(canvasEl.getAttribute('width')) || 380;
-            ch = parseInt(canvasEl.getAttribute('height')) || 240;
-        }
-        const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
-        if (canvasEl.width !== bw || canvasEl.height !== bh) {
-            canvasEl.width = bw;
-            canvasEl.height = bh;
-        }
-        const ctx = canvasEl.getContext('2d');
-        ctx.clearRect(0, 0, bw, bh);
-
-        const tmp = document.createElement('canvas');
-        tmp.width = w; tmp.height = h;
-        const tctx = tmp.getContext('2d');
-        const imgData = tctx.createImageData(w, h);
-        const data = imgData.data;
-        for (let y = 0; y < h; y++) {
-            for (let x = 0; x < w; x++) {
-                const raw = pixels[y * w + x];
-                const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
-                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
-                const dst = ((h - 1 - y) * w + x) * 4;
-                data[dst] = val; data[dst+1] = val; data[dst+2] = val; data[dst+3] = 255;
-            }
-        }
-        tctx.putImageData(imgData, 0, 0);
-
-        const scale = Math.min(bw / w, bh / h);
-        const dw = w * scale, dh = h * scale;
-        ctx.imageSmoothingEnabled = true;
-        ctx.drawImage(tmp, (bw - dw) / 2, (bh - dh) / 2, dw, dh);
-
-        // Return metadata for this render
-        return { scale, offX: (bw - dw) / 2, offY: (bh - dh) / 2, canvasW: bw, canvasH: bh };
-    }
-
-    // Render to large preview (for star selection)
-    const previewCanvas = document.getElementById('guide-preview-canvas');
-    const previewMeta = renderToCanvas(previewCanvas);
-    // Also render to small thumbnail
-    renderToCanvas(document.getElementById('guide-star-canvas'));
-
-    // Ensure guide preview panel is visible
-    const previewPanel = document.getElementById('applet-guide-preview');
-    if (previewPanel && previewPanel.style.display === 'none' && currentMode === 'guiding') {
-        previewPanel.style.display = '';
-        if (previewPanel.classList.contains('collapsed')) toggleMinimize(previewPanel);
-    } else if (previewPanel && previewPanel.style.display === 'none') {
-        // Also show during calibration
-        previewPanel.style.display = '';
-        if (previewPanel.classList.contains('collapsed')) toggleMinimize(previewPanel);
-    }
-
-    // Store preview data for click remapping
-    if (previewMeta) {
-        _guidePreviewCapture = { width: w, height: h, pixels, sky, soft, k, ...previewMeta, dpr };
-    }
-
-    // Detect stars and draw markers on preview overlay
-    _guideDetectStars(w, h);
-    setStatus(`Image ${w}×${h} ✓`, '#44cc44');
-    } catch (e) { console.error('handleGuideImage error:', e); setStatus('⚠️ Erreur: ' + e.message, '#ff4444'); }
+    } catch (e) { console.error('handleGuideImage error:', e); }
 }
 
 function _guideDetectStars(w, h) {
-    if (!_guidePreviewCapture) return;
+    if (!_guideCap()) return;
     const overlay = document.getElementById('guide-preview-overlay');
     if (!overlay) return;
-    const { pixels, sky, soft, k, scale, offX, offY, canvasW, canvasH, dpr } = _guidePreviewCapture;
+    const { pixels, sky, soft, k, scale, offX, offY, canvasW, canvasH, dpr } = _guideCap();
 
     // Detect stars using centroid + peak search on the Asinh-stretched data
     // We stretch once for display, then find local maxima in the stretched version
@@ -1929,8 +2451,8 @@ function _guideDetectStars(w, h) {
 function _guideSetStar(star) {
     _guideSelectedStar = star;
     if (star) {
-        const w = _guidePreviewCapture?.width || 1;
-        const h = _guidePreviewCapture?.height || 1;
+        const w = _guideCap()?.width || 1;
+        const h = _guideCap()?.height || 1;
         apiPost('/api/guide/set-reference', { x: star.x, y: h - 1 - star.y });
         const statusEl = document.getElementById('guide-preview-status');
         if (statusEl) {
@@ -1939,7 +2461,7 @@ function _guideSetStar(star) {
             statusEl.style.color = '#00ffcc';
         }
     }
-    if (_guidePreviewCapture) _guideDetectStars(_guidePreviewCapture.width, _guidePreviewCapture.height);
+    if (_guideCap()) _guideDetectStars(_guideCap().width, _guideCap().height);
 }
 
 function _guideAutoSelect() {
@@ -1962,7 +2484,7 @@ function _guideAutoSelect() {
             statusEl.textContent = `⭐ Auto: étoile (${best.x}, ${best.y}) qualité=${best.gaussian_quality} — Prêt`;
             statusEl.style.color = '#00ffcc';
         }
-        if (_guidePreviewCapture) _guideDetectStars(_guidePreviewCapture.width, _guidePreviewCapture.height);
+        if (_guideCap()) _guideDetectStars(_guideCap().width, _guideCap().height);
         addLog('info', 'guide', `Étoile sélectionnée auto: (${best.x}, ${best.y}) qualité=${best.gaussian_quality}`);
     }).catch(e => {
         addLog('error', 'guide', `Erreur sélection auto: ${e.message}`);
@@ -1971,9 +2493,28 @@ function _guideAutoSelect() {
 
 let _guideRefSet = false;
 let _guideLastCentroid = null;
+function _guideClick(vpX, vpY) {
+    if (!_guideStarList.length || !_guideCap()) return;
+    const data = _guideCap();
+    const { scale, offX, offY, width: imgW, height: imgH, dpr } = data;
+    const zoom = guideViewer?.zoom || 1;
+    const panX = guideViewer?.panX || 0;
+    const panY = guideViewer?.panY || 0;
+    const imgX = ((vpX - panX) / zoom * dpr - offX) / scale;
+    const imgY = imgH - 1 - ((vpY - panY) / zoom * dpr - offY) / scale;
+    let bestDist = Infinity, bestStar = null;
+    for (const s of _guideStarList) {
+        const dx = s.x - imgX, dy = s.y - imgY;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        if (dist < bestDist) { bestDist = dist; bestStar = s; }
+    }
+    if (bestStar && bestDist < 15) _guideSetStar(bestStar);
+}
+
 let _guideStarList = [];
 let _guideSelectedStar = null;
-let _guidePreviewCapture = null;  // { width, height, pixels } for click remapping
+function _guideCap() { return guideViewer?._guideCaptureData || _guideLegacyCapture; }
+let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
 function handleCameraImage(b64Data, fmt) {
@@ -1982,288 +2523,23 @@ function handleCameraImage(b64Data, fmt) {
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-
-    if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
-        renderFITSImage(bytes);
-    } else {
-        const blob = new Blob([bytes], { type: fmt || 'image/png' });
-        const url = URL.createObjectURL(blob);
-        const img = new Image();
-        img.onload = () => {
-            const canvas = document.getElementById('cap-preview-canvas');
-            if (canvas) {
-                canvas.width = img.width;
-                canvas.height = img.height;
-                canvas.getContext('2d').drawImage(img, 0, 0);
-            }
-            const overlay = document.getElementById('offset-overlay-canvas');
-            if (overlay) {
-                overlay.width = img.width;
-                overlay.height = img.height;
-                overlay.style.width = img.width + 'px';
-                overlay.style.height = img.height + 'px';
-                overlay.style.display = 'none';
-            }
-            showPreviewInfo(`${img.width}×${img.height} — ${fmt}`);
-            URL.revokeObjectURL(url);
-        };
-        img.src = url;
-    }
+    if (captureViewer) captureViewer.render(bytes, fmt);
 }
 
-function renderFITSImage(bytes) {
-    let headerStr = '';
-    let offset = 0;
-    const decoder = new TextDecoder('ascii');
 
-    while (offset < bytes.length) {
-        const block = decoder.decode(bytes.slice(offset, offset + 2880));
-        headerStr += block;
-        offset += 2880;
-        let foundEnd = false;
-        for (let c = headerStr.length - 2880; c < headerStr.length; c += 80) {
-            if (headerStr.substring(c, c + 3).trim() === 'END') {
-                foundEnd = true;
-                break;
-            }
-        }
-        if (foundEnd) break;
-    }
 
-    const get = (key) => {
-        for (let i = 0; i < headerStr.length; i += 80) {
-            const card = headerStr.substring(i, i + 80);
-            if (card.substring(0, 8).trim() === key) {
-                const eqIdx = card.indexOf('=');
-                if (eqIdx < 0) continue;
-                let val = card.substring(eqIdx + 1).trim();
-                const slashIdx = val.indexOf('/');
-                if (slashIdx >= 0) val = val.substring(0, slashIdx);
-                val = val.trim().replace(/^['"]|['"]$/g, '');
-                return val.split(/\s+/)[0] || null;
-            }
-        }
-        return null;
-    };
-
-    const naxis = parseInt(get('NAXIS') || '0');
-    const w = parseInt(get('NAXIS1') || '0');
-    const h = parseInt(get('NAXIS2') || '0');
-    const bitpix = parseInt(get('BITPIX') || '32');
-
-    if (naxis < 2 || !w || !h) {
-        addLog('warning', 'capture', 'En-tête FITS invalide');
-        return;
-    }
-
-    const dataStart = offset;
-    const remaining = bytes.length - dataStart;
-    const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
-    const pixels = new Float64Array(w * h);
-
-    if (bitpix === 32 || bitpix === -32) {
-        for (let i = 0; i < w * h && i * 4 + 4 <= remaining; i++)
-            pixels[i] = view.getFloat32(i * 4, false);
-    } else if (bitpix === 16) {
-        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
-            pixels[i] = view.getInt16(i * 2, false);
-    } else if (bitpix === -16) {
-        for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++)
-            pixels[i] = view.getUint16(i * 2, false);
-    } else if (bitpix === 64) {
-        for (let i = 0; i < w * h && i * 8 + 8 <= remaining; i++)
-            pixels[i] = view.getFloat64(i * 8, false);
-    } else if (bitpix === 8) {
-        for (let i = 0; i < w * h && i < remaining; i++)
-            pixels[i] = bytes[dataStart + i];
-    }
-
-    let min = Infinity, max = -Infinity;
-    for (let i = 0; i < pixels.length; i++) {
-        if (pixels[i] < min) min = pixels[i];
-        if (pixels[i] > max) max = pixels[i];
-    }
-
-    // Compute sky level using median and sigma from sorted array
-    const sorted = Float64Array.from(pixels).sort();
-    const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
-    const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
-
-    // Asinh stretch: maps [sky - 3σ, sky + k*σ] → [0, 255]
-    // k adapts to the data range (larger for images with bright stars)
-    const k = Math.max(20, (max - sky) / sigma);
-    const soft = sigma * 0.5;  // softening parameter
-
-    const canvas = document.getElementById('cap-preview-canvas');
-    if (!canvas) return;
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(w, h);
-    const data = imgData.data;
-
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            const raw = pixels[y * w + x];
-            // Asinh stretch centered on sky background
-            const v = Math.asinh((raw - sky) / soft) / Math.asinh(k);
-            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
-            const dst = ((h - 1 - y) * w + x) * 4;
-            data[dst] = val;
-            data[dst + 1] = val;
-            data[dst + 2] = val;
-            data[dst + 3] = 255;
-        }
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    // Sync overlay canvas dimensions
-    const overlay = document.getElementById('offset-overlay-canvas');
-    if (overlay) {
-        overlay.width = w;
-        overlay.height = h;
-        overlay.style.width = w + 'px';
-        overlay.style.height = h + 'px';
-        overlay.style.display = 'none';
-    }
-
-    _histPixels = pixels;
-    _histWidth = w;
-    _histHeight = h;
-    _histDataMin = sky - 3 * sigma;
-    _histDataMax = sky + k * sigma;
-    _histMin = sky - 3 * sigma;
-    _histMax = sky + k * sigma;
-
-    showPreviewInfo(`${w}×${h} — FITS ${Math.abs(bitpix)}bit — sky:${sky.toFixed(1)} σ:${sigma.toFixed(1)} range:[${min.toFixed(0)}..${max.toFixed(0)}]`);
-
-    setTimeout(() => {
-        _fitPreviewZoom();
-        renderHistogram();
-    }, 50);
-
-    addLog('debug', 'capture', `Image rendue: ${w}×${h} FITS ${Math.abs(bitpix)}bit`);
-}
-
-function showPreviewInfo(text) {
-    // Only show capture preview if current mode includes it
-    const modeApplets = MODES[currentMode]?.applets || [];
-    const panel = document.getElementById('applet-capture-preview');
-    if (panel && modeApplets.includes('applet-capture-preview')) {
-        panel.style.display = '';
-        if (panel.classList.contains('collapsed')) toggleMinimize(panel);
-    }
-    const empty = document.getElementById('cap-preview-empty');
-    const wrap = document.getElementById('cap-preview-wrap');
-    const info = document.getElementById('cap-preview-info');
-    if (empty) empty.style.display = 'none';
-    if (wrap) wrap.style.display = '';
-    if (info) info.textContent = text;
-    // Auto-fit image to viewport
-    setTimeout(_fitPreviewZoom, 60);
-    // Compute focus metrics in focuser mode
-    if (currentMode === 'focuser') setTimeout(requestFocusMetrics, 200);
-}
 
 // ── Histogram + preview stretch ────────────────────────────────
 
-function renderHistogram() {
-    const canvas = document.getElementById('cap-histo-canvas');
-    if (!canvas || !_histPixels || _histPixels.length === 0) return;
-    const ctx = canvas.getContext('2d');
-    const W = canvas.width = canvas.offsetWidth * 2;
-    const H = canvas.height = canvas.offsetHeight * 2;
-
-    const bins = new Uint32Array(256);
-    const range = _histDataMax - _histDataMin || 1;
-    for (let i = 0; i < _histPixels.length; i++) {
-        let v = Math.round((_histPixels[i] - _histDataMin) / range * 255);
-        if (v < 0) v = 0; if (v > 255) v = 255;
-        bins[v]++;
-    }
-    let maxBin = 0;
-    for (let i = 1; i < 256; i++) if (bins[i] > maxBin) maxBin = bins[i];
-    if (maxBin === 0) maxBin = 1;
-
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    ctx.fillRect(0, 0, W, H);
-
-    // Stretch range highlight
-    const blackFrac = _histAuto ? 0 : _histBlackPct / 100;
-    const blX = blackFrac * W;
-    ctx.fillStyle = 'rgba(0,255,204,0.08)';
-    ctx.fillRect(blX, 0, W - blX, H);
-
-    // Bars
-    for (let i = 0; i < 256; i++) {
-        const bh = Math.max(1, (bins[i] / maxBin) * H);
-        ctx.fillStyle = 'rgba(0,255,204,0.5)';
-        ctx.fillRect(i * W / 256, H - bh, W / 256 + 1, bh);
-    }
-
-    // Black point line
-    ctx.strokeStyle = '#ff5577';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(blX, 0);
-    ctx.lineTo(blX, H);
-    ctx.stroke();
-
-    // Update slider position
-    const slider = document.getElementById('cap-histo-slider');
-    if (slider) slider.value = _histAuto ? 0 : _histBlackPct;
-    const val = document.getElementById('cap-histo-val');
-    if (val) val.textContent = _histAuto ? 'AUTO' : Math.round(_histBlackPct) + '%';
-}
-
-function applyHistogramStretch() {
-    const canvas = document.getElementById('cap-preview-canvas');
-    if (!canvas || !_histPixels) return;
-    const w = _histWidth, h = _histHeight;
-    const ctx = canvas.getContext('2d');
-    const imgData = ctx.createImageData(w, h);
-    const data = imgData.data;
-
-    if (_histAuto) {
-        _histMin = _histDataMin;
-        _histMax = _histDataMax;
-    } else {
-        const range = _histDataMax - _histDataMin;
-        _histMin = _histDataMin + (_histBlackPct / 100) * range;
-        _histMax = _histDataMax;
-    }
-    const stretchRange = _histMax - _histMin || 1;
-
-    for (let y = 0; y < h; y++) {
-        for (let x = 0; x < w; x++) {
-            const raw = _histPixels[y * w + x];
-            let val;
-            if (raw <= _histMin) val = 0;
-            else if (raw >= _histMax) val = 255;
-            else val = Math.round(((raw - _histMin) / stretchRange) * 255);
-            const dst = ((h - 1 - y) * w + x) * 4;
-            data[dst] = val;
-            data[dst + 1] = val;
-            data[dst + 2] = val;
-            data[dst + 3] = 255;
-        }
-    }
-    ctx.putImageData(imgData, 0, 0);
-
-    const minEl = document.getElementById('cap-histo-min');
-    const maxEl = document.getElementById('cap-histo-max');
-    if (minEl) minEl.textContent = _histMin.toFixed(1);
-    if (maxEl) maxEl.textContent = _histMax.toFixed(1);
-}
+function renderHistogram() { captureViewer?.renderHistogram(); }
+function applyHistogramStretch() { captureViewer?.applyHistogramStretch(); }
 
 // ── Preview resize ─────────────────────────────────────────────
 
-function initPreviewResize() {
-    const panel = document.getElementById('applet-capture-preview');
-    const handle = document.getElementById('cap-resize-handle');
+function _initPanelResize(panelId, handleId, onResize) {
+    const panel = document.getElementById(panelId);
+    const handle = document.getElementById(handleId);
     if (!panel || !handle) return;
-
     handle.addEventListener('pointerdown', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -2272,14 +2548,13 @@ function initPreviewResize() {
         const startH = panel.offsetHeight;
         const startX = e.clientX;
         const startY = e.clientY;
-
         function onMove(ev) {
             const newW = Math.max(200, Math.min(window.innerWidth - 40, startW + (ev.clientX - startX)));
             const newH = Math.max(150, Math.min(window.innerHeight - 40, startH + (ev.clientY - startY)));
             panel.style.width = newW + 'px';
             panel.style.height = newH + 'px';
             panel.style.transform = 'none';
-            _fitPreviewZoom();
+            onResize?.();
         }
         function onUp() {
             handle.removeEventListener('pointermove', onMove);
@@ -2290,208 +2565,45 @@ function initPreviewResize() {
         handle.addEventListener('pointerup', onUp);
     });
 }
+function _fitCanvasToPanel(panelId, canvasId) {
+    const panel = document.getElementById(panelId);
+    const canvas = document.getElementById(canvasId);
+    if (!panel || !canvas) return;
+    const ph = panel.clientHeight;
+    const drag = panel.querySelector('.applet-drag');
+    const dh = drag ? drag.offsetHeight : 0;
+    const content = canvas.closest('[style*="padding"]') || canvas.parentElement;
+    const pad = content ? parseInt(content.style.padding) || 6 : 6;
+    const status = document.getElementById(canvasId.replace('-canvas', '-status'));
+    const sh = status ? (status.offsetHeight || 20) + 4 : 0;
+    const buttons = status?.nextElementSibling;
+    const bh = buttons ? buttons.offsetHeight || 30 : 30;
+    const availH = ph - dh - pad * 2 - sh - bh;
+    const availW = panel.clientWidth - pad * 2;
+    if (availW > 0 && availH > 0) {
+        canvas.style.width = availW + 'px';
+        canvas.style.height = availH + 'px';
+    }
+}
+function initPreviewResize() {
+    _initPanelResize('applet-capture-preview', 'cap-resize-handle', () => {
+        _fitCanvasToPanel('applet-capture-preview', 'cap-preview-canvas');
+        if (captureViewer?.pixels) captureViewer._renderStretched();
+        captureViewer?.fitZoom();
+    });
+    _initPanelResize('applet-guide-preview', 'guide-resize-handle', () => {
+        _fitCanvasToPanel('applet-guide-preview', 'guide-preview-canvas');
+        if (guideViewer?.pixels) guideViewer._renderStretched();
+        guideViewer?.fitZoom();
+    });
+}
 
 // ── Preview zoom / pan / enlarge ────────────────────────────
 
-function _applyPreviewTransform() {
-    const canvas = document.getElementById('cap-preview-canvas');
-    if (!canvas) return;
-    const t = `translate(${_previewPanX}px, ${_previewPanY}px) scale(${_previewZoom})`;
-    canvas.style.transform = t;
-    const overlay = document.getElementById('offset-overlay-canvas');
-    if (overlay) overlay.style.transform = t;
-    const focusOvl = document.getElementById('focus-overlay-canvas');
-    if (focusOvl) focusOvl.style.transform = t;
-    const vp = document.getElementById('cap-preview-viewport');
-    if (vp) vp.classList.toggle('zoomed', _previewZoom > 1.05);
-    const lvl = document.getElementById('cap-zoom-level');
-    if (lvl) {
-        const txt = Math.round(_previewZoom * 100) + '%';
-        if (lvl.textContent !== txt) {
-            lvl.textContent = txt;
-            lvl.classList.add('flash');
-            clearTimeout(lvl._flashTimer);
-            lvl._flashTimer = setTimeout(() => lvl.classList.remove('flash'), 400);
-        }
-    }
-}
-
-function _resetPreviewZoom() {
-    _previewZoom = 1;
-    _previewPanX = 0;
-    _previewPanY = 0;
-    const vp = document.getElementById('cap-preview-viewport');
-    if (vp) vp.style.height = '';
-    _applyPreviewTransform();
-}
-
-function _fitPreviewZoom() {
-    const canvas = document.getElementById('cap-preview-canvas');
-    const vp = document.getElementById('cap-preview-viewport');
-    if (!canvas || !vp || !_histWidth || !_histHeight) return;
-    const vpW = vp.clientWidth;
-    if (vpW <= 0) return;
-    const wrap = vp.parentElement;
-    const wrapH = wrap ? wrap.clientHeight : 400;
-    const controlsH = 80;
-    const maxH = Math.max(100, wrapH - controlsH);
-    const fitScale = Math.min(vpW / _histWidth, maxH / _histHeight, 1);
-    _previewZoom = fitScale;
-    _previewPanX = (vpW - _histWidth * fitScale) / 2;
-    _previewPanY = 0;
-    vp.style.height = Math.round(_histHeight * fitScale) + 'px';
-    canvas.style.width = _histWidth + 'px';
-    canvas.style.height = _histHeight + 'px';
-    const overlay = document.getElementById('offset-overlay-canvas');
-    if (overlay) {
-        overlay.width = _histWidth;
-        overlay.height = _histHeight;
-        overlay.style.width = _histWidth + 'px';
-        overlay.style.height = _histHeight + 'px';
-    }
-    _applyPreviewTransform();
-}
-
-function initPreviewZoomPan() {
-    const vp = document.getElementById('cap-preview-viewport');
-    const canvas = document.getElementById('cap-preview-canvas');
-    const zoomReset = document.getElementById('cap-zoom-reset');
-    const zoomFit = document.getElementById('cap-zoom-fit');
-    const zoomEnlarge = document.getElementById('cap-zoom-enlarge');
-    if (!vp || !canvas) return;
-
-    // Wheel zoom
-    vp.addEventListener('wheel', (e) => {
-        if (!_histWidth) return;
-        e.preventDefault();
-        const rect = canvas.getBoundingClientRect();
-        const mouseX = e.clientX - rect.left;
-        const mouseY = e.clientY - rect.top;
-        const prevZoom = _previewZoom;
-        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-        _previewZoom = Math.max(0.1, Math.min(50, _previewZoom * factor));
-        const scale = _previewZoom / prevZoom;
-        _previewPanX = mouseX - scale * (mouseX - _previewPanX);
-        _previewPanY = mouseY - scale * (mouseY - _previewPanY);
-        _applyPreviewTransform();
-    }, { passive: false });
-
-    // Pan drag
-    let dragging = false, dragStartX = 0, dragStartY = 0, panStartX = 0, panStartY = 0;
-    vp.addEventListener('pointerdown', (e) => {
-        if (_previewZoom <= 1.05) return;
-        if (e.target.closest('.cap-zoom-btn, .cap-histo-auto-btn, input[type=range]')) return;
-        dragging = true;
-        dragStartX = e.clientX;
-        dragStartY = e.clientY;
-        panStartX = _previewPanX;
-        panStartY = _previewPanY;
-        vp.classList.add('panning');
-        vp.setPointerCapture(e.pointerId);
-    });
-    vp.addEventListener('pointermove', (e) => {
-        if (!dragging) return;
-        _previewPanX = panStartX + (e.clientX - dragStartX);
-        _previewPanY = panStartY + (e.clientY - dragStartY);
-        _applyPreviewTransform();
-    });
-    vp.addEventListener('pointerup', () => {
-        dragging = false;
-        vp.classList.remove('panning');
-    });
-
-    // Touch: pinch-to-zoom + single-finger pan
-    let touchState = null;
-    vp.addEventListener('touchstart', (e) => {
-        if (!_histWidth) return;
-        if (e.touches.length === 2) {
-            e.preventDefault();
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            const rect = vp.getBoundingClientRect();
-            touchState = {
-                mode: 'pinch',
-                startDist: Math.hypot(dx, dy),
-                startZoom: _previewZoom,
-                startPanX: _previewPanX,
-                startPanY: _previewPanY,
-                midX: (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left,
-                midY: (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top
-            };
-        } else if (e.touches.length === 1 && _previewZoom > 1.05) {
-            if (e.target.closest('.cap-zoom-btn, .cap-histo-auto-btn, input[type=range]')) return;
-            touchState = {
-                mode: 'pan',
-                startX: e.touches[0].clientX,
-                startY: e.touches[0].clientY,
-                startPanX: _previewPanX,
-                startPanY: _previewPanY
-            };
-            vp.classList.add('panning');
-        }
-    }, { passive: false });
-
-    vp.addEventListener('touchmove', (e) => {
-        if (!touchState) return;
-        if (touchState.mode === 'pinch' && e.touches.length === 2) {
-            e.preventDefault();
-            const dx = e.touches[0].clientX - e.touches[1].clientX;
-            const dy = e.touches[0].clientY - e.touches[1].clientY;
-            const dist = Math.hypot(dx, dy);
-            const newZoom = Math.max(0.1, Math.min(50, touchState.startZoom * (dist / touchState.startDist)));
-            const scale = newZoom / touchState.startZoom;
-            _previewPanX = touchState.midX - scale * (touchState.midX - touchState.startPanX);
-            _previewPanY = touchState.midY - scale * (touchState.midY - touchState.startPanY);
-            _previewZoom = newZoom;
-            _applyPreviewTransform();
-        } else if (touchState.mode === 'pan' && e.touches.length === 1) {
-            e.preventDefault();
-            _previewPanX = touchState.startPanX + (e.touches[0].clientX - touchState.startX);
-            _previewPanY = touchState.startPanY + (e.touches[0].clientY - touchState.startY);
-            _applyPreviewTransform();
-        }
-    }, { passive: false });
-
-    vp.addEventListener('touchend', (e) => {
-        if (touchState && touchState.mode === 'pan') vp.classList.remove('panning');
-        touchState = null;
-    });
-    vp.addEventListener('touchcancel', () => {
-        if (touchState && touchState.mode === 'pan') vp.classList.remove('panning');
-        touchState = null;
-    });
-
-    // Escape to exit enlarged mode
-    document.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        const panel = document.getElementById('applet-capture-preview');
-        if (panel && panel.classList.contains('enlarged')) {
-            e.preventDefault();
-            zoomEnlarge?.click();
-        }
-    });
-
-    // Buttons
-    if (zoomReset) zoomReset.addEventListener('click', () => { _resetPreviewZoom(); });
-    if (zoomFit) zoomFit.addEventListener('click', () => { _fitPreviewZoom(); });
-    if (zoomEnlarge) zoomEnlarge.addEventListener('click', () => {
-        const panel = document.getElementById('applet-capture-preview');
-        if (!panel) return;
-        const enlarged = panel.classList.toggle('enlarged');
-        if (enlarged) {
-            panel.style.cssText = '';
-            setTimeout(_fitPreviewZoom, 50);
-        } else {
-            panel.style.cssText = 'display:none; top:200px; left:50%; transform:translateX(-50%); width:500px;';
-            _resetPreviewZoom();
-        }
-    });
-    // Double-click to toggle enlarge
-    vp.addEventListener('dblclick', () => {
-        const panel = document.getElementById('applet-capture-preview');
-        if (panel) zoomEnlarge?.click();
-    });
-}
+function _applyPreviewTransform() { captureViewer?._applyTransform(); }
+function _resetPreviewZoom() { captureViewer?.resetZoom(); }
+function _fitPreviewZoom() { captureViewer?.fitZoom(); }
+function initPreviewZoomPan() { captureViewer?.initZoomPan(); }
 
 // ── Save image ─────────────────────────────────────────────────
 
@@ -2525,45 +2637,6 @@ function initSaveImage() {
                 addLog('error', 'capture', `Erreur: ${e.message}`);
             }
         });
-    }
-}
-
-function initHistogramControls() {
-    const slider = document.getElementById('cap-histo-slider');
-    const autoBtn = document.getElementById('cap-histo-auto');
-    if (slider) {
-        slider.addEventListener('input', () => {
-            _histBlackPct = parseInt(slider.value);
-            _histAuto = false;
-            if (autoBtn) autoBtn.classList.remove('active');
-            applyHistogramStretch();
-            renderHistogram();
-            currentModeConfig().histo_auto = false;
-            currentModeConfig().histo_black_pct = _histBlackPct;
-            saveUiConfig();
-        });
-    }
-    if (autoBtn) {
-        autoBtn.addEventListener('click', () => {
-            _histAuto = !_histAuto;
-            autoBtn.classList.toggle('active', _histAuto);
-            applyHistogramStretch();
-            renderHistogram();
-            currentModeConfig().histo_auto = _histAuto;
-            saveUiConfig();
-        });
-    }
-    // Restore from config
-    const mc = currentModeConfig();
-    if (mc.histo_auto === false) {
-        _histAuto = false;
-        if (autoBtn) autoBtn.classList.remove('active');
-        if (mc.histo_black_pct != null) _histBlackPct = mc.histo_black_pct;
-    }
-    if (mc.save_dir) {
-        _saveDir = mc.save_dir;
-        const dirInput = document.getElementById('cap-save-dir');
-        if (dirInput) dirInput.value = _saveDir;
     }
 }
 
@@ -4104,6 +4177,7 @@ let _guideRunning = false;
 let _guideTimer = null;
 let _guideDriftHistory = [];
 let _guideDriftCanvas = null;
+let _guideChecklist = null;
 let _guideStartBtn = null, _guideStopBtn = null, _guidePauseBtn = null;
 let _guideFrameCountEl = null, _guideDriftRAEl = null, _guideDriftDECEl = null;
 let _guideCorrRAEl = null, _guideCorrDECEl = null;
@@ -4807,7 +4881,7 @@ function initGuidePanel() {
 
     // Capture button
     const captureBtn = document.getElementById('guide-capture-btn');
-    if (captureBtn) captureBtn.addEventListener('click', _guidePreviewCaptureHandler);
+    if (captureBtn) captureBtn.addEventListener('click', _guideCapHandler);
 
     // Auto-select button
     const autoBtn = document.getElementById('guide-autoselect-btn');
@@ -4816,7 +4890,29 @@ function initGuidePanel() {
     // Zoom controls for guide preview
     _initGuidePreviewZoom();
 
-
+    // Checklist
+    _guideChecklist = new ChecklistPanel('guide-checklist-body', [
+        { label: '1. Caméra sélectionnée', check: () => !!_guideCameraSelect?.value, action: () => {
+            if (_guideCameraSelect) {
+                _guideCameraSelect.focus();
+                _guideCameraSelect.style.outline = '2px solid #ffaa00';
+                setTimeout(() => _guideCameraSelect.style.outline = '', 2000);
+            }
+        }},
+        { label: '2. Monture en ligne', check: () => !!findMount(), action: () => {
+            const mount = findMount();
+            if (!mount && devices) {
+                const firstMount = Object.entries(devices).find(([n, d]) => d.type === 'mount');
+                if (firstMount) selectDevice(firstMount[0]);
+                else addLog('warn', 'guide', 'Aucune monture disponible — connectez-en une');
+            }
+        }},
+        { label: '3. Calibration faite', check: () => _calibrated, action: () => {
+            const calBtn = document.getElementById('cal-start-btn');
+            if (calBtn) { calBtn.click(); calBtn.scrollIntoView({ behavior: 'smooth' }); }
+            else addLog('warn', 'guide', 'Ouvrez le panneau de calibration');
+        }}
+    ]);
 }
 
 function _refreshGuideCameraList() {
@@ -4836,122 +4932,12 @@ function _refreshGuideCameraList() {
     }).catch(() => {});
 }
 
-function _guideApplyPreviewTransform() {
-    const viewport = document.getElementById('guide-preview-viewport');
-    if (!viewport) return;
-    const canvas = document.getElementById('guide-preview-canvas');
-    const overlay = document.getElementById('guide-preview-overlay');
-    const t = `translate(${_guidePreviewPanX}px, ${_guidePreviewPanY}px) scale(${_guidePreviewZoom})`;
-    if (canvas) canvas.style.transform = t;
-    if (overlay) overlay.style.transform = t;
-    const lvl = document.getElementById('guide-preview-zoom-level');
-    if (lvl) lvl.textContent = Math.round(_guidePreviewZoom * 100) + '%';
-}
+function _guideApplyPreviewTransform() { guideViewer?._applyTransform(); }
+function _guideResetPreviewZoom() { guideViewer?.resetZoom(); }
+function _guideFitPreviewZoom() { guideViewer?.fitZoom(); }
+function _initGuidePreviewZoom() { guideViewer?.initZoomPan(); }
 
-function _guideResetPreviewZoom() {
-    _guidePreviewZoom = 1;
-    _guidePreviewPanX = 0;
-    _guidePreviewPanY = 0;
-    _guideApplyPreviewTransform();
-}
-
-function _guideFitPreviewZoom() {
-    const viewport = document.getElementById('guide-preview-viewport');
-    const canvas = document.getElementById('guide-preview-canvas');
-    if (!viewport || !canvas) return;
-    const vpW = viewport.clientWidth, vpH = viewport.clientHeight;
-    const imgW = _guidePreviewCapture?.width || 380;
-    const imgH = _guidePreviewCapture?.height || 240;
-    _guidePreviewZoom = Math.min(vpW / imgW, vpH / imgH) * 0.95;
-    _guidePreviewPanX = 0;
-    _guidePreviewPanY = 0;
-    _guideApplyPreviewTransform();
-}
-
-function _initGuidePreviewZoom() {
-    const viewport = document.getElementById('guide-preview-viewport');
-    const canvas = document.getElementById('guide-preview-canvas');
-    if (!viewport || !canvas) return;
-
-    // Wheel zoom
-    viewport.addEventListener('wheel', (e) => {
-        if (e.ctrlKey || e.metaKey) return; // let browser handle page zoom
-        e.preventDefault();
-        const rect = viewport.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const delta = -e.deltaY * 0.001;
-        const oldZoom = _guidePreviewZoom;
-        _guidePreviewZoom = Math.max(0.5, Math.min(20, _guidePreviewZoom * (1 + delta)));
-        // Adjust pan to keep mouse position fixed
-        const ratio = 1 - _guidePreviewZoom / oldZoom;
-        _guidePreviewPanX += mx * ratio;
-        _guidePreviewPanY += my * ratio;
-        _guideApplyPreviewTransform();
-    }, { passive: false });
-
-    // Drag to pan (or click to select star)
-    let dragging = false, didDrag = false, startX = 0, startY = 0, panStartX = 0, panStartY = 0;
-    viewport.addEventListener('mousedown', (e) => {
-        if (e.target.closest('button, input, select')) return;
-        dragging = true;
-        didDrag = false;
-        startX = e.clientX;
-        startY = e.clientY;
-        panStartX = _guidePreviewPanX;
-        panStartY = _guidePreviewPanY;
-        if (_guidePreviewZoom > 1) viewport.style.cursor = 'grabbing';
-    });
-    window.addEventListener('mousemove', (e) => {
-        if (!dragging) return;
-        const dx = e.clientX - startX, dy = e.clientY - startY;
-        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) didDrag = true;
-        if (_guidePreviewZoom > 1) {
-            _guidePreviewPanX = panStartX + dx;
-            _guidePreviewPanY = panStartY + dy;
-            _guideApplyPreviewTransform();
-        }
-    });
-    window.addEventListener('mouseup', (e) => {
-        if (!dragging) return;
-        dragging = false;
-        viewport.style.cursor = '';
-        if (!didDrag && _guideStarList.length && _guidePreviewCapture) {
-            // Click — select nearest star
-            const rect = viewport.getBoundingClientRect();
-            const cx = e.clientX - rect.left;
-            const cy = e.clientY - rect.top;
-            const { scale, offX, offY, width: imgW, height: imgH, dpr } = _guidePreviewCapture;
-            // Account for zoom/pan transform
-            const imgX = ((cx - _guidePreviewPanX) / _guidePreviewZoom * dpr - offX) / scale;
-            const imgY = imgH - 1 - ((cy - _guidePreviewPanY) / _guidePreviewZoom * dpr - offY) / scale;
-            let bestDist = Infinity, bestStar = null;
-            for (const s of _guideStarList) {
-                const dx = s.x - imgX, dy = s.y - imgY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                if (dist < bestDist) { bestDist = dist; bestStar = s; }
-            }
-            if (bestStar && bestDist < 15) _guideSetStar(bestStar);
-        }
-    });
-
-    // Double-click reset
-    viewport.addEventListener('dblclick', (e) => {
-        if (e.target.closest('button, input, select')) return;
-        _guideResetPreviewZoom();
-    });
-
-    // Buttons
-    const zoomReset = document.getElementById('guide-preview-zoom-reset');
-    if (zoomReset) zoomReset.addEventListener('click', _guideResetPreviewZoom);
-    const zoomFit = document.getElementById('guide-preview-zoom-fit');
-    if (zoomFit) zoomFit.addEventListener('click', _guideFitPreviewZoom);
-
-    // Fit on first load
-    _guideFitPreviewZoom();
-}
-
-async function _guidePreviewCaptureHandler() {
+async function _guideCapHandler() {
     const cam = _guideCameraSelect?.value;
     if (!cam) { addLog('warn', 'guide', 'Sélectionnez une caméra guide'); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
@@ -5104,6 +5090,144 @@ function _guideBeep() {
     } catch (e) { /* audio not available */ }
 }
 
+function _guideRenderStarMedallion() {
+    const canvas = document.getElementById('guide-star-canvas');
+    if (!canvas) return;
+    const dpr = window.devicePixelRatio || 1;
+    const cw = 140, ch = 140;
+    const bw = Math.round(cw * dpr), bh = Math.round(ch * dpr);
+    if (canvas.width !== bw || canvas.height !== bh) {
+        canvas.width = bw;
+        canvas.height = bh;
+    }
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, bw, bh);
+
+    const cap = _guideCap();
+    if (!cap || !cap.pixels) {
+        ctx.fillStyle = '#555';
+        ctx.font = `${10 * dpr}px monospace`;
+        ctx.textAlign = 'center';
+        ctx.fillText('Pas d\'image', bw / 2, bh / 2);
+        return;
+    }
+
+    // Determine zoom center: use selected star, or current centroid, or image center
+    let centerX, centerY;
+    if (_guideSelectedStar) {
+        centerX = _guideSelectedStar.x;
+        centerY = _guideSelectedStar.y;
+    } else if (_guideLastCentroid) {
+        centerX = _guideLastCentroid.x;
+        centerY = _guideLastCentroid.y;
+    } else {
+        // No star: render full frame
+        const sc = Math.min(bw / cap.width, bh / cap.height);
+        const dw = Math.round(cap.width * sc), dh = Math.round(cap.height * sc);
+        const ox = Math.round((bw - dw) / 2), oy = Math.round((bh - dh) / 2);
+        const tmp = document.createElement('canvas');
+        tmp.width = cap.width; tmp.height = cap.height;
+        const tctx = tmp.getContext('2d');
+        const imgData = tctx.createImageData(cap.width, cap.height);
+        const data = imgData.data;
+        for (let y = 0; y < cap.height; y++) {
+            for (let x = 0; x < cap.width; x++) {
+                const raw = cap.pixels[y * cap.width + x];
+                const v = Math.asinh((raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
+                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+                const dst = ((cap.height - 1 - y) * cap.width + x) * 4;
+                data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
+            }
+        }
+        tctx.putImageData(imgData, 0, 0);
+        ctx.imageSmoothingEnabled = true;
+        ctx.drawImage(tmp, ox, oy, dw, dh);
+        return;
+    }
+
+    // Zoom crop centered on reference star
+    const zoomPixels = 28;
+    const cropSize = zoomPixels * 2;
+    const sx = Math.max(0, Math.min(cap.width - cropSize, Math.round(centerX - zoomPixels)));
+    const sy = Math.max(0, Math.min(cap.height - cropSize, Math.round(centerY - zoomPixels)));
+
+    const tmp = document.createElement('canvas');
+    tmp.width = cropSize; tmp.height = cropSize;
+    const tctx = tmp.getContext('2d');
+    const imgData = tctx.createImageData(cropSize, cropSize);
+    const data = imgData.data;
+    for (let dy = 0; dy < cropSize; dy++) {
+        for (let dx = 0; dx < cropSize; dx++) {
+            const px = sx + dx;
+            const py = sy + dy;
+            if (px < 0 || px >= cap.width || py < 0 || py >= cap.height) continue;
+            const raw = cap.pixels[py * cap.width + px];
+            const v = Math.asinh((raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
+            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+            const dst = ((cropSize - 1 - dy) * cropSize + dx) * 4;
+            data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
+        }
+    }
+    tctx.putImageData(imgData, 0, 0);
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(tmp, 0, 0, bw, bh);
+
+    const midX = bw / 2, midY = bh / 2;
+
+    // Reticle fixe au centre = position du télescope
+    ctx.strokeStyle = 'rgba(0, 255, 204, 0.7)';
+    ctx.lineWidth = 1.5 * dpr;
+    const rl = 12 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(midX - rl, midY); ctx.lineTo(midX + rl, midY);
+    ctx.moveTo(midX, midY - rl); ctx.lineTo(midX, midY + rl);
+    ctx.stroke();
+
+    ctx.strokeStyle = 'rgba(0, 255, 204, 0.25)';
+    ctx.lineWidth = 0.5 * dpr;
+    ctx.setLineDash([3 * dpr, 3 * dpr]);
+    ctx.beginPath();
+    ctx.arc(midX, midY, 6 * dpr, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Indicateur de dérive (position courante de l'étoile)
+    if (_guideSelectedStar && _guideLastCentroid) {
+        const dxPx = _guideLastCentroid.x - _guideSelectedStar.x;
+        const dyPx = _guideLastCentroid.y - _guideSelectedStar.y;
+        const drx = dxPx / cropSize * bw;
+        const dry = dyPx / cropSize * bh;
+
+        const clampX = Math.max(rl, Math.min(bw - rl, midX + drx));
+        const clampY = Math.max(rl, Math.min(bh - rl, midY + dry));
+
+        // Ligne pointillée du centre vers la dérive
+        ctx.strokeStyle = 'rgba(255, 102, 0, 0.25)';
+        ctx.lineWidth = 1 * dpr;
+        ctx.setLineDash([2 * dpr, 3 * dpr]);
+        ctx.beginPath();
+        ctx.moveTo(midX, midY);
+        ctx.lineTo(clampX, clampY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // Repère orange à la position courante
+        ctx.strokeStyle = '#ff6600';
+        ctx.lineWidth = 2 * dpr;
+        const dl = 6 * dpr;
+        ctx.beginPath();
+        ctx.moveTo(clampX - dl, clampY); ctx.lineTo(clampX + dl, clampY);
+        ctx.moveTo(clampX, clampY - dl); ctx.lineTo(clampX, clampY + dl);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ff6600';
+        ctx.beginPath();
+        ctx.arc(clampX, clampY, 2.5 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+    }
+}
+
+
 function _guideDrawDrift() {
     const canvas = _guideDriftCanvas;
     if (!canvas) return;
@@ -5173,8 +5297,8 @@ function _guideDrawDrift() {
         return;
     }
 
-    // ── Fixed-size sliding window (120s) ──
-    const windowSec = 120;
+    // ── Fixed-size sliding window (60s) ──
+    const windowSec = 60;
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
     const windowFrames = Math.max(2, Math.ceil(windowSec / exposure));
     const plotWidth = w - 2 * pad;
@@ -5230,6 +5354,38 @@ function _guideDrawDrift() {
 
     drawLine(d => d.drift_arcsec_x, '#44cc44');
     drawLine(d => d.drift_arcsec_y, '#4488ff');
+
+    // ── Pulse overlay bars (semi-transparent, signed, from baseline) ──
+    let maxPulse = 0;
+    for (let i = firstSlot; i <= lastSlot; i++) {
+        const d = slots[i];
+        if (!d) continue;
+        const r = Math.abs(d.ra_pulse_ms || 0), dec = Math.abs(d.dec_pulse_ms || 0);
+        if (r > maxPulse) maxPulse = r;
+        if (dec > maxPulse) maxPulse = dec;
+    }
+    if (maxPulse < 1) maxPulse = 1;
+    const pulseMaxH = 30 * dpr;
+    for (let i = firstSlot; i <= lastSlot; i++) {
+        const d = slots[i];
+        if (!d) continue;
+        const x = pad + i * xStep;
+        const bw2 = Math.max(2, xStep - 1 * dpr);
+        const raMag = d.ra_pulse_ms || 0;
+        if (raMag > 0) {
+            const barH = (raMag / maxPulse) * pulseMaxH;
+            const up = d.ra_direction === 'W';
+            ctx.fillStyle = 'rgba(68, 204, 68, 0.2)';
+            ctx.fillRect(x - bw2 / 2, up ? midY - barH : midY, bw2, barH);
+        }
+        const decMag = d.dec_pulse_ms || 0;
+        if (decMag > 0) {
+            const barH = (decMag / maxPulse) * pulseMaxH;
+            const up = d.dec_direction === 'N';
+            ctx.fillStyle = 'rgba(68, 136, 255, 0.2)';
+            ctx.fillRect(x - bw2 / 2, up ? midY - barH : midY, bw2, barH);
+        }
+    }
 
     // Y axis labels
     ctx.fillStyle = '#999';
@@ -5306,6 +5462,7 @@ function _guideCleanup() {
 // ── Calibration monture ─────────────────────────────────────
 
 let _calRunning = false;
+let _calibrated = false;
 let _calStartBtn = null, _calStopBtn = null;
 let _calGraphCanvas = null;
 let _calPhaseEl = null, _calStepCountEl = null, _calQualityEl = null;
@@ -5714,6 +5871,7 @@ function _calibrateDrawGraph(status) {
 
 function _calibrateDone(status) {
     _calRunning = false;
+    _calibrated = true;
     if (_calTimer) { clearTimeout(_calTimer); _calTimer = null; }
     if (_calStartBtn) _calStartBtn.disabled = false;
     if (_calStopBtn) _calStopBtn.disabled = true;
@@ -6057,16 +6215,19 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSitePopup();
     initTimeControls();
     initLocationUpdate();
+    captureViewer = new Viewer('capture');
+    guideViewer = new Viewer('guiding');
+    captureViewer.initZoomPan();
     initCapturePanel();
     initPreviewResize();
-    initPreviewZoomPan();
     initSaveImage();
-    initHistogramControls();
+    captureViewer.initHistogramControls();
     initSolverPanel();
     initTargetPanel();
     initPolarPanel();
     initFocuserPanel();
     initGuidePanel();
+    setInterval(() => _guideChecklist?.update(), 1000);
     initCalibrationPanel();
     await initSkyEngine();
     initDraggableApplets();

@@ -353,11 +353,16 @@
         <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-guide-preview" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:400px;">
+        <div id="applet-guide-checklist" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:430px; width:220px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ GUIDAGE — Checklist</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div id="guide-checklist-body" style="padding:6px 8px;"></div>
+        </div>
+
+        <div id="applet-guide-preview" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:400px; height:350px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ GUIDAGE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div id="guide-preview-viewport" style="overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
-                    <canvas id="guide-preview-canvas" width="380" height="240" style="display:block; border-radius:4px;"></canvas>
+                    <canvas id="guide-preview-canvas" style="display:block; border-radius:4px;"></canvas>
                     <canvas id="guide-preview-overlay" width="380" height="240" style="position:absolute; top:0; left:0; pointer-events:none; border-radius:4px;"></canvas>
                 </div>
                 <div id="guide-preview-status" style="font-size:0.6rem; color:#ffaa00; margin-top:4px; text-align:center;">Cliquez «📷 Capture» ou «⭐ Auto»</div>
@@ -365,11 +370,13 @@
                     <button id="guide-capture-btn" class="btn-glass" style="font-size:0.65rem;">📷 Capture</button>
                     <button id="guide-autoselect-btn" class="btn-glass" style="font-size:0.65rem;">⭐ Auto</button>
                     <div style="flex:1;"></div>
-                    <button id="guide-preview-zoom-reset" class="btn-glass" style="font-size:0.55rem; padding:1px 5px;">1:1</button>
-                    <button id="guide-preview-zoom-fit" class="btn-glass" style="font-size:0.55rem; padding:1px 5px;">◻</button>
-                    <span id="guide-preview-zoom-level" style="font-size:0.55rem; color:#888; min-width:30px;">100%</span>
+                    <button id="guide-preview-zoom-reset" class="cap-zoom-btn">1:1</button>
+                    <button id="guide-preview-zoom-fit" class="cap-zoom-btn">◻</button>
+                    <span id="guide-preview-zoom-level" style="font-size:0.6rem; color:#888; min-width:36px;">100%</span>
+                    <button id="guide-zoom-enlarge" class="cap-zoom-btn" title="Agrandir">⤢</button>
                 </div>
             </div>
+            <div id="guide-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
         </div>
 
         <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:620px;">
@@ -383,7 +390,8 @@
                 <div style="display:flex; gap:6px;">
                     <canvas id="guide-star-canvas" width="140" height="140" style="width:140px; height:140px; background:#0a0a12; border-radius:4px; flex-shrink:0;"></canvas>
                     <div style="flex:1; min-width:0;">
-                        <canvas id="guide-drift-canvas" width="460" height="140" style="width:100%; height:140px; background:#0a0a12; border-radius:4px;"></canvas>
+                        <canvas id="guide-drift-canvas" width="460" height="175"
+        style="width:100%; height:175px; background:#0a0a12; border-radius:4px;"></canvas>
                     </div>
                 </div>
                 <div style="display:flex; gap:8px; margin-top:4px; font-size:0.6rem; color:#888;">
