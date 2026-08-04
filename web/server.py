@@ -659,7 +659,9 @@ class WebServer:
         async def guide_step(body: dict):
             x = float(body.get("x", 0))
             y = float(body.get("y", 0))
-            return SanitizedJSONResponse(self._guide.step_result(x, y))
+            snr = body.get("snr")
+            snr = float(snr) if snr is not None else None
+            return SanitizedJSONResponse(self._guide.step_result(x, y, snr))
 
         @app.post("/api/guide/set-reference")
         async def guide_set_reference(body: dict):

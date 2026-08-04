@@ -7,6 +7,57 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-04 — Affichages RMS/SNR, durcissement calibration, panneau Dérive
+
+### Feature — RMS AD/DEC/Total dans le panneau Dérive
+Ajout de `#guide-rms-ra`, `#guide-rms-dec`, `#guide-rms-total` (jaune `#ffcc00`). Fenêtre glissante 60 s alignée sur `_guideDrawDrift()` ; calculs dans `_guideUpdateRms()`/`_guideRmsWindow()`.
+
+### Feature — Courbe SNR superposée au canvas de dérive
+Chaîne complète backend → frontend :
+- `focus_metrics.py` : `star["snr"] = round((peak - bg_median)/max(bg_std,1), 1)`
+- `guide.py` : `current_snr` + `snr` dans chaque entrée d'historique
+- `server.py /api/guide/step` : transmet `body.snr`
+- `app.js _guideLoop()` : envoie `snr: star.snr ?? null`
+- `_guideDrawDrift()` : courbe SNR jaune `#ffaa00` sur axe droit 0/25/50 (ticks + point dernière valeur), réutilisant slots/firstSlot/lastSlot/xStep de la dérive
+- Canvas `#guide-snr-canvas` dédié supprimé (élément, variable, liaison, fonction `_guideDrawSnr`, 3 appels)
+
+### Feature — Impulsions de correction dans le panneau Dérive
+Bloc « Correction » retiré des paramètres de guidage ; `#guide-corr-ra` (vert `#44cc44`) et `#guide-corr-dec` (bleu `#4488ff`) ajoutés dans `#applet-guiding-graph` sous le RMS. Layout final : **Trames / RA / DEC / Corr.RA / Corr.DEC sur la même ligne**, ligne RMS en dessous, puis canvas.
+
+### Fix — Calibration « Étoile perdue » : retry métrique 3×
+CR : calibration stoppée ~10 s après départ (« Étoile perdue ») + tempête `Auto-connecting device retries=0` et aucun « Exposure complete » dans la fenêtre.
+- **Diagnostic** : non reproductible sur code courant + mock (sous la tempête de connexion exacte : calibration complète 22 steps, `ok:true` et `star_count:1` à 100 % des focus-metric, 0 BLOB tronqué). Piste principale : cache navigateur stale (`app.js`).
+- **Durcissement** : `_calibrateLoop` retente `focus-metric` 3× (sleep 800 ms, log warning « Métrique étoile indisponible (tentative N/3) ») avant `_calibrateAbort('Étoile perdue')`. Vérifié via route Playwright injectant une panne transitoire : calibration quand même complete (21 steps).
+- **Robustesse défensive** : `client.py` discard des BLOB tronqués (taille décodée ≠ déclarée) ; `focus_metrics.py` tolère les FITS tronqués (image partielle récupérée).
+
+### Feature — Popup confirmation calibration + démarrage guidage en un clic
+Helpers `showToast(message, {color,duration,action,onAction})` + `hexToRgb()` après `addLog`. `_calibrateDone` affiche « Calibration terminée — qualité X » (durée `bad?8000:0`, couleur `#ff5577` si poor/insufficient_data sinon `#4a4`) avec bouton « Démarrer guidage » (qualité bonne/acceptable uniquement) → bascule mode GUIDAGE + `_guideStart()` après 600 ms.
+
+### Fix — Rendu fond noir / étoiles blanches (asinh)
+Ancienne formule : `v = asinh((raw - sky)/soft)/asinh(k); val = (v + 1) * 127.5` (fond gris 128). Nouvelle : `v = asinh(max(0, raw - sky)/soft)/asinh(k); val = v * 255` (fond noir 0, étoiles blanches 255) dans `_renderStretched` + les 2 rendus d'overlay. Vérifié pixels : coins `[0,0,0,255]`, étoile `[255,255,255,255]`.
+
+### Fix — Couleurs graphe de calibration alignées
+W/E (RA) = vert `#44cc44`, N/S (DEC) = bleu `#4488ff`, labels `WEST (RA)`/`EAST (RA)`/`NORTH (DEC)`/`SOUTH (DEC)` ; légende `['#44cc44','#4488ff']`.
+
+### Fix — CSS overlay aperçu guidage
+`transform-origin` ajouté à `#guide-preview-canvas`/`#guide-preview-overlay` ; retrait des `max-height` viewport enlarged (capture + guide preview).
+
+### Infra tests
+- `indigo/devices/autofocus.py` enfin commité (server.py l'importe depuis le refactor Viewer ; HEAD était cassé sans lui)
+- Playwright : `package.json`, `package-lock.json`, `playwright.config.js` (workers:1), `tests/viewer-ui.spec.js`, `tests/polar-ui.spec.js`
+- `tests/test_guide.py` : `test_snr_recorded`, `test_snr_optional` ; `tests/test_autofocus.py`, `tests/test_focus_flow.py`, `tests/test_polar_flow.py`, `tests/test_polar_math.js` + `tests/polar_math.js` ; docs `TESTS.md`, `tests/MANUAL_TESTS.md`
+
+### Fichiers modifiés
+- `indigo/client.py` : garde BLOB tronqué (~l.478)
+- `indigo/devices/focus_metrics.py` : `star["snr"]`, tolérance FITS tronqué
+- `indigo/devices/guide.py` : `current_snr`, `snr` dans l'historique
+- `web/server.py` : `/api/guide/step` transmet `snr`
+- `web/static/app.js` : `showToast`/`hexToRgb`, `_renderStretched` asinh, `_guideDrawDrift` + courbe SNR, `_guideUpdateRms`/`_guideRmsWindow`, `_guideLoop` snr, retry métrique `_calibrateLoop`, `_calibrateDone` toast + action
+- `web/static/index.html` : RMS, Corr. RA/DEC sur la même ligne que Trames/RA/DEC, retrait `#guide-snr-canvas`
+- `web/static/style.css` : transform-origin overlays
+- `.gitignore` : `node_modules/`, `test-results/`
+- Nouveaux : `indigo/devices/autofocus.py`, `package.json`, `package-lock.json`, `playwright.config.js`, `tests/test_guide.py`, `tests/test_autofocus.py`, `tests/test_focus_flow.py`, `tests/test_polar_flow.py`, `tests/test_polar_math.js`, `tests/polar_math.js`, `tests/viewer-ui.spec.js`, `tests/polar-ui.spec.js`, `tests/MANUAL_TESTS.md`, `TESTS.md`
+
 ## Session 2026-07-28 — Corrections display DPR + tests
 
 ### Fix DPR 1 — Drift canvas feedback loop
@@ -149,9 +200,6 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - `web/static/style.css` : classes .guide-star-marker
 
 ## État des tests
-- **Via pytest** : 50/50
-- **Guide flow (main)** : 38/38
-- **Autofocus flow (main)** : 34/34
-- **Playwright** : 19/19
+- **Via pytest** : 52/52
 - **Polar math JS** : 53/53
-- **Total : 194/194**
+- **Playwright** : à jour via `npx playwright test` (specs viewer-ui + polar-ui)

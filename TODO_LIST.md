@@ -1,6 +1,13 @@
 # TODO List — Prochaines étapes
 
 ## Faits
+- [x] RMS AD/DEC/Total (fenêtre 60 s) dans le panneau Dérive
+- [x] Courbe SNR jaune superposée au canvas de dérive (axe droit 0/25/50)
+- [x] Impulsions de correction dans le panneau Dérive (même ligne Trames/RA/DEC)
+- [x] Popup confirmation calibration + bouton « Démarrer guidage » en un clic
+- [x] Durcissement calibration : retry focus-metric 3× avant « Étoile perdue »
+- [x] Robustesse BLOB/FITS tronqués (discard / image partielle)
+- [x] Rendu asinh fond noir / étoiles blanches
 - [x] Simulation de dérive guide caméra dans mock_indigo.py
 - [x] Phase 5 Autofocus : boucle complète (move→expose→measure→finish→move→verify)
   - [x] _autofocusWaitImage() : stub → attente réelle via exposure_time
@@ -19,6 +26,9 @@
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 
 ## À tester
+- [ ] **CR « Étoile perdue »** : re-tester calibration après Ctrl+Shift+R (hypothèse cache navigateur stale `app.js`). Si reproduit → fournir log mock + log serveur (`run.py`) pendant l'échec
+- [ ] Courbe SNR jaune visible pendant un guidage réel (mock ou caméra)
+- [ ] Toast « Calibration terminée » + bouton « Démarrer guidage »
 - [ ] Calibration : vérifier tracé correct + auto-population gains
 - [ ] Guidage : clic étoile → Capture → Auto → Lancer → graphe 120s
 - [ ] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻

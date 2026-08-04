@@ -90,6 +90,23 @@ def parse_fits(data: bytes) -> tuple[np.ndarray | None, int, int]:
         else:
             return None, 0, 0
 
+        # Tolerate truncated FITS (intermittent BLOB corruption): salvage a
+        # partial image so star detection / calibration don't hard-fail.
+        if pixels.size != w * h:
+            if w and pixels.size > 0:
+                rows = pixels.size // w
+                if rows > 0:
+                    log.warning(
+                        "FITS truncated: expected %dx%d=%d px, got %d px "
+                        "(missing %d px) — using %dx%d partial image",
+                        w, h, w * h, pixels.size, w * h - pixels.size, rows, w)
+                    img = pixels[: rows * w].reshape((rows, w))
+                    return img, w, rows
+            log.warning(
+                "FITS size mismatch: expected %dx%d=%d px, got %d px",
+                w, h, w * h, pixels.size)
+            return None, 0, 0
+
         img = pixels.reshape((h, w))
         return img, w, h
 
@@ -290,8 +307,11 @@ def compute_focus_metrics(
         star["hfr"] = round(compute_hfr(image, star["x"], star["y"], bg_median=bg_median), 2)
         star["fwhm"] = round(compute_fwhm(image, star["x"], star["y"], bg_median=bg_median), 2)
 
-        # Gaussian quality score — higher = better guide star
+        # Signal-to-noise ratio of the star
         snr = (star["peak"] - bg_median) / max(bg_std, 1.0)
+        star["snr"] = round(snr, 1)
+
+        # Gaussian quality score — higher = better guide star
         hfr_val = star["hfr"]
 
         # Prefer HFR ~1.5–5px (gaussian peak at 2.5)

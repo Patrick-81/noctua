@@ -8,3 +8,5 @@ venv/
 *.parquet
 *.bsp
 duckdb-extensions/
+node_modules/
+test-results/

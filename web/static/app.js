@@ -287,6 +287,17 @@ class Viewer {
         }
     }
 
+    _showWrap() {
+        if (this.wrapId) {
+            const w = document.getElementById(this.wrapId);
+            if (w) w.style.display = 'flex';
+        }
+        if (this.emptyId) {
+            const e = document.getElementById(this.emptyId);
+            if (e) e.style.display = 'none';
+        }
+    }
+
     _renderFITS(bytes) {
         const result = this._parseFITS(bytes);
         if (!result) { this.setStatus('⚠️ En-tête FITS invalide', '#ff4444'); return; }
@@ -298,7 +309,7 @@ class Viewer {
         this.soft = soft;
         this.k = k;
 
-        _fitCanvasToPanel(this.containerId, this.canvasId);
+        this._showWrap();
         this._renderStretched();
 
         // Sync overlays
@@ -338,6 +349,7 @@ class Viewer {
                 const ov = document.getElementById(id);
                 if (ov) { ov.width = img.width; ov.height = img.height; ov.style.width = img.width + 'px'; ov.style.height = img.height + 'px'; }
             }
+            this._showWrap();
             if (this.mode === 'capture') this.setInfo(`${img.width}×${img.height} — ${fmt}`);
             else this.setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
             URL.revokeObjectURL(url);
@@ -366,8 +378,8 @@ class Viewer {
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
                 const raw = this.pixels[y * w + x];
-                const v = Math.asinh((raw - this.sky) / this.soft) / Math.asinh(this.k);
-                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+                const v = Math.asinh(Math.max(0, raw - this.sky) / this.soft) / Math.asinh(this.k);
+                const val = Math.max(0, Math.min(255, Math.round(v * 255)));
                 const dst = ((h - 1 - y) * w + x) * 4;
                 data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
             }
@@ -395,7 +407,21 @@ class Viewer {
         if (!vpW || !vpH) return;
         this.zoom = Math.min(vpW / this.imgW, vpH / this.imgH) * 0.95;
         this.panX = 0; this.panY = 0;
-        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+        if (this.mode === 'guiding') {
+            // Anchor canvas/overlay to image pixels; transform does the fitting.
+            // Avoids double-scaling (canvas CSS 100% + scale(zoom)) that made the
+            // preview shrink erratically on panel resize.
+            const fs = Math.min(vpW / this.imgW, vpH / this.imgH) * 0.95;
+            this.zoom = fs;
+            this.panX = (vpW - this.imgW * fs) / 2;
+            this.panY = (vpH - this.imgH * fs) / 2;
+            const canvasEl = document.getElementById(this.canvasId);
+            if (canvasEl) { canvasEl.style.width = this.imgW + 'px'; canvasEl.style.height = this.imgH + 'px'; }
+            for (const id of this.overlayIds || []) {
+                const ov = document.getElementById(id);
+                if (ov) { ov.style.width = this.imgW + 'px'; ov.style.height = this.imgH + 'px'; }
+            }
+        } else if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
             const wrap = vp.parentElement;
             const maxH = Math.max(100, (wrap ? wrap.clientHeight : 400) - 80);
             const fs = Math.min(vpW / this.imgW, maxH / this.imgH, 1);
@@ -408,7 +434,6 @@ class Viewer {
                 const ov = document.getElementById(id);
                 if (ov) { ov.style.width = this.imgW + 'px'; ov.style.height = this.imgH + 'px'; }
             }
-            vp.style.height = Math.round(this.imgH * fs) + 'px';
         }
         this._applyTransform();
     }
@@ -514,8 +539,17 @@ class Viewer {
                 const panel = document.getElementById(this.containerId);
                 if (!panel) return;
                 const enlarged = panel.classList.toggle('enlarged');
-                if (enlarged) { panel.style.cssText = ''; setTimeout(() => this.fitZoom(), 50); }
-                else { panel.style.cssText = ''; this.resetZoom(); }
+                if (enlarged) {
+                    panel.dataset.inlineStyle = panel.getAttribute('style') || '';
+                    panel.removeAttribute('style');
+                    setTimeout(() => this.fitZoom(), 50);
+                } else {
+                    panel.setAttribute('style', panel.dataset.inlineStyle || 'display:block;');
+                    delete panel.dataset.inlineStyle;
+                    this.resetZoom();
+                    this._renderStretched();
+                    this.fitZoom();
+                }
             });
         }
 
@@ -661,17 +695,24 @@ class Viewer {
             this.imgW = result.w; this.imgH = result.h;
             this.pixels = result.pixels;
 
-            _fitCanvasToPanel(this.containerId, this.canvasId);
+            // Ensure guide panel visible
+            const panel = document.getElementById('applet-guide-preview');
+            if (panel && panel.style.display === 'none') {
+                panel.style.display = '';
+                if (panel.classList.contains('collapsed')) toggleMinimize(panel);
+            }
+            // Anchor canvas/overlay to image pixels on first frame (or size change);
+            // subsequent frames preserve the user's zoom/pan.
+            const gvCanvas = document.getElementById(this.canvasId);
+            if (!gvCanvas || parseInt(gvCanvas.style.width) !== result.w) {
+                this.fitZoom();
+            }
             const meta = this._renderStretched();
             if (meta) {
                 this._guideCaptureData = { width: result.w, height: result.h, pixels: result.pixels,
                     sky: result.sky, soft: result.soft, k: result.k, ...meta,
                     dpr: window.devicePixelRatio || 1 };
             }
-
-            // Ensure guide panel visible
-            const panel = document.getElementById('applet-guide-preview');
-            if (panel && panel.style.display === 'none') { panel.style.display = ''; if (panel.classList.contains('collapsed')) toggleMinimize(panel); }
             if (this.zoom <= 0) this.resetZoom();
 
             this.setStatus(`Image ${result.w}×${result.h} ✓`, '#44cc44');
@@ -889,6 +930,8 @@ function connectWS() {
             renderCapturePanel();
             renderFocuserPanel();
             updateSolverHints();
+            _refreshGuideCameraList();
+            _refreshCameraList();
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
@@ -1280,6 +1323,47 @@ function addLog(level, logger, msg) {
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 50) el.scrollTop = el.scrollHeight;
     applyLogFilters();
 }
+
+function showToast(message, opts = {}) {
+    const color = opts.color || '#44cc44';
+    const duration = opts.duration != null ? opts.duration : 6000;
+    const actionLabel = opts.action;
+    const onAction = opts.onAction;
+    const toast = document.createElement('div');
+    toast.style.cssText = [
+        'position:fixed', 'bottom:20px', 'right:20px', 'maxWidth:360px',
+        'display:flex', 'alignItems:center', 'gap:10px',
+        'padding:10px 14px', 'borderRadius:6px',
+        `background:rgba(${hexToRgb(color)},0.92)`, 'color:#fff',
+        'font:600 13px/1.4 monospace', 'backdropFilter:blur(3px)',
+        'boxShadow:0 4px 14px rgba(0,0,0,0.35)', 'zIndex:9999',
+        'border:1px solid rgba(255,255,255,0.18)',
+    ].join(';');
+    toast.innerHTML = `<span>${escapeHTML(message)}</span>`;
+    if (actionLabel) {
+        const btn = document.createElement('button');
+        btn.textContent = actionLabel;
+        btn.style.cssText = 'marginLeft:auto; background:#fff2; color:#fff; border:1px solid #fff5; padding:4px 10px; border-radius:4px; font:600 12px monospace; cursor:pointer;';
+        btn.onclick = () => { if (onAction) onAction(); remove(); };
+        toast.appendChild(btn);
+    }
+    let timer = null;
+    const remove = () => {
+        if (timer) { clearTimeout(timer); timer = null; }
+        if (toast.parentNode) toast.parentNode.removeChild(toast);
+    };
+    if (duration > 0) timer = setTimeout(remove, duration);
+    document.body.appendChild(toast);
+    return remove;
+}
+
+function hexToRgb(h) {
+    const m = String(h).match(/^#?([0-9a-f]{6})$/i);
+    if (!m) return '68,204,68';
+    const n = parseInt(m[1], 16);
+    return `${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}`;
+}
+
 
 function clearLog() {
     const el = document.getElementById('log-content');
@@ -2565,36 +2649,18 @@ function _initPanelResize(panelId, handleId, onResize) {
         handle.addEventListener('pointerup', onUp);
     });
 }
-function _fitCanvasToPanel(panelId, canvasId) {
-    const panel = document.getElementById(panelId);
-    const canvas = document.getElementById(canvasId);
-    if (!panel || !canvas) return;
-    const ph = panel.clientHeight;
-    const drag = panel.querySelector('.applet-drag');
-    const dh = drag ? drag.offsetHeight : 0;
-    const content = canvas.closest('[style*="padding"]') || canvas.parentElement;
-    const pad = content ? parseInt(content.style.padding) || 6 : 6;
-    const status = document.getElementById(canvasId.replace('-canvas', '-status'));
-    const sh = status ? (status.offsetHeight || 20) + 4 : 0;
-    const buttons = status?.nextElementSibling;
-    const bh = buttons ? buttons.offsetHeight || 30 : 30;
-    const availH = ph - dh - pad * 2 - sh - bh;
-    const availW = panel.clientWidth - pad * 2;
-    if (availW > 0 && availH > 0) {
-        canvas.style.width = availW + 'px';
-        canvas.style.height = availH + 'px';
-    }
-}
 function initPreviewResize() {
     _initPanelResize('applet-capture-preview', 'cap-resize-handle', () => {
-        _fitCanvasToPanel('applet-capture-preview', 'cap-preview-canvas');
         if (captureViewer?.pixels) captureViewer._renderStretched();
         captureViewer?.fitZoom();
     });
     _initPanelResize('applet-guide-preview', 'guide-resize-handle', () => {
-        _fitCanvasToPanel('applet-guide-preview', 'guide-preview-canvas');
-        if (guideViewer?.pixels) guideViewer._renderStretched();
-        guideViewer?.fitZoom();
+        if (guideViewer?.pixels) {
+            guideViewer.fitZoom();
+            const meta = guideViewer._renderStretched();
+            if (meta) guideViewer._guideCaptureData = { ...guideViewer._guideCaptureData, ...meta };
+            _guideDetectStars(guideViewer.imgW, guideViewer.imgH);
+        }
     });
 }
 
@@ -4180,6 +4246,7 @@ let _guideDriftCanvas = null;
 let _guideChecklist = null;
 let _guideStartBtn = null, _guideStopBtn = null, _guidePauseBtn = null;
 let _guideFrameCountEl = null, _guideDriftRAEl = null, _guideDriftDECEl = null;
+let _guideRmsRAEl = null, _guideRmsDECEl = null, _guideRmsTotalEl = null;
 let _guideCorrRAEl = null, _guideCorrDECEl = null;
 let _guideCameraSelect = null;
 
@@ -4837,6 +4904,9 @@ function initGuidePanel() {
     _guideFrameCountEl = document.getElementById('guide-frame-count');
     _guideDriftRAEl = document.getElementById('guide-drift-ra');
     _guideDriftDECEl = document.getElementById('guide-drift-dec');
+    _guideRmsRAEl = document.getElementById('guide-rms-ra');
+    _guideRmsDECEl = document.getElementById('guide-rms-dec');
+    _guideRmsTotalEl = document.getElementById('guide-rms-total');
     _guideCorrRAEl = document.getElementById('guide-corr-ra');
     _guideCorrDECEl = document.getElementById('guide-corr-dec');
     _guideCameraSelect = document.getElementById('guide-camera-select');
@@ -4859,7 +4929,10 @@ function initGuidePanel() {
 
     // Refresh button for drift graph
     const guideRefresh = document.getElementById('guide-refresh-btn');
-    if (guideRefresh) guideRefresh.addEventListener('click', () => _guideDrawDrift());
+    if (guideRefresh) guideRefresh.addEventListener('click', () => {
+        _guideUpdateRms();
+        _guideDrawDrift();
+    });
 
     const resetBtn = document.getElementById('guide-reset-btn');
     if (resetBtn) resetBtn.addEventListener('click', _guideReset);
@@ -5017,7 +5090,7 @@ async function _guideLoop() {
         const step = await fetch('/api/guide/step', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ x, y })
+            body: JSON.stringify({ x, y, snr: star.snr ?? null })
         }).then(r => r.json()).catch(() => null);
 
         if (step?.ok) {
@@ -5055,6 +5128,7 @@ function _guideUpdateUI(status) {
         _guideDriftHistory = status.history;
         _guideDrawDrift();
         _calDrawCalCrosshair();
+        _guideUpdateRms();
     }
 
     // Beep if outside tolerance
@@ -5133,8 +5207,8 @@ function _guideRenderStarMedallion() {
         for (let y = 0; y < cap.height; y++) {
             for (let x = 0; x < cap.width; x++) {
                 const raw = cap.pixels[y * cap.width + x];
-                const v = Math.asinh((raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
-                const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+                const v = Math.asinh(Math.max(0, raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
+                const val = Math.max(0, Math.min(255, Math.round(v * 255)));
                 const dst = ((cap.height - 1 - y) * cap.width + x) * 4;
                 data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
             }
@@ -5162,8 +5236,8 @@ function _guideRenderStarMedallion() {
             const py = sy + dy;
             if (px < 0 || px >= cap.width || py < 0 || py >= cap.height) continue;
             const raw = cap.pixels[py * cap.width + px];
-            const v = Math.asinh((raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
-            const val = Math.max(0, Math.min(255, Math.round((v + 1) * 127.5)));
+            const v = Math.asinh(Math.max(0, raw - cap.sky) / cap.soft) / Math.asinh(cap.k);
+            const val = Math.max(0, Math.min(255, Math.round(v * 255)));
             const dst = ((cropSize - 1 - dy) * cropSize + dx) * 4;
             data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
         }
@@ -5387,6 +5461,64 @@ function _guideDrawDrift() {
         }
     }
 
+    // ── SNR overlay (yellow) — superposed on the drift curves ──
+    // Plotted on a right-side axis (0 = bottom, snrMax = top); shares the
+    // time x-axis with the AD/DEC drift curves.
+    const snrMax = 50;
+    const snrTop = pad, snrBottom = h - padBottom;
+    const snrScale = (snrBottom - snrTop) / snrMax;
+    const snrY = (snr) => snrBottom - (snr / snrMax) * (snrBottom - snrTop);
+    const sFirst = Math.max(0, Math.min(firstSlot, windowFrames - 1));
+    const sLast = Math.max(sFirst, lastSlot);
+    let hasSnr = false;
+    for (let i = sFirst; i <= sLast; i++) { const d = slots[i]; if (d && d.snr != null) { hasSnr = true; break; } }
+    if (hasSnr) {
+        // Right axis + ticks
+        ctx.strokeStyle = 'rgba(255,170,0,0.45)';
+        ctx.lineWidth = 1 * dpr;
+        ctx.beginPath(); ctx.moveTo(w - pad, snrTop); ctx.lineTo(w - pad, snrBottom); ctx.stroke();
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = `${7.5 * dpr}px monospace`;
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'middle';
+        for (const t of [0, 25, 50]) {
+            const y = snrY(t);
+            ctx.strokeStyle = 'rgba(255,170,0,0.18)';
+            ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
+            ctx.fillStyle = '#ffaa00';
+            ctx.fillText(t.toString(), w - pad - 3 * dpr, y + 3 * dpr);
+        }
+        ctx.fillStyle = '#ffaa00';
+        ctx.font = `${7 * dpr}px monospace`;
+        ctx.textAlign = 'right';
+        ctx.fillText('SNR', w - pad - 3 * dpr, snrTop - 6 * dpr);
+        // Curve
+        ctx.strokeStyle = '#ffaa00';
+        ctx.lineWidth = 1.5 * dpr;
+        ctx.beginPath();
+        let started = false;
+        for (let i = sFirst; i <= sLast; i++) {
+            const d = slots[i];
+            if (!d || d.snr == null) continue;
+            const x = pad + i * xStep;
+            const y = snrY(d.snr);
+            if (!started) { ctx.moveTo(x, y); started = true; }
+            else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+        // Last value dot
+        let ls = null, li = -1;
+        for (let i = sLast; i >= sFirst; i--) { const d = slots[i]; if (d && d.snr != null) { ls = d.snr; li = i; break; } }
+        if (ls != null) {
+            ctx.fillStyle = '#ffaa00';
+            ctx.beginPath(); ctx.arc(pad + li * xStep, snrY(ls), 3.5 * dpr, 0, Math.PI * 2); ctx.fill();
+            ctx.font = `bold ${9 * dpr}px monospace`;
+            ctx.textAlign = 'left';
+            ctx.fillStyle = '#ffcc66';
+            ctx.fillText(`${ls.toFixed(1)}`, pad + li * xStep + 6 * dpr, snrY(ls) - 4 * dpr);
+        }
+    }
+
     // Y axis labels
     ctx.fillStyle = '#999';
     ctx.font = `bold ${10 * dpr}px monospace`;
@@ -5421,6 +5553,25 @@ function _guideDrawDrift() {
     ctx.fillText(`0s`, w - pad - 2 * dpr, h - padBottom + 4 * dpr);
 }
 
+function _guideRmsWindow() {
+    const hist = _guideDriftHistory;
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    const windowSec = 60;
+    const windowFrames = Math.max(2, Math.ceil(windowSec / exposure));
+    return hist.slice(-windowFrames);
+}
+
+function _guideUpdateRms() {
+    const win = _guideRmsWindow();
+    const raSq = win.reduce((a, d) => a + (d.drift_arcsec_x ?? 0) ** 2, 0);
+    const decSq = win.reduce((a, d) => a + (d.drift_arcsec_y ?? 0) ** 2, 0);
+    const n = win.length;
+    const fmt = v => n > 0 ? v.toFixed(2) : '0.00';
+    if (_guideRmsRAEl) _guideRmsRAEl.textContent = fmt(Math.sqrt(raSq / n));
+    if (_guideRmsDECEl) _guideRmsDECEl.textContent = fmt(Math.sqrt(decSq / n));
+    if (_guideRmsTotalEl) _guideRmsTotalEl.textContent = fmt(Math.sqrt((raSq + decSq) / n));
+}
+
 async function _guideStop() {
     _guideRunning = false;
     _guideRefSet = false;
@@ -5447,6 +5598,7 @@ async function _guideReset() {
     if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/reset', { method: 'POST' }).catch(() => {});
     _guideDriftHistory = [];
+    _guideUpdateRms();
     _guideDrawDrift();
     _guideCleanup();
     addLog('info', 'guide', 'Guidage réinitialisé');
@@ -5697,9 +5849,16 @@ async function _calibrateLoop() {
     }).then(r => r.json()).catch(() => {});
     await sleep(1500);
 
-    // Get centroid
-    const metric = await fetch('/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : ''))
-        .then(r => r.json()).catch(() => null);
+    // Get centroid — retry a few times to absorb transient image-delivery failures
+    let metric = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        metric = await fetch('/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : ''))
+            .then(r => r.json()).catch(() => null);
+        if (metric?.ok && metric.stars?.length) break;
+        addLog('warning', 'calibration',
+            `Métrique étoile indisponible (tentative ${attempt + 1}/3)`);
+        await sleep(800);
+    }
 
     if (!metric?.ok || !metric.stars?.length) {
         _calibrateAbort('Étoile perdue');
@@ -5852,7 +6011,7 @@ function _calibrateDrawGraph(status) {
         // Legend entry
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         const lx = pad + 2 * dpr;
-        const ly = pad + 2 * dpr + (['#4488ff','#ff8844','#44cc44','#cc44cc'].indexOf(color) * 12 * dpr);
+        const ly = pad + 2 * dpr + (['#44cc44','#4488ff'].indexOf(color) * 12 * dpr);
         ctx.fillRect(lx, ly, 70 * dpr, 10 * dpr);
         ctx.fillStyle = color;
         ctx.font = `${8 * dpr}px monospace`;
@@ -5863,10 +6022,10 @@ function _calibrateDrawGraph(status) {
         ctx.fillText(label, lx + 14 * dpr, ly + 1 * dpr);
     }
 
-    drawSteps(west, '#4488ff', 'WEST', true);
-    drawSteps(east, '#ff8844', 'EAST', false);
-    drawSteps(north, '#44cc44', 'NORTH', true);
-    drawSteps(south, '#cc44cc', 'SOUTH', false);
+    drawSteps(west, '#44cc44', 'WEST (RA)', true);
+    drawSteps(east, '#44cc44', 'EAST (RA)', false);
+    drawSteps(north, '#4488ff', 'NORTH (DEC)', true);
+    drawSteps(south, '#4488ff', 'SOUTH (DEC)', false);
 }
 
 function _calibrateDone(status) {
@@ -5907,6 +6066,25 @@ function _calibrateDone(status) {
 
     _calibrateDrawGraph(status);
     addLog('info', 'calibration', `Calibration terminée: qualité=${status.quality}`);
+
+    // Confirmation popup (toast) + one-click auto-start of guiding
+    const quality = status.quality || '';
+    const bad = (quality === 'poor' || quality === 'insufficient_data');
+    const toastColor = bad ? '#ff5577' : '#4a4';
+    const msg = `Calibration terminée — qualité ${quality}`;
+    showToast(msg, {
+        color: toastColor,
+        duration: bad ? 8000 : 0,
+        action: bad ? undefined : 'Démarrer guidage',
+        onAction: () => {
+            // Ensure guiding mode is active, then start guiding
+            if (currentMode !== 'guiding') {
+                const mode = [...document.querySelectorAll('button')].find(b => b.textContent.includes('GUIDAGE'));
+                if (mode) mode.click();
+            }
+            setTimeout(() => _guideStart(), 600);
+        },
+    });
 }
 
 function _calibrateAbort(msg) {
@@ -6311,5 +6489,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     }
 
+    window.__viewer = { guideViewer, captureViewer, handleGuideImage, handleCameraImage, _guideDetectStars, _guideSetStar,
+        get _guideStarList() { return _guideStarList; },
+        get _guideSelectedStar() { return _guideSelectedStar; },
+        get _calLastStatus() { return _calLastStatus; } };
     _initDone = true;
 });

@@ -472,6 +472,14 @@ class IndigoClient:
                     consumed += 1
                 return device, prop_name, name, fmt, b"", consumed
 
+            # Reject truncated BLOBs: decoded size must match the declared
+            # size attribute, otherwise the image is corrupted (intermittent
+            # transport loss) and must not be stored or broadcast.
+            if size and len(binary_data) != size:
+                log.error("BLOB truncated %s.%s: declared=%d decoded=%d len_b64=%d consumed=%d buflen=%d — discarding",
+                          device, prop_name, size, len(binary_data), len(b64_text), idx, len(self._recv_buffer))
+                binary_data = b""
+
             consumed = idx + len(close_tag)
             while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
                 consumed += 1

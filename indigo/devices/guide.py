@@ -55,6 +55,7 @@ class Guide:
         self.drift_y: float = 0.0
         self.drift_arcsec_x: float = 0.0
         self.drift_arcsec_y: float = 0.0
+        self.current_snr: float | None = None
         # Correction
         self.ra_pulse_ms: int = 0
         self.dec_pulse_ms: int = 0
@@ -97,6 +98,7 @@ class Guide:
         self.drift_y = 0.0
         self.drift_arcsec_x = 0.0
         self.drift_arcsec_y = 0.0
+        self.current_snr = None
         self.ra_pulse_ms = 0
         self.dec_pulse_ms = 0
         self.ra_direction = ""
@@ -110,7 +112,7 @@ class Guide:
 
         return self.status()
 
-    def step_result(self, x: float, y: float) -> dict:
+    def step_result(self, x: float, y: float, snr: float | None = None) -> dict:
         """Record measured star centroid and compute correction.
 
         On the first frame with ref_set=False, this sets the reference.
@@ -121,6 +123,7 @@ class Guide:
 
         self.current_x = x
         self.current_y = y
+        self.current_snr = snr
         self.frame_count += 1
 
         # Set reference on first measurement
@@ -160,6 +163,7 @@ class Guide:
             "dec_pulse_ms": self.dec_pulse_ms,
             "ra_direction": self.ra_direction,
             "dec_direction": self.dec_direction,
+            "snr": round(snr, 1) if snr is not None else None,
         }
         self.history.append(entry)
         if len(self.history) > self.max_history:
@@ -228,6 +232,7 @@ class Guide:
         self.ref_set = False
         self.history = []
         self.frame_count = 0
+        self.current_snr = None
         self.drift_x = 0.0
         self.drift_y = 0.0
         self.ra_pulse_ms = 0
@@ -262,6 +267,7 @@ class Guide:
             "drift_y": round(self.drift_y, 2),
             "drift_arcsec_x": round(self.drift_arcsec_x, 2),
             "drift_arcsec_y": round(self.drift_arcsec_y, 2),
+            "current_snr": self.current_snr,
             "ra_pulse_ms": self.ra_pulse_ms,
             "dec_pulse_ms": self.dec_pulse_ms,
             "ra_direction": self.ra_direction,

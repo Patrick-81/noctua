@@ -494,8 +494,6 @@ body {
 
 /* Preview viewport + zoom */
 #cap-preview-viewport {
-    width: 100%;
-    max-height: 60vh;
     cursor: default;
     overflow: hidden;
     background: rgba(0,0,0,0.2);
@@ -510,8 +508,16 @@ body {
 #cap-preview-canvas {
     transform-origin: 0 0;
     image-rendering: pixelated;
-    max-width: 100%;
     display: block;
+}
+#guide-preview-canvas {
+    transform-origin: 0 0;
+    image-rendering: pixelated;
+    display: block;
+}
+#guide-preview-overlay {
+    transform-origin: 0 0;
+    pointer-events: none;
 }
 #cap-zoom-level.flash {
     color: rgba(0,255,204,1);
@@ -552,10 +558,6 @@ body {
     z-index: 9999;
     overflow-y: auto;
 }
-#applet-capture-preview.enlarged #cap-preview-viewport {
-    max-height: calc(100vh - 120px);
-}
-
 #applet-guide-preview.enlarged {
     position: fixed !important;
     top: 0 !important;
@@ -570,10 +572,6 @@ body {
     z-index: 9999;
     overflow-y: auto;
 }
-#applet-guide-preview.enlarged #guide-preview-viewport {
-    max-height: calc(100vh - 120px);
-}
-
 /* Resize handle */
 .cap-resize-handle {
     position: absolute;
