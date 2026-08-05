@@ -138,20 +138,15 @@ body {
     z-index: 18;
 }
 
-#applet-joystick {
+#applet-pilotage {
     position: absolute;
     top: 70px; right: 16px;
     width: 200px;
     z-index: 25;
     text-align: center;
 }
-
-#applet-commands {
-    position: absolute;
-    top: 300px; right: 16px;
-    width: 200px;
-    z-index: 24;
-    text-align: center;
+#applet-pilotage #obj-search {
+    width: 100%;
 }
 
 #applet-hud {
@@ -176,11 +171,38 @@ body {
     z-index: 15;
 }
 
-#applet-search {
+#applet-hardware {
     position: absolute;
-    top: 12px; right: 16px;
-    z-index: 26;
+    bottom: 230px; left: 300px;
+    width: 420px;
+    z-index: 16;
 }
+.hw-row {
+    display: flex; gap: 6px; align-items: center;
+    padding: 2px 8px; font-size: 0.65rem;
+}
+.hw-row select, .hw-row input {
+    flex: 1; min-width: 0; font-size: 0.65rem;
+}
+.hw-label { color: #666; white-space: nowrap; }
+#hw-device-list {
+    padding: 4px 8px; max-height: 200px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.hw-device {
+    display: flex; gap: 6px; align-items: center;
+    padding: 3px 6px; background: rgba(255,255,255,0.03); border-radius: 4px;
+}
+.hw-device .hw-icon { font-size: 0.85rem; }
+.hw-device .hw-name {
+    flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: #ccc;
+}
+.hw-device .hw-status { font-size: 0.6rem; }
+.hw-status.on { color: #44cc44; }
+.hw-status.off { color: #555; }
+.hw-device select { font-size: 0.6rem; max-width: 110px; }
+.hw-device .btn-glass { font-size: 0.55rem; padding: 1px 6px; }
 
 #applet-props {
     position: absolute;
@@ -190,6 +212,55 @@ body {
     z-index: 22;
     width: 300px;
 }
+
+/* ── Hardware mode panel ────────────────────────────────────── */
+
+.hw-device-list {
+    padding: 4px 8px;
+    max-height: 180px; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.hw-section-title {
+    font-size: 0.6rem; color: #00ffcc; text-transform: uppercase;
+    letter-spacing: 0.08em; padding: 6px 8px 2px; border-top: 1px solid rgba(0,255,204,0.08);
+    margin-top: 4px;
+}
+.hw-mode-device-select {
+    flex: 1; min-width: 0; font-size: 0.7rem;
+}
+.hw-mode-props {
+    max-height: calc(100vh - 420px); overflow-y: auto;
+    font-size: 0.65rem;
+}
+
+/* ── Target info (pilotage) ─────────────────────────────────── */
+
+.target-info {
+    font-size: 0.6rem; color: #00ffcc; text-align: center;
+    margin-top: 6px; padding: 3px 6px;
+    background: rgba(0,255,204,0.06); border: 1px solid rgba(0,255,204,0.12);
+    border-radius: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* ── Object selector popup ──────────────────────────────────── */
+
+.obj-select-results {
+    max-height: 45vh; overflow-y: auto;
+    border: 1px solid rgba(0,255,204,0.15); border-radius: 6px;
+    background: rgba(0,0,0,0.25);
+}
+.obj-select-item {
+    padding: 0.3rem 0.5rem; font-size: 0.75rem; cursor: pointer;
+    display: flex; justify-content: space-between; align-items: center; gap: 0.5rem;
+    color: #ccc; border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.obj-select-item:last-child { border-bottom: none; }
+.obj-select-item:hover, .obj-select-item.active { background: rgba(0,255,204,0.12); color: #00ffcc; }
+.obj-select-item .obj-id { font-weight: bold; color: #00ffcc; min-width: 70px; }
+.obj-select-item .obj-name { flex: 1; color: #aaa; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.obj-select-item:hover .obj-name, .obj-select-item.active .obj-name { color: #00ffcc; }
+.obj-select-item .obj-catalog { font-size: 0.65rem; color: #555; min-width: 50px; text-align: right; }
+.obj-select-empty { padding: 0.6rem; font-size: 0.7rem; color: #666; text-align: center; }
 
 /* ── Mode selector (big icons) ──────────────────────────────── */
 
@@ -1457,15 +1528,13 @@ body {
     .mode-btn { font-size: 0.55rem; padding: 3px 6px; }
     #applet-connection { top: 6px; padding: 6px 10px; gap: 3px; font-size: 0.6rem; }
     #applet-connection input, #applet-connection select { font-size: 0.6rem; padding: 2px 5px; max-width: 80px; }
-    #applet-joystick { top: 55px; right: 8px; width: 160px; }
+    #applet-pilotage { top: 55px; right: 8px; width: 160px; }
     .joy-grid { width: 120px; gap: 4px; }
     .joy-btn { padding: 8px 0; font-size: 1.2rem; }
-    #applet-commands { top: 260px; right: 8px; width: 160px; }
     #applet-status { top: 260px; left: 8px; min-width: 140px; }
     #applet-hud { left: 8px; bottom: 8px; min-width: 200px; }
     #applet-legend { right: 8px; bottom: 8px; min-width: 140px; }
     #applet-log { left: 8px; bottom: 220px; width: calc(100vw - 16px); }
-    #applet-search { top: 6px; right: 8px; }
     #applet-props { right: 8px; width: 260px; }
 }
 

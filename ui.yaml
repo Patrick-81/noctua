@@ -41,36 +41,15 @@ modes:
     collapsed:
       applet-hud: false
       applet-log: false
-      applet-joystick: false
     applets:
+      applet-hardware:
+        left: 287px
+        top: 112px
+        right: null
+        bottom: null
       applet-log:
-        left: 20px
-        top: 669px
-        right: null
-        bottom: null
-      applet-status:
-        left: 1691px
-        top: 12px
-        right: null
-        bottom: null
-      applet-joystick:
-        left: 56px
-        top: 120px
-        right: null
-        bottom: null
-      applet-commands:
-        left: 56px
-        top: 380px
-        right: null
-        bottom: null
-      applet-hud:
-        left: 1591.39px
-        top: 166px
-        right: null
-        bottom: null
-      applet-search:
-        left: 16px
-        top: 560px
+        left: 35px
+        top: 630px
         right: null
         bottom: null
       applet-focuser-control:
@@ -84,6 +63,21 @@ modes:
         right: null
         bottom: null
         transform: translateX(-50%)
+      applet-autofocus:
+        left: null
+        top: null
+        right: 16px
+        bottom: 16px
+      applet-guide-checklist:
+        left: 1468px
+        top: 646px
+        right: null
+        bottom: null
+      applet-guide-preview:
+        left: 676px
+        top: 155px
+        right: null
+        bottom: null
       applet-guiding-graph:
         left: 50%
         top: 200px
@@ -94,6 +88,11 @@ modes:
         left: null
         top: 80px
         right: 16px
+        bottom: null
+      applet-calibration:
+        left: 27px
+        top: 113px
+        right: null
         bottom: null
       applet-capture-settings:
         left: null
@@ -112,6 +111,11 @@ modes:
         right: null
         bottom: null
         transform: translateX(-50%)
+      applet-target:
+        left: null
+        top: 80px
+        right: 16px
+        bottom: null
       applet-polar:
         left: null
         top: 80px
@@ -136,11 +140,16 @@ modes:
     driver: null
     collapsed:
       applet-log: false
-      applet-guiding-graph: true
+      applet-guiding-graph: false
     applets:
+      applet-hardware:
+        left: 1190px
+        top: 53px
+        right: null
+        bottom: null
       applet-legend:
-        left: 1700px
-        top: 650px
+        left: 1705px
+        top: 595px
         right: null
         bottom: null
       applet-log:
@@ -190,28 +199,28 @@ modes:
         right: 16px
         bottom: 16px
       applet-guide-checklist:
-        left: 1361px
-        top: 593px
+        left: 1468px
+        top: 646px
         right: null
         bottom: null
       applet-guide-preview:
-        left: 740px
-        top: 216px
+        left: 767px
+        top: 151px
         right: null
         bottom: null
       applet-guiding-graph:
-        left: 619px
-        top: 801px
+        left: 708px
+        top: 560px
         right: null
         bottom: null
       applet-guiding-settings:
-        left: 1355px
-        top: 38px
+        left: 1606px
+        top: 21px
         right: null
         bottom: null
       applet-calibration:
-        left: 147px
-        top: 233px
+        left: 91px
+        top: 144px
         right: null
         bottom: null
       applet-capture-settings:
@@ -246,12 +255,19 @@ modes:
       applet-guiding-settings: true
       applet-guide-preview: true
       applet-log: true
+      applet-guide-checklist: true
+      applet-legend: true
   capture:
     driver: indigo_ccd_svb
     collapsed:
       applet-log: false
       applet-capture-preview: false
     applets:
+      applet-hardware:
+        left: 62px
+        top: 169px
+        right: null
+        bottom: null
       applet-legend:
         left: 1700px
         top: 650px
@@ -303,6 +319,11 @@ modes:
         top: null
         right: 16px
         bottom: 16px
+      applet-guide-checklist:
+        left: 1468px
+        top: 646px
+        right: null
+        bottom: null
       applet-guide-preview:
         left: 676px
         top: 155px
@@ -325,8 +346,8 @@ modes:
         right: null
         bottom: null
       applet-capture-settings:
-        left: 1441px
-        top: 169px
+        left: 1481px
+        top: 209px
         right: null
         bottom: null
       applet-capture-preview:
@@ -356,6 +377,11 @@ modes:
     driver: null
     collapsed: {}
     applets:
+      applet-legend:
+        left: 1705px
+        top: 595px
+        right: null
+        bottom: null
       applet-log:
         left: 44px
         top: 638px
@@ -402,6 +428,16 @@ modes:
         top: null
         right: 16px
         bottom: 16px
+      applet-guide-checklist:
+        left: 1468px
+        top: 646px
+        right: null
+        bottom: null
+      applet-guide-preview:
+        left: 767px
+        top: 151px
+        right: null
+        bottom: null
       applet-guiding-graph:
         left: 50%
         top: 200px
@@ -424,18 +460,18 @@ modes:
         right: 16px
         bottom: null
       applet-capture-preview:
-        left: 1332px
-        top: 55px
+        left: 573px
+        top: 159px
         right: null
         bottom: null
       applet-solver:
-        left: 1082px
-        top: 180px
+        left: 1457px
+        top: 27px
         right: null
         bottom: null
       applet-target:
-        left: 1441px
-        top: 564px
+        left: 1501px
+        top: 624px
         right: null
         bottom: null
       applet-polar:
@@ -445,3 +481,7 @@ modes:
         bottom: null
     histo_auto: false
     histo_black_pct: 0
+    pinned:
+      applet-solver: true
+      applet-capture-preview: true
+  hardware: {}

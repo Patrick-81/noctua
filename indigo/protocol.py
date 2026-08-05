@@ -135,7 +135,10 @@ def _parse_xml_item(el: ET.Element, vector_type: VectorType) -> Item:
         item.max = float(el.get("max", "0") or "0")
         item.step = float(el.get("step", "0") or "0")
     elif vector_type == VectorType.SWITCH:
-        item.value = text.lower() in ("on", "true", "1", "enabled")
+        # INDIGO writes switch values as the `value` attribute; INDI uses
+        # element text. Accept both.
+        raw = (el.get("value") or text)
+        item.value = str(raw).lower() in ("on", "true", "1", "enabled")
     elif vector_type == VectorType.TEXT:
         item.value = text
     elif vector_type == VectorType.BLOB:

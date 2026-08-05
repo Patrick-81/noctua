@@ -15,6 +15,7 @@ Usage:
 import argparse
 import asyncio
 import logging
+import os
 import sys
 from pathlib import Path
 
@@ -89,7 +90,9 @@ def main():
     site_cfg = config.get("site", {})
     config_path = Path(__file__).parent / "config.yaml"
     ui_path = Path(__file__).parent / "ui.yaml"
-    web = WebServer(registry, site_config=site_cfg, config_path=config_path, ui_path=ui_path)
+    profiles_path = Path(os.environ.get("INDIGO_PROFILES_PATH") or (Path(__file__).parent / "profiles.yaml"))
+    web = WebServer(registry, site_config=site_cfg, config_path=config_path,
+                    ui_path=ui_path, profiles_path=profiles_path)
 
     # Run everything
     async def run_all():

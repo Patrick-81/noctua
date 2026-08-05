@@ -203,3 +203,38 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - **Via pytest** : 52/52
 - **Polar math JS** : 53/53
 - **Playwright** : à jour via `npx playwright test` (specs viewer-ui + polar-ui)
+
+## Session 2026-08-05 — Panneau Matériel + profils + roue à filtres (P1)
+
+### Feature — Panneau Matériel indépendant (widget + mode dédié)
+- Widget `#applet-hardware` (toujours visible) : liste des devices détectés (icône, statut connecté/hors ligne, rôle via select, bouton CONN/DÉC), commandes Tout connecter / Tout déconnecter / Rafraîchir, statut serveur.
+- Mode dédié `#applet-hardware-mode` (bouton 🔧 Matériel) : grand panneau avec liste des devices, sélecteur de device, édition des propriétés (`buildPropsHTML`).
+
+### Feature — Gestion de profils (persistance YAML)
+- `indigo/profiles.py` : `ProfileStore` (load/save YAML) ; profil = { monture, caméra, caméra guide, focuser (opt), roue à filtres (opt), optique (opt) }.
+- CRUD via `/api/profiles` + activate/delete/apply. `apply` = connecter tous les devices du profil.
+- `run.py` : chemin via `INDIGO_PROFILES_PATH` (défaut `profiles.yaml`).
+
+### Feature — Roue à filtres dans la prise de vue
+- `indigo/devices/filterwheel.py` : modèle complet — `slots_list()`, `current_slot`, `set_slot()` (switch OneOfMany). Détection par nom (`matches_name`) et propriété (`FILTER_SLOT`).
+- Mock INDIGO : device Filter Wheel (CONNECTION + FILTER_SLOT L/R/G/B/Ha), état émis, sélection de slot gérée.
+- API : `GET /api/filterwheel` (slots + current), `POST /api/filterwheel/slot`.
+- UI Capture : sélecteur « Filtre » (`#cap-filter-select`) alimenté par la roue, champ « Séquence filtres » (ex L,R,G,B) pour la boucle LRGB/NB.
+- Boucle capture : `startSequence` alterne les filtres de la séquence à chaque pose (implique `set_slot` avant chaque expo).
+- Nommage : `/api/camera/save` produit `capture_{filtre}_{timestamp}.fits`.
+
+### Fix — BLOB/switch parsing
+- `indigo/protocol.py` : les switches INDIGO utilisent l'attribut `value` (en plus du texte INDI) → accepté des deux.
+
+### Fichiers nouveaux / modifiés
+- Nouveaux : `indigo/devices/filterwheel.py`, `indigo/profiles.py`, `tests/test_filterwheel.py`, `tests/test_hardware_flow.py`, `tests/test_profiles.py`, `tests/hardware-ui.spec.js`
+- `indigo/registry.py` : `get_filterwheel()`, classe FilterWheel ajoutée
+- `web/server.py` : endpoints hardware/profiles/filterwheel, save avec filtre
+- `web/static/app.js` : renderHardwarePanel/HardwareMode, profils, sélecteur filtre + boucle
+- `web/static/index.html`, `web/static/style.css` : panneaux + styles
+
+## État des tests (2026-08-05)
+- **pytest** : 65/65
+- **Flux** : hardware 45/45, guide 38/38, autofocus 34/34, focus 24/24, polar 29/30 (2 flaky pré-existants)
+- **Polar math JS** : 53/53
+- **Playwright** : 27/27 (viewer + polar + hardware)

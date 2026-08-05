@@ -20,6 +20,7 @@ from .devices.base import BaseDevice, GenericDevice
 from .devices.mount import Mount
 from .devices.camera import Camera
 from .devices.focuser import Focuser
+from .devices.filterwheel import FilterWheel
 
 if TYPE_CHECKING:
     from .client import IndigoClient
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 log = logging.getLogger("indigo.registry")
 
 # All device classes, in priority order for detection
-DEVICE_CLASSES = [Mount, Camera, Focuser]
+DEVICE_CLASSES = [Mount, Camera, FilterWheel, Focuser]
 
 
 class DeviceRegistry:
@@ -81,6 +82,13 @@ class DeviceRegistry:
         for dev in self._devices.values():
             if isinstance(dev, Focuser):
                 return dev
+        return None
+
+    def get_filterwheel(self, name: str | None = None) -> FilterWheel | None:
+        for dev in self._devices.values():
+            if isinstance(dev, FilterWheel):
+                if name is None or dev.name == name:
+                    return dev
         return None
 
     def all_devices(self) -> dict[str, BaseDevice]:
@@ -320,6 +328,16 @@ class DeviceRegistry:
                 if self.on_device_added:
                     self.on_device_added(real)
                 return real
+
+        if FilterWheel.matches_name(name):
+            real = FilterWheel(name, self.client)
+            real._properties = dev._properties
+            real.connected = dev.connected
+            self._devices[name] = real
+            log.debug("Device '%s' upgraded to FilterWheel (by name)", name)
+            if self.on_device_added:
+                self.on_device_added(real)
+            return real
 
         return dev
 

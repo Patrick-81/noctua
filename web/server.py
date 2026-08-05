@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import math
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,6 +30,8 @@ from .weblog import handler as weblog_handler
 
 if TYPE_CHECKING:
     from ..registry import DeviceRegistry
+
+from indigo.profiles import ProfileStore
 
 log = logging.getLogger("indigo.web")
 
@@ -55,11 +58,13 @@ class SanitizedJSONResponse(JSONResponse):
 
 class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
-                 config_path: Path | None = None, ui_path: Path | None = None):
+                 config_path: Path | None = None, ui_path: Path | None = None,
+                 profiles_path: Path | None = None):
         self.registry = registry
         self.site = site_config or {}
         self.config_path = config_path
         self.ui_path = ui_path
+        self.profiles = ProfileStore(profiles_path)
         self.app = FastAPI(title="INDIGO Devices")
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
@@ -197,7 +202,9 @@ class WebServer:
         @app.post("/api/device/connect")
         async def connect_device(body: dict):
             """Manually send CONNECT=On to a device."""
-            device_name = body.get("device", "")
+            return await _connect_device(body.get("device", ""))
+
+        async def _connect_device(device_name: str) -> dict:
             if not device_name:
                 return {"error": "no device specified"}
             dev = self.registry.get(device_name)
@@ -216,6 +223,128 @@ class WebServer:
             log.info("Manual connect: %s (item=%s)", device_name, item_name)
             self.registry._schedule_connect(device_name, item_name)
             return {"ok": True, "device": device_name}
+
+        async def _disconnect_device(device_name: str) -> dict:
+            if not device_name:
+                return {"error": "no device specified"}
+            dev = self.registry.get(device_name)
+            if not dev:
+                return {"error": f"device '{device_name}' not found"}
+            item_name = self.registry._connect_item_names.get(device_name, "CONNECT")
+            conn_prop = dev.get_prop("CONNECTION")
+            if conn_prop:
+                connect_item = conn_prop.get_item("CONNECT") or conn_prop.get_item("CONNECTED")
+                if connect_item:
+                    item_name = connect_item.name
+            # Suppress auto-connect (60s cooldown) so the device stays off
+            self.registry._auto_connecting.discard(device_name)
+            self.registry._connect_gave_up[device_name] = time.time()
+            await self.registry.client.send_new_switch(
+                device_name, "CONNECTION", [{"name": item_name, "value": False}])
+            log.info("Manual disconnect: %s (item=%s)", device_name, item_name)
+            return {"ok": True, "device": device_name}
+
+        # ── Hardware panel + profiles ─────────────────────────────
+
+        @app.get("/api/hardware")
+        async def get_hardware():
+            devices = {
+                name: {
+                    "name": name,
+                    "type": getattr(dev, "DEVICE_TYPE", "generic"),
+                    "connected": bool(dev.connected),
+                }
+                for name, dev in self.registry.all_devices().items()
+            }
+            return {"devices": devices, "profiles": self.profiles.list_profiles()}
+
+        @app.post("/api/hardware/connect")
+        async def hardware_connect(body: dict):
+            return await _connect_device(body.get("device", ""))
+
+        @app.post("/api/hardware/disconnect")
+        async def hardware_disconnect(body: dict):
+            return await _disconnect_device(body.get("device", ""))
+
+        @app.post("/api/hardware/connect-all")
+        async def hardware_connect_all():
+            results = [
+                await _connect_device(name)
+                for name in list(self.registry.all_devices().keys())
+            ]
+            return {"ok": True, "results": results}
+
+        @app.post("/api/hardware/disconnect-all")
+        async def hardware_disconnect_all():
+            results = [
+                await _disconnect_device(name)
+                for name in list(self.registry.all_devices().keys())
+            ]
+            return {"ok": True, "results": results}
+
+        @app.get("/api/profiles")
+        async def get_profiles():
+            return self.profiles.list_profiles()
+
+        @app.post("/api/profiles")
+        async def set_profile(body: dict):
+            return self.profiles.upsert(body)
+
+        @app.post("/api/profiles/activate")
+        async def activate_profile(body: dict):
+            return self.profiles.set_active(body.get("name", ""))
+
+        @app.post("/api/profiles/delete")
+        async def delete_profile(body: dict):
+            return self.profiles.delete(body.get("name", ""))
+
+        @app.post("/api/profiles/apply")
+        async def apply_profile(body: dict):
+            """Activate a profile and connect all devices it references."""
+            name = body.get("name", "")
+            act = self.profiles.set_active(name)
+            if act.get("error"):
+                return act
+            results = []
+            for dev_name in self.profiles.devices_for(name):
+                if dev_name in self.registry.all_devices():
+                    results.append(await _connect_device(dev_name))
+                else:
+                    results.append({"ok": False, "device": dev_name, "error": "device not found"})
+            return {"ok": True, "active": name, "results": results}
+
+        # ── Filter Wheel ─────────────────────────────────────────
+
+        @app.get("/api/filterwheel")
+        async def filterwheel_status():
+            """Slots + current slot of the (first) filter wheel."""
+            fw = self.registry.get_filterwheel()
+            if not fw:
+                return {"found": False, "name": None, "slots": [], "current": None}
+            attached = fw.get_prop("FILTER_SLOT") is not None and fw.connected
+            return {
+                "found": True,
+                "name": fw.name,
+                "connected": attached,
+                "slots": fw.slots_list(),
+                "current": fw.current_slot if attached else None,
+            }
+
+        @app.post("/api/filterwheel/slot")
+        async def filterwheel_set_slot(body: dict):
+            """Select a filter slot by name."""
+            fw = self.registry.get_filterwheel()
+            if not fw:
+                return {"error": "no filter wheel detected"}
+            name = body.get("slot", "") or body.get("name", "")
+            if not name:
+                return {"error": "no slot specified"}
+            try:
+                await fw.set_slot(name)
+            except (RuntimeError, ValueError) as e:
+                return {"error": str(e)}
+            fw.current_slot = name
+            return {"ok": True, "slot": name}
 
         @app.get("/api/config")
         async def get_config():
@@ -409,9 +538,13 @@ class WebServer:
             # Expand ~ and create dir if needed
             save_dir = os.path.expanduser(save_dir)
             os.makedirs(save_dir, exist_ok=True)
-            # Build filename from timestamp
+            # Build filename from timestamp + filter
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"capture_{ts}.fits"
+            filter_name = (body.get("filter") or "").strip()
+            if filter_name:
+                filename = f"capture_{filter_name}_{ts}.fits"
+            else:
+                filename = f"capture_{ts}.fits"
             filepath = os.path.join(save_dir, filename)
             # Get last image data from the camera
             c = self.registry.get_camera()

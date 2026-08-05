@@ -38,6 +38,10 @@
                 <span class="mode-icon">⭐</span>
                 <span class="mode-label">Astro</span>
             </button>
+            <button class="mode-btn" data-mode="hardware" title="Matériel & propriétés">
+                <span class="mode-icon">🔧</span>
+                <span class="mode-label">Matériel</span>
+            </button>
         </div>
 
         <!-- APPLET: Connexion INDIGO (toujours visible) -->
@@ -71,6 +75,49 @@
                 <span style="color:#666;">°E</span>
                 <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;">MAJ</button>
             </div>
+        </div>
+
+        <!-- APPLET: Matériel + profils (toujours visible) -->
+        <div id="applet-hardware" class="glass-panel applet">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">MATÉRIEL</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="hw-row">
+                <span class="hw-label">Profil:</span>
+                <select id="hw-profile-select" title="Profil actif"></select>
+                <button id="hw-profile-new" class="btn-glass" style="font-size:0.6rem;" title="Nouveau profil">＋</button>
+                <button id="hw-profile-save" class="btn-glass" style="font-size:0.6rem;" title="Enregistrer le profil actif">💾</button>
+                <button id="hw-profile-delete" class="btn-glass danger" style="font-size:0.6rem;" title="Supprimer le profil actif">🗑</button>
+                <button id="hw-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil">APPLIQUER</button>
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Optique:</span>
+                <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
+            </div>
+            <div id="hw-device-list"></div>
+            <div class="hw-row">
+                <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;">Tout connecter</button>
+                <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;">Tout déconnecter</button>
+                <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir">⟳</button>
+                <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
+            </div>
+        </div>
+
+        <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
+        <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="hw-row">
+                <span class="hw-label">Profil:</span>
+                <select id="hw-mode-profile-select" title="Profil actif"></select>
+                <button id="hw-mode-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil">APPLIQUER</button>
+            </div>
+            <div class="hw-section-title">DEVICES</div>
+            <div id="hw-mode-devices" class="hw-device-list"></div>
+            <div class="hw-section-title">PROPRIÉTÉS DU DEVICE</div>
+            <div class="hw-row">
+                <select id="hw-mode-device-select" class="hw-mode-device-select">
+                    <option value="">— Sélectionnez un device —</option>
+                </select>
+            </div>
+            <div id="hw-mode-props" class="device-panel hw-mode-props"></div>
         </div>
 
         <!-- APPLET: Légende (toujours visible) -->
@@ -120,8 +167,13 @@
             <div class="status-item"><span class="label">Homing</span><span class="value" id="status-homing">● IDLE</span></div>
         </div>
 
-        <div id="applet-joystick" class="glass-panel applet mode-specific" data-modes="mount">
+        <div id="applet-pilotage" class="glass-panel applet mode-specific" data-modes="mount">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ PILOTAGE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div id="obj-search-wrap">
+                <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off">
+                <div id="obj-search-results" class="obj-search-results" style="display:none"></div>
+            </div>
+            <div style="margin-top:8px;"></div>
             <div class="joy-grid">
                 <div></div>
                 <button class="joy-btn" data-dir="north" title="Nord">▲</button>
@@ -142,12 +194,13 @@
                 </select>
                 <button id="btn-sync" class="btn-glass" title="Synchroniser">⟳ SYNC</button>
             </div>
+            <div id="target-info" class="target-info">Cible : —</div>
+            <div class="joy-speed-row" style="margin-top:6px;">
+                <button id="btn-obj-select" class="btn-glass" title="Choisir un objet du catalogue">🌌 OBJET</button>
+                <button id="btn-goto" class="btn-glass success" title="Pointer la cible sélectionnée">➤ GOTO</button>
+            </div>
             <div style="font-size:0.55rem; color:#666; margin-top:6px;">Maintien pour déplacement continu</div>
-        </div>
-
-        <div id="applet-commands" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ COMMANDES</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div class="control-grid">
+            <div class="control-grid" style="margin-top:8px;">
                 <button id="btn-park" class="btn-glass warning">⏸ PARK</button>
                 <button id="btn-unpark" class="btn-glass success">▶ UNPARK</button>
                 <button id="btn-home" class="btn-glass">🏠 HOME</button>
@@ -234,14 +287,6 @@
             </div>
 
             <div class="hud-help">🖱️ Glisser : Pivoter | 📜 Molette : Zoom</div>
-        </div>
-
-        <div id="applet-search" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div id="obj-search-wrap">
-                <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off" style="width:260px;">
-                <div id="obj-search-results" class="obj-search-results" style="display:none"></div>
-            </div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
@@ -534,6 +579,21 @@
                     <button class="btn-glass cap-ft-btn" data-frame="DARK">DARK</button>
                     <button class="btn-glass cap-ft-btn" data-frame="FLAT">FLAT</button>
                     <button class="btn-glass cap-ft-btn" data-frame="BIAS">BIAS</button>
+                </div>
+            </div>
+
+            <!-- Filter wheel -->
+            <div class="cap-section" id="cap-filter-section" style="display:none;">
+                <div class="cap-label">Filtre</div>
+                <div class="cap-row">
+                    <select id="cap-filter-select" class="cap-select">
+                        <option value="">— Aucun —</option>
+                    </select>
+                    <span class="cap-info" id="cap-filter-wheel-info"></span>
+                </div>
+                <div class="cap-row" style="margin-top:4px;">
+                    <span class="cap-label" style="color:#666;">Séquence filtres:</span>
+                    <input type="text" id="cap-filter-seq" class="cap-input" placeholder="L,R,G,B ou Ha (vide = filtre courant)">
                 </div>
             </div>
 
@@ -1008,6 +1068,24 @@
 
     <!-- Context menu for sky objects -->
     <div id="obj-context-menu" class="obj-menu" style="display:none"></div>
+
+    <!-- Object selector popup (GOTO) -->
+    <div id="obj-select-overlay" class="popup-overlay" style="display:none">
+        <div class="popup-panel" style="width:480px; max-width:95vw;">
+            <div class="popup-header">
+                <h2>Sélecteur d'objet</h2>
+                <button id="obj-select-close" class="popup-close">&times;</button>
+            </div>
+            <div class="popup-body">
+                <input type="text" id="obj-select-search" class="prop-input" placeholder="Filtrer (M1, NGC 7000, Véga...)" autocomplete="off" style="width:100%; margin-bottom:6px;">
+                <div id="obj-select-results" class="obj-select-results"></div>
+            </div>
+            <div class="popup-footer">
+                <button id="obj-select-goto" class="btn-glass success" title="Pointer l'objet sélectionné">➤ GOTO</button>
+                <button id="obj-select-cancel" class="btn-glass">Fermer</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Site config popup -->
     <div id="site-popup-overlay" class="popup-overlay" style="display:none">

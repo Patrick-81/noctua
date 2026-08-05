@@ -10,6 +10,8 @@ let ws = null;
 let devices = {};
 let selectedDevice = null;
 let selectedCamera = null;
+let _targetObject = null;
+let _hwModeDevice = null;
 const MAX_LOG = 500;
 let logEntries = [];
 let skyEngine = null;
@@ -167,10 +169,12 @@ class Viewer {
         if (!cfg) return;
         this.mode = mode;
         Object.assign(this, cfg);
-        const container = document.getElementById(this.containerId);
-        const titleEl = container?.querySelector('.hud-title') || document.getElementById('viewer-title');
-        const cfg2 = Viewer.MODES[mode];
-        if (titleEl && cfg2) {
+        // Prefer the global #viewer-title as the canonical mode title element.
+        // Object.assign() above already replaced this.containerId, so fall back to
+        // the container's own hud-title only when there is no global title element.
+        const titleEl = document.getElementById('viewer-title')
+            || document.getElementById(this.containerId)?.querySelector('.hud-title');
+        if (titleEl && Viewer.MODES[mode]) {
             const titles = { capture: '◎ CAPTURE — Aperçu', guiding: '◎ GUIDAGE — Aperçu',
                             focuser: '◎ FOCUSER — Aperçu', astrometry: '◎ ASTROMÉTRIE — Aperçu' };
             titleEl.textContent = titles[mode] || '◎ Aperçu';
@@ -782,8 +786,8 @@ let guideViewer = null;
 
 const MODES = {
     mount: {
-        applets: ['applet-status', 'applet-joystick', 'applet-commands',
-                  'applet-hud', 'applet-search'],
+        applets: ['applet-status', 'applet-pilotage',
+                  'applet-hud'],
         driverType: 'mount'
     },
     focuser: {
@@ -800,6 +804,10 @@ const MODES = {
     },
     astrometry: {
         applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-capture-preview'],
+        driverType: 'ccd'
+    },
+    hardware: {
+        applets: ['applet-hardware-mode'],
         driverType: null
     }
 };
@@ -875,6 +883,11 @@ function switchMode(mode) {
         refreshSolverStatus(1);
     }
 
+    // Refresh hardware mode panel on entry
+    if (mode === 'hardware' && typeof renderHardwareMode === 'function') {
+        renderHardwareMode();
+    }
+
     refreshDriverList();
     loadAppletPositions();
     saveUiConfig();
@@ -932,6 +945,12 @@ function connectWS() {
             updateSolverHints();
             _refreshGuideCameraList();
             _refreshCameraList();
+            _hwDevices = {};
+            for (const [n, d] of Object.entries(msg.devices)) {
+                _hwDevices[n] = { name: n, type: d.type, connected: !!d.connected };
+            }
+            if (typeof renderHardwarePanel === 'function') renderHardwarePanel();
+            if (typeof renderHardwareMode === 'function') renderHardwareMode();
         } else if (msg.type === 'log') {
             addLog(msg.level, msg.logger, msg.msg);
         } else if (msg.type === 'image') {
@@ -1116,18 +1135,33 @@ function sexaToDec(str, isRA) {
 
 // ── Mount commands ────────────────────────────────────────────
 
+function setTargetObject(obj) {
+    if (!obj || obj.ra == null || obj.dec == null) { _targetObject = null; return; }
+    _targetObject = {
+        ra: obj.ra, dec: obj.dec,
+        id: obj.id || obj.name || '',
+        name: obj.name || obj.id || '',
+    };
+    const info = document.getElementById('target-info');
+    if (info) {
+        const raH = (((_targetObject.ra % 360) + 360) % 360) / 15;
+        const dec = _targetObject.dec;
+        info.textContent = `Cible : ${_targetObject.id}  RA ${raH.toFixed(2)}h  DEC ${dec >= 0 ? '+' : ''}${dec.toFixed(2)}°`;
+    }
+    if (skyEngine) {
+        skyEngine.clearHighlight();
+        skyEngine.highlightObject(_targetObject.ra, _targetObject.dec, _targetObject.id);
+    }
+}
+
 function mountGoto() {
-    const raStr = document.getElementById('goto-ra')?.value;
-    const decStr = document.getElementById('goto-dec')?.value;
-    if (!raStr || !decStr) return;
-    const raH = sexaToDec(raStr, true);
-    const decD = sexaToDec(decStr, false);
-    if (raH === null || decD === null) {
-        addLog('error', 'mount', 'Format invalide. Utilisez hh:mm:ss / dd:mm:ss');
+    if (!_targetObject) {
+        addLog('warning', 'mount', 'Aucune cible — choisissez un objet (clic carte, recherche, ou bouton OBJET)');
         return;
     }
-    apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: decD });
-    addLog('info', 'mount', `GOTO RA=${raH.toFixed(4)}h DEC=${decD.toFixed(4)}°`);
+    const raH = (((_targetObject.ra % 360) + 360) % 360) / 15;
+    apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: _targetObject.dec });
+    addLog('info', 'mount', `GOTO ${_targetObject.id} RA=${raH.toFixed(4)}h DEC=${_targetObject.dec.toFixed(4)}°`);
 }
 
 function mountMove(dir) {
@@ -1157,34 +1191,39 @@ function mountHome() { apiPost('/api/mount/home'); }
 
 // ── Property panel (generic) ──────────────────────────────────
 
-function renderProps(deviceName) {
+function buildPropsHTML(deviceName) {
     const dev = devices[deviceName];
-    const container = document.getElementById('applet-props');
-    if (!dev || !dev.props || dev.props.length === 0 || !container) {
-        if (container) container.style.display = 'none';
-        return;
-    }
-
-    container.style.display = '';
-
+    if (!dev || !dev.props || dev.props.length === 0) return '';
     const groups = {};
     for (const p of dev.props) {
         const g = p.group || '(no group)';
         if (!groups[g]) groups[g] = [];
         groups[g].push(p);
     }
-
-    const dragHandle = container.querySelector('.applet-drag');
-    if (dragHandle) dragHandle.remove();
-
-    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span><button class="applet-minimize" title="Réduire / étendre"></button></div>`;
-    html += `<div class="device-panel">`;
+    let html = `<div class="device-panel">`;
     for (const [groupName, props] of Object.entries(groups)) {
         html += `<div class="prop-group"><div class="prop-group-header" onclick="this.parentElement.classList.toggle('collapsed')">${escapeHTML(groupName)}</div><div class="prop-group-body">`;
         for (const p of props) html += renderPropRow(deviceName, p);
         html += '</div></div>';
     }
     html += '</div>';
+    return html;
+}
+
+function renderProps(deviceName) {
+    const container = document.getElementById('applet-props');
+    if (!container) return;
+    if (!devices[deviceName] || !devices[deviceName].props || devices[deviceName].props.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+    container.style.display = '';
+
+    const dragHandle = container.querySelector('.applet-drag');
+    if (dragHandle) dragHandle.remove();
+
+    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span><button class="applet-minimize" title="Réduire / étendre"></button></div>`;
+    html += buildPropsHTML(deviceName);
     container.innerHTML = html;
 
     // Re-init drag for this panel
@@ -1573,10 +1612,9 @@ function initObjectSearch() {
     function selectResult(r) {
         input.value = r.id;
         resultsEl.style.display = 'none';
+        setTargetObject(r);
         if (skyEngine) {
-            skyEngine.clearHighlight();
             skyEngine.centerOnObject(r.ra, r.dec);
-            skyEngine.highlightObject(r.ra, r.dec, r.id);
             addLog('info', 'search', `Objet: ${r.id} (${r.catalog})`);
         }
     }
@@ -1608,6 +1646,105 @@ function initObjectSearch() {
     input.addEventListener('focus', () => {
         const q = input.value.trim();
         if (q.length >= 1 && skyEngine) renderResults(skyEngine.search(q));
+    });
+}
+
+// ── Object selector (GOTO) ────────────────────────────────────
+
+function initObjectSelector() {
+    const overlay = document.getElementById('obj-select-overlay');
+    const search = document.getElementById('obj-select-search');
+    const results = document.getElementById('obj-select-results');
+    const closeBtn = document.getElementById('obj-select-close');
+    const cancelBtn = document.getElementById('obj-select-cancel');
+    const gotoBtn = document.getElementById('obj-select-goto');
+    const openBtn = document.getElementById('btn-obj-select');
+    if (!overlay || !search || !results) return;
+
+    let allObjects = [];
+    let filtered = [];
+    let activeIdx = -1;
+    let activeObj = null;
+
+    function sourceObjects() {
+        if (allObjects.length) return allObjects;
+        allObjects = (skyEngine && Array.isArray(skyEngine._objects)) ? skyEngine._objects : [];
+        return allObjects;
+    }
+
+    function renderList() {
+        results.innerHTML = '';
+        const q = search.value.trim().toLowerCase();
+        filtered = sourceObjects();
+        if (q) {
+            filtered = filtered.filter(o =>
+                String(o.id || '').toLowerCase().includes(q) ||
+                String(o.name || '').toLowerCase().includes(q) ||
+                String(o.catalog || '').toLowerCase().includes(q));
+        }
+        if (!filtered.length) {
+            results.innerHTML = '<div class="obj-select-empty">Aucun objet — catalogue vide ou non chargé.</div>';
+            return;
+        }
+        const shown = filtered.slice(0, 300);
+        shown.forEach((o, i) => {
+            const div = document.createElement('div');
+            div.className = 'obj-select-item' + (i === activeIdx ? ' active' : '');
+            div.innerHTML = `<span class="obj-id">${escapeHTML(o.id)}</span><span class="obj-name">${escapeHTML(o.name || '')}</span><span class="obj-catalog">${escapeHTML(o.catalog || '')}</span>`;
+            div.addEventListener('mouseenter', () => setActive(i));
+            div.addEventListener('click', () => { selectObject(o); close(); });
+            results.appendChild(div);
+        });
+        activeIdx = Math.min(activeIdx, shown.length - 1);
+    }
+
+    function setActive(i) {
+        activeIdx = i;
+        activeObj = filtered.slice(0, 300)[i] || null;
+        results.querySelectorAll('.obj-select-item').forEach((el, idx) => el.classList.toggle('active', idx === i));
+    }
+
+    function selectObject(o) {
+        setTargetObject(o);
+        if (skyEngine) {
+            skyEngine.centerOnObject(o.ra, o.dec);
+            addLog('info', 'mount', `Cible définie : ${o.id} (${o.catalog || ''})`);
+        }
+    }
+
+    function open() {
+        activeIdx = -1;
+        activeObj = null;
+        search.value = '';
+        renderList();
+        overlay.style.display = 'flex';
+        search.focus();
+    }
+
+    function close() {
+        overlay.style.display = 'none';
+    }
+
+    if (openBtn) openBtn.addEventListener('click', open);
+    if (closeBtn) closeBtn.addEventListener('click', close);
+    if (cancelBtn) cancelBtn.addEventListener('click', close);
+    overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
+    search.addEventListener('input', () => { activeIdx = -1; activeObj = null; renderList(); });
+    search.addEventListener('keydown', (e) => {
+        const count = results.querySelectorAll('.obj-select-item').length;
+        if (!count) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); setActive((activeIdx + 1) % count); }
+        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((activeIdx - 1 + count) % count); }
+        else if (e.key === 'Enter') {
+            e.preventDefault();
+            if (activeObj) { selectObject(activeObj); close(); }
+        } else if (e.key === 'Escape') { close(); }
+    });
+    if (gotoBtn) gotoBtn.addEventListener('click', () => {
+        const o = activeObj || filtered.slice(0, 300)[0];
+        if (!o) { addLog('warning', 'mount', 'Aucun objet sélectionné'); return; }
+        selectObject(o);
+        mountGoto();
     });
 }
 
@@ -2007,6 +2144,432 @@ function initLocationUpdate() {
     }
 }
 
+// ── Hardware panel + profiles ────────────────────────────────────
+
+const HW_ROLES = [
+    ['', '—'],
+    ['mount', 'Monture'],
+    ['camera', 'Caméra'],
+    ['guide_camera', 'Caméra guide'],
+    ['focuser', 'Focuser'],
+    ['filter_wheel', 'Roue à filtres'],
+];
+const HW_ROLE_FIELDS = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel'];
+const HW_ICONS = { mount: '🔭', camera: '📷', focuser: '🔍', filterwheel: '🎨', generic: '⚙️' };
+
+let _hwDevices = {};
+let _hwProfiles = { active: null, profiles: [] };
+
+function hwActiveProfile() {
+    if (!_hwProfiles.profiles) return null;
+    return _hwProfiles.profiles.find(p => p.name === _hwProfiles.active) || null;
+}
+
+async function hwLoad() {
+    try {
+        const data = await fetch('/api/hardware').then(r => r.json());
+        _hwDevices = data.devices || {};
+        _hwProfiles = data.profiles || { active: null, profiles: [] };
+    } catch (e) { addLog('error', 'hw', e.message); }
+}
+
+function hwDeviceRole(name) {
+    const ap = hwActiveProfile();
+    if (!ap) return '';
+    for (const f of HW_ROLE_FIELDS) {
+        if (ap[f] === name) return f;
+    }
+    return '';
+}
+
+function renderHardwarePanel() {
+    const list = document.getElementById('hw-device-list');
+    const sel = document.getElementById('hw-profile-select');
+    if (!list || !sel) return;
+
+    // Profiles dropdown
+    const activeName = _hwProfiles?.active || '';
+    sel.innerHTML = '';
+    const profiles = _hwProfiles.profiles || [];
+    if (!profiles.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = '(aucun profil)';
+        sel.appendChild(opt);
+    } else {
+        for (const p of profiles) {
+            const opt = document.createElement('option');
+            opt.value = p.name;
+            opt.textContent = p.name;
+            sel.appendChild(opt);
+        }
+    }
+    sel.value = activeName;
+
+    // Optics (only when not focused)
+    const opticsInput = document.getElementById('hw-optics');
+    const ap = hwActiveProfile();
+    if (opticsInput && opticsInput !== document.activeElement) {
+        opticsInput.value = ap?.optics || '';
+    }
+
+    // Device rows
+    list.innerHTML = '';
+    const names = Object.keys(_hwDevices);
+    if (!names.length) {
+        list.innerHTML = '<div style="color:#555; font-size:0.6rem; padding:4px;">Aucun device détecté — connectez-vous au serveur INDIGO.</div>';
+        return;
+    }
+    for (const name of names) {
+        const d = _hwDevices[name];
+        const role = hwDeviceRole(name);
+        const icon = HW_ICONS[d.type] || HW_ICONS.generic;
+        const opts = HW_ROLES.map(([v, l]) =>
+            `<option value="${v}" ${v === role ? 'selected' : ''}>${l}</option>`).join('');
+        const row = document.createElement('div');
+        row.className = 'hw-device';
+        row.innerHTML =
+            `<span class="hw-icon">${icon}</span>` +
+            `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
+            `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? '● Connecté' : '○ Hors ligne'}</span>` +
+            `<select class="hw-role" data-device="${escapeAttr(name)}">${opts}</select>` +
+            `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? 'DÉC' : 'CONN'}</button>`;
+        list.appendChild(row);
+    }
+
+    // Server connection status
+    fetch('/api/connection').then(r => r.json()).then(data => {
+        const el = document.getElementById('hw-conn-status');
+        if (el) {
+            el.textContent = data.connected ? '● Serveur connecté' : '● Hors ligne';
+            el.className = data.connected ? 'status-online' : 'status-offline';
+        }
+    }).catch(() => {});
+}
+
+async function hwSetRole(name, role) {
+    let ap = hwActiveProfile();
+    if (!ap) {
+        const profName = prompt('Aucun profil actif. Nom du nouveau profil :', 'Rig');
+        if (!profName) { renderHardwarePanel(); return; }
+        await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: profName }),
+        });
+        await fetch('/api/profiles/activate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: profName }),
+        });
+        await hwLoad();
+        ap = hwActiveProfile();
+        if (!ap) { renderHardwarePanel(); return; }
+    }
+    const update = { name: ap.name };
+    for (const f of HW_ROLE_FIELDS) update[f] = ap[f] || null;
+    if (update[role] === name) role = '';      // toggling current role → unassign
+    for (const f of HW_ROLE_FIELDS) {
+        if (update[f] === name) update[f] = null;
+    }
+    if (role) update[role] = name;
+    update.optics = ap.optics || '';
+    await fetch('/api/profiles', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(update),
+    });
+    await hwLoad();
+    renderHardwarePanel();
+}
+
+function initHardwarePanel() {
+    const sel = document.getElementById('hw-profile-select');
+    const newBtn = document.getElementById('hw-profile-new');
+    const saveBtn = document.getElementById('hw-profile-save');
+    const delBtn = document.getElementById('hw-profile-delete');
+    const applyBtn = document.getElementById('hw-profile-apply');
+    const list = document.getElementById('hw-device-list');
+    const optics = document.getElementById('hw-optics');
+    const connectAll = document.getElementById('hw-connect-all');
+    const disconnectAll = document.getElementById('hw-disconnect-all');
+    const refreshBtn = document.getElementById('hw-refresh');
+
+    if (sel) sel.addEventListener('change', async () => {
+        if (!sel.value) return;
+        await fetch('/api/profiles/activate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: sel.value }),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+    });
+
+    if (newBtn) newBtn.addEventListener('click', async () => {
+        const name = prompt('Nom du nouveau profil :', '');
+        if (!name) return;
+        const ap = hwActiveProfile() || {};
+        const body = { name };
+        for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
+        body.optics = ap.optics || '';
+        await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await fetch('/api/profiles/activate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name }),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+        addLog('info', 'hw', `Profil "${name}" créé`);
+    });
+
+    if (saveBtn) saveBtn.addEventListener('click', async () => {
+        const ap = hwActiveProfile();
+        if (!ap) { addLog('warning', 'hw', 'Aucun profil actif à enregistrer'); return; }
+        const body = { name: ap.name };
+        for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
+        body.optics = ap.optics || '';
+        await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+        addLog('info', 'hw', `Profil "${ap.name}" enregistré`);
+    });
+
+    if (delBtn) delBtn.addEventListener('click', async () => {
+        const ap = hwActiveProfile();
+        if (!ap) return;
+        if (!confirm(`Supprimer le profil "${ap.name}" ?`)) return;
+        await fetch('/api/profiles/delete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: ap.name }),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+        addLog('info', 'hw', `Profil "${ap.name}" supprimé`);
+    });
+
+    if (applyBtn) applyBtn.addEventListener('click', async () => {
+        const ap = hwActiveProfile();
+        if (!ap) { addLog('warning', 'hw', 'Aucun profil à appliquer'); return; }
+        addLog('info', 'hw', `Application du profil "${ap.name}"...`);
+        const res = await fetch('/api/profiles/apply', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: ap.name }),
+        }).then(r => r.json()).catch(() => null);
+        await hwLoad();
+        renderHardwarePanel();
+        if (res?.ok) addLog('info', 'hw', `Profil "${ap.name}" appliqué`);
+        else if (res?.error) addLog('error', 'hw', res.error);
+    });
+
+    if (list) list.addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const device = btn.dataset.device;
+        const action = btn.dataset.action;
+        const res = await fetch(`/api/hardware/${action}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device }),
+        }).then(r => r.json()).catch(() => null);
+        if (res?.error) addLog('error', 'hw', `${device}: ${res.error}`);
+        await hwLoad();
+        renderHardwarePanel();
+    });
+
+    if (list) list.addEventListener('change', async (e) => {
+        const roleSel = e.target.closest('.hw-role');
+        if (!roleSel) return;
+        await hwSetRole(roleSel.dataset.device, roleSel.value);
+    });
+
+    if (optics) optics.addEventListener('change', async () => {
+        const ap = hwActiveProfile();
+        if (!ap) return;
+        const body = { name: ap.name };
+        for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
+        body.optics = optics.value.trim();
+        await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await hwLoad();
+    });
+
+    if (connectAll) connectAll.addEventListener('click', async () => {
+        const res = await fetch('/api/hardware/connect-all', { method: 'POST' })
+            .then(r => r.json()).catch(() => null);
+        await hwLoad();
+        renderHardwarePanel();
+        if (res?.ok) addLog('info', 'hw', 'Connexion de tous les devices demandée');
+    });
+
+    if (disconnectAll) disconnectAll.addEventListener('click', async () => {
+        const res = await fetch('/api/hardware/disconnect-all', { method: 'POST' })
+            .then(r => r.json()).catch(() => null);
+        await hwLoad();
+        renderHardwarePanel();
+        if (res?.ok) addLog('info', 'hw', 'Déconnexion de tous les devices demandée');
+    });
+
+    if (refreshBtn) refreshBtn.addEventListener('click', async () => {
+        await hwLoad();
+        renderHardwarePanel();
+    });
+
+    hwLoad().then(() => renderHardwarePanel());
+}
+
+// ── Hardware mode (mode dédié, grand panneau) ────────────────
+
+function renderHardwareMode() {
+    const container = document.getElementById('applet-hardware-mode');
+    if (!container) return;
+
+    // Profile dropdown
+    const profSel = document.getElementById('hw-mode-profile-select');
+    if (profSel) {
+        const activeName = _hwProfiles?.active || '';
+        profSel.innerHTML = '';
+        const profiles = _hwProfiles.profiles || [];
+        if (!profiles.length) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = '(aucun profil)';
+            profSel.appendChild(opt);
+        } else {
+            for (const p of profiles) {
+                const opt = document.createElement('option');
+                opt.value = p.name;
+                opt.textContent = p.name;
+                profSel.appendChild(opt);
+            }
+        }
+        profSel.value = activeName;
+    }
+
+    // Device rows
+    const list = document.getElementById('hw-mode-devices');
+    if (list) {
+        list.innerHTML = '';
+        const names = Object.keys(_hwDevices);
+        if (!names.length) {
+            list.innerHTML = '<div style="color:#555; font-size:0.6rem; padding:4px;">Aucun device détecté — connectez-vous au serveur INDIGO.</div>';
+        } else {
+            for (const name of names) {
+                const d = _hwDevices[name];
+                const role = hwDeviceRole(name);
+                const icon = HW_ICONS[d.type] || HW_ICONS.generic;
+                const opts = HW_ROLES.map(([v, l]) =>
+                    `<option value="${v}" ${v === role ? 'selected' : ''}>${l}</option>`).join('');
+                const row = document.createElement('div');
+                row.className = 'hw-device';
+                row.innerHTML =
+                    `<span class="hw-icon">${icon}</span>` +
+                    `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
+                    `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? '● Connecté' : '○ Hors ligne'}</span>` +
+                    `<select class="hw-role" data-device="${escapeAttr(name)}">${opts}</select>` +
+                    `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? 'DÉC' : 'CONN'}</button>`;
+                list.appendChild(row);
+            }
+        }
+    }
+
+    // Device selector + properties
+    const devSel = document.getElementById('hw-mode-device-select');
+    if (devSel) {
+        const prev = devSel.value;
+        devSel.innerHTML = '<option value="">— Sélectionnez un device —</option>';
+        const names = Object.keys(_hwDevices);
+        if (names.length && (!_hwModeDevice || !names.includes(_hwModeDevice))) {
+            _hwModeDevice = names.includes('Mount') ? 'Mount' : names[0];
+        }
+        for (const name of names) {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = `${name} (${_hwDevices[name].type})`;
+            devSel.appendChild(opt);
+        }
+        if (names.includes(_hwModeDevice)) devSel.value = _hwModeDevice;
+        else if (prev && names.includes(prev)) { devSel.value = prev; _hwModeDevice = prev; }
+    }
+
+    renderHardwareModeProps();
+}
+
+function renderHardwareModeProps() {
+    const propsEl = document.getElementById('hw-mode-props');
+    if (!propsEl) return;
+    if (document.activeElement && propsEl.contains(document.activeElement)) return;
+    if (!_hwModeDevice || !devices[_hwModeDevice]) {
+        propsEl.innerHTML = '<div style="color:#555; font-size:0.65rem; padding:6px;">Sélectionnez un device pour éditer ses propriétés.</div>';
+        return;
+    }
+    const html = buildPropsHTML(_hwModeDevice);
+    propsEl.innerHTML = html || '<div style="color:#555; font-size:0.65rem; padding:6px;">Aucune propriété exposée pour ce device.</div>';
+}
+
+function initHardwareMode() {
+    const list = document.getElementById('hw-mode-devices');
+    const profSel = document.getElementById('hw-mode-profile-select');
+    const devSel = document.getElementById('hw-mode-device-select');
+
+    if (profSel) profSel.addEventListener('change', async () => {
+        if (!profSel.value) return;
+        await fetch('/api/profiles/activate', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: profSel.value }),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+        renderHardwareMode();
+    });
+
+    const applyBtn = document.getElementById('hw-mode-profile-apply');
+    if (applyBtn) applyBtn.addEventListener('click', async () => {
+        const ap = hwActiveProfile();
+        if (!ap) { addLog('warning', 'hw', 'Aucun profil à appliquer'); return; }
+        addLog('info', 'hw', `Application du profil "${ap.name}"...`);
+        const res = await fetch('/api/profiles/apply', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: ap.name }),
+        }).then(r => r.json()).catch(() => null);
+        await hwLoad();
+        renderHardwarePanel();
+        renderHardwareMode();
+        if (res?.ok) addLog('info', 'hw', `Profil "${ap.name}" appliqué`);
+        else if (res?.error) addLog('error', 'hw', res.error);
+    });
+
+    if (list) list.addEventListener('click', async (e) => {
+        const btn = e.target.closest('button[data-action]');
+        if (!btn) return;
+        const device = btn.dataset.device;
+        const action = btn.dataset.action;
+        const res = await fetch(`/api/hardware/${action}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device }),
+        }).then(r => r.json()).catch(() => null);
+        if (res?.error) addLog('error', 'hw', `${device}: ${res.error}`);
+        await hwLoad();
+        renderHardwarePanel();
+        renderHardwareMode();
+    });
+
+    if (list) list.addEventListener('change', async (e) => {
+        const roleSel = e.target.closest('.hw-role');
+        if (!roleSel) return;
+        await hwSetRole(roleSel.dataset.device, roleSel.value);
+        renderHardwareMode();
+    });
+
+    if (devSel) devSel.addEventListener('change', () => {
+        _hwModeDevice = devSel.value || null;
+        renderHardwareModeProps();
+    });
+}
+
 // ── Capture panel ─────────────────────────────────────────────
 
 let _captureFrameType = 'LIGHT';
@@ -2016,6 +2579,8 @@ let _captureTotal = 0;
 let _exposureStartMs = 0;
 let _exposureDurationMs = 0;
 let _countdownRaf = 0;
+let _captureFilter = '';            // current filter slot name
+let _captureFilterSeq = [];         // ordered filter sequence for the loop
 
 // Histogram / preview
 let _histPixels = null;     // Float64Array of raw pixel data
@@ -2097,6 +2662,21 @@ function initCapturePanel() {
         });
     }
 
+    // Filter wheel
+    const filterSelect = document.getElementById('cap-filter-select');
+    if (filterSelect) {
+        filterSelect.addEventListener('change', async () => {
+            _captureFilter = filterSelect.value;
+            await setCaptureFilter(_captureFilter);
+        });
+    }
+    const filterSeqInput = document.getElementById('cap-filter-seq');
+    if (filterSeqInput) {
+        filterSeqInput.addEventListener('change', () => {
+            _captureFilterSeq = parseFilterSeq(filterSeqInput.value);
+        });
+    }
+
     // Temperature set button
     const setTempBtn = document.getElementById('cap-set-temp');
     if (setTempBtn) {
@@ -2164,10 +2744,30 @@ async function startSequence(count, delay) {
     _captureRunning = true;
     updateCaptureProgress();
 
+    const filterSeqInput = document.getElementById('cap-filter-seq');
+    if (filterSeqInput) _captureFilterSeq = parseFilterSeq(filterSeqInput.value);
+
     for (let i = 0; i < count; i++) {
         if (!_captureRunning) break;
         const exposure = parseFloat(document.getElementById('cap-exposure')?.value || '1');
-        addLog('info', 'capture', `Pose ${i + 1}/${count} — ${exposure}s ${_captureFrameType}`);
+        // Rotate through the filter sequence if set
+        let filter = '';
+        if (_captureFilterSeq.length > 0) {
+            filter = _captureFilterSeq[i % _captureFilterSeq.length];
+        } else if (_captureFilter) {
+            filter = _captureFilter;
+        }
+        if (filter) {
+            const fw = findFilterWheel();
+            if (fw && fw.dev.connected) {
+                await setCaptureFilter(filter);
+                const label = _captureFilterSeq.length ? `${_captureFilterSeq[i % _captureFilterSeq.length]}` : filter;
+                addLog('info', 'capture', `Filtre → ${label}`);
+            } else {
+                addLog('warning', 'capture', `Roue à filtres indisponible — filtre "${filter}" ignoré`);
+            }
+        }
+        addLog('info', 'capture', `Pose ${i + 1}/${count} — ${exposure}s ${_captureFrameType}${filter ? ` [${filter}]` : ''}`);
         apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType });
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
@@ -2185,6 +2785,19 @@ async function startSequence(count, delay) {
     _captureQueue = 0;
     updateCaptureProgress();
     addLog('info', 'capture', 'Séquence terminée');
+}
+
+function parseFilterSeq(text) {
+    return String(text || '').split(/[\s,;]+/).map(s => s.trim()).filter(Boolean);
+}
+
+async function setCaptureFilter(slot) {
+    if (!slot) return;
+    const fw = findFilterWheel();
+    if (!fw) return;
+    const res = await apiPost('/api/filterwheel/slot', { slot }).catch(() => null);
+    if (res?.error) addLog('error', 'capture', `Filtre: ${res.error}`);
+    else _captureFilter = slot;
 }
 
 function waitExposureDone(camName, timeout) {
@@ -2397,6 +3010,49 @@ function renderCapturePanel() {
             btn.classList.toggle('active', btn.dataset.frame === d.frame_type);
         });
     }
+
+    renderCaptureFilter();
+}
+
+function findFilterWheel() {
+    const fws = Object.entries(devices).filter(([, d]) => d.type === 'filterwheel');
+    return fws.length ? { name: fws[0][0], dev: fws[0][1] } : null;
+}
+
+function renderCaptureFilter() {
+    const section = document.getElementById('cap-filter-section');
+    if (!section) return;
+    const fw = findFilterWheel();
+    const sel = document.getElementById('cap-filter-select');
+    const info = document.getElementById('cap-filter-wheel-info');
+    if (!fw) {
+        section.style.display = 'none';
+        _captureFilter = '';
+        return;
+    }
+    section.style.display = '';
+    const connected = !!(fw.dev.connected);
+    if (info) {
+        info.textContent = connected
+            ? `${fw.name} — ${_captureFilter || '—'}`
+            : `${fw.name} (déconnectée)`;
+    }
+    if (!sel) return;
+    const slots = (fw.dev.props || []).find(p => p.name === 'FILTER_SLOT') || null;
+    const opts = slots ? slots.items.map(i =>
+        `<option value="${escapeAttr(i.name)}">${escapeHTML(i.label || i.name)}</option>`).join('')
+        : '';
+    const current = slots && slots.items.find(i => i.value === true);
+    const selected = _captureFilter || (current ? current.name : '');
+    const html = '<option value="">— Aucun —</option>' + opts;
+    // renderCaptureFilter runs on every WS state broadcast. Only touch the DOM
+    // when the option set changed, to avoid tearing while the page re-renders.
+    if (sel.dataset.filterHtml !== html) {
+        sel.dataset.filterHtml = html;
+        sel.innerHTML = html;
+    }
+    if (selected && opts.includes(`value="${escapeAttr(selected)}"`)) sel.value = selected;
+    sel.disabled = !connected;
 }
 
 // ── FITS image handling ──────────────────────────────────────
@@ -2694,7 +3350,7 @@ function initSaveImage() {
                 const res = await fetch('/api/camera/save', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ dir }),
+                    body: JSON.stringify({ dir, filter: _captureFilter }),
                 });
                 const data = await res.json();
                 if (data.ok) addLog('info', 'capture', `Image sauvegardée: ${data.path}`);
@@ -6226,10 +6882,18 @@ function checkOverlap() {
                               a.bottom <= b.top || b.bottom <= a.top);
             if (overlap) {
                 const el = panels[j].el;
-                let left = parseInt(el.style.left) || 0;
-                let top = parseInt(el.style.top) || 0;
-                el.style.left = (left + 20) + 'px';
-                el.style.top = (top + 20) + 'px';
+                // Push the second panel below the first; if it would fall off
+                // the bottom, slide it to the right instead.
+                const vw = window.innerWidth, vh = window.innerHeight;
+                const margin = 8;
+                let left = el.getBoundingClientRect().left;
+                let top = a.bottom + margin;
+                if (top + b.height > vh - margin) {
+                    top = Math.min(b.top, a.top);
+                    left = a.right + margin;
+                }
+                el.style.left = left + 'px';
+                el.style.top = top + 'px';
                 el.style.right = 'auto';
                 el.style.bottom = 'auto';
                 el.style.transform = 'none';
@@ -6257,7 +6921,59 @@ function loadAppletPositions() {
         else el.style.transform = 'none';
     }
     applyCollapsedState();
-    requestAnimationFrame(() => checkOverlap());
+    requestAnimationFrame(() => resolvePanelLayout());
+}
+
+// Run the two layout passes and re-clamp afterwards, so panels always end up
+// inside the viewport after overlap resolution.
+function resolvePanelLayout() {
+    sanitizePanelLayout();
+    checkOverlap();
+    sanitizePanelLayout();
+}
+
+// Enforce the "no overlapping panels" rule: clamp every visible applet back
+// into the viewport and keep it clear of the mode bar / connection bar.
+function sanitizePanelLayout() {
+    const margin = 8;
+    const vw = window.innerWidth, vh = window.innerHeight;
+
+    // The connection bar is centered and must stay clear of the mode bar.
+    const modeBar = document.getElementById('applet-mode-bar');
+    const conn = document.getElementById('applet-connection');
+    if (modeBar && conn && conn.offsetParent !== null) {
+        const mb = modeBar.getBoundingClientRect();
+        const cb = conn.getBoundingClientRect();
+        if (cb.left < mb.right && cb.top < mb.bottom) {
+            conn.style.top = (mb.bottom + margin) + 'px';
+        }
+    }
+
+    const blockers = ['applet-mode-bar', 'applet-connection'].map(id => {
+        const el = document.getElementById(id);
+        return el ? el.getBoundingClientRect() : { right: 0, bottom: 0, left: 0, top: 0 };
+    });
+    document.querySelectorAll('.glass-panel.applet').forEach(el => {
+        if (el.id === 'applet-mode-bar' || el.id === 'applet-connection') return;
+        if (el.offsetParent === null) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.width === 0 || rect.height === 0) return;
+        let left = rect.left, top = rect.top;
+        left = Math.max(margin, Math.min(left, vw - rect.width - margin));
+        top = Math.max(margin, Math.min(top, vh - rect.height - margin));
+        for (const b of blockers) {
+            if (left < b.right && top < b.bottom) {
+                top = Math.max(top, b.bottom + margin);
+            }
+        }
+        if (left !== rect.left || top !== rect.top) {
+            el.style.left = left + 'px';
+            el.style.top = top + 'px';
+            el.style.right = 'auto';
+            el.style.bottom = 'auto';
+            el.style.transform = 'none';
+        }
+    });
 }
 
 function saveAppletPositions() {
@@ -6386,10 +7102,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     initModeBar();
     initConnectionBar();
+    initHardwarePanel();
+    initHardwareMode();
     initButtons();
     initDpad();
     initJoystick();
     initObjectSearch();
+    initObjectSelector();
     initSitePopup();
     initTimeControls();
     initLocationUpdate();
@@ -6414,7 +7133,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Re-check overlap on resize
     window.addEventListener('resize', () => {
-        requestAnimationFrame(() => checkOverlap());
+        requestAnimationFrame(() => resolvePanelLayout());
     });
 
     // Apply UI config: mode

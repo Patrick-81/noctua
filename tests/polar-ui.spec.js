@@ -50,6 +50,7 @@ beforeAll(async () => {
   webProc = spawn(PYTHON,
     [path.join(ROOT, 'run.py'), `127.0.0.1:${MOCK_PORT}`, '--port', String(WEB_PORT)],
     { stdio: 'pipe', cwd: ROOT });
+  webProc.stdout?.on('data', () => {}); // uvicorn access logs go to stdout — must drain or the pipe fills and the event loop blocks
   webProc.stderr?.on('data', d => process.stderr.write('[web] ' + d));
   await waitForServer(`${BASE_URL}/api/connection`, 20000);
 

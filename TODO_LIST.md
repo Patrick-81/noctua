@@ -39,6 +39,24 @@
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
 - [ ] Découper `app.js` en modules séparés
 
+## Planifiés (décision 2026-08-04, cf. COMPARISON_NINA.md)
+
+### P0 — Meridian flip
+- [ ] Détection de proximité du méridien (position monture + heure sidérale) en amont du flip
+- [ ] Séquence : halt guidage → pause capture → flip (slew → côté opposé) → re-centrage (solve) → reprise guidage → reprise capture
+- [ ] État/indicateur dans l'UI + option automatique/manuel dans un mode « session »
+
+### P1 — Roue à filtres dans la prise de vue
+- [x] Device FilterWheel côté INDIGO (modèle + sélecteur dans le panneau matériel)
+- [x] Intégration dans la prise de vue : sélecteur de filtre, positions nominales (roue motorisée) / focale
+- [x] Nommage des fichiers par filtre (`capture_{filtre}_*.fits`) + boucle capture par filtre (LRGB/NB via séquence)
+
+### P1 — Gestion de profils + panneau matériel indépendant
+- [ ] Profil = { monture, caméra, caméra d'autoguidage, focuser (optionnel), roue à filtres (optionnel), optique (optionnel) }
+- [ ] Persistance des profils (fichier YAML/JSON) + sélection/suppression dans l'UI
+- [ ] Panneau matériel indépendant : état des devices (connecté/erreur), connexion **élément par élément** ou **tout d'un coup**
+- [ ] Binding profil ↔ connexion : appliquer un profil = connecter son set de devices
+
 ## Notes techniques
 - Le serveur Python doit être redémarré manuellement par l'utilisateur
 - Les JS sont servis en statique, un simple refresh suffit après modification

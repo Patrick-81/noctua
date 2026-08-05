@@ -214,6 +214,20 @@ PROP_DEFS = [
     '<defNumber name="HORIZONTAL_BINNING" value="1" label="H Binning"/>'
     '<defNumber name="VERTICAL_BINNING" value="1" label="V Binning"/>'
     '</defNumberVector>',
+
+    # ── Filter Wheel ──
+    '<defSwitchVector device="Filter Wheel" name="CONNECTION" state="Ok" perm="rw" label="Connection">'
+    '<defSwitch name="CONNECT" value="Off" label="Connect"/>'
+    '<defSwitch name="CONNECTED" value="Off" label="Connected"/>'
+    '</defSwitchVector>',
+
+    '<defSwitchVector device="Filter Wheel" name="FILTER_SLOT" state="Ok" perm="rw" rule="OneOfMany" label="Filter Slot">'
+    '<defSwitch name="L" value="On" label="Luminance"/>'
+    '<defSwitch name="R" value="Off" label="Red"/>'
+    '<defSwitch name="G" value="Off" label="Green"/>'
+    '<defSwitch name="B" value="Off" label="Blue"/>'
+    '<defSwitch name="Ha" value="Off" label="Ha"/>'
+    '</defSwitchVector>',
 ]
 
 
@@ -708,6 +722,8 @@ class MockIndigoServer:
         }
         self._writer = None
         self._slew_task = None
+        self._fw_connected = False
+        self._fw_slot = "L"
 
     async def start(self):
         server = await asyncio.start_server(self._handle_client, self.host, self.port)
@@ -753,6 +769,16 @@ class MockIndigoServer:
                     await self.focuser.send_state(writer)
                     for cam in self.cameras.values():
                         await cam.send_state(writer)
+                    # Filter Wheel state (parity with other devices)
+                    c = "On" if self._fw_connected else "Off"
+                    writer.write((
+                        f'<setSwitchVector device="Filter Wheel" name="CONNECTION" state="Ok">'
+                        f'<oneSwitch name="CONNECT">{c}</oneSwitch>'
+                        f'<oneSwitch name="CONNECTED">{c}</oneSwitch>'
+                        f'</setSwitchVector>\n').encode())
+                    await writer.drain()
+                    writer.write((self.fw_slot_state() + "\n").encode())
+                    await writer.drain()
 
                 elif msg.startswith("<newNumberVector"):
                     prop_name, items = _parse_vector_items(msg)
@@ -797,6 +823,23 @@ class MockIndigoServer:
                         for resp in responses:
                             writer.write((resp + "\n").encode())
                         await writer.drain()
+                    elif device_name == "Filter Wheel":
+                        if prop_name == "CONNECTION":
+                            on = any(v.lower() in ("on", "true", "1") for v in items.values())
+                            self._fw_connected = on
+                            c = "On" if on else "Off"
+                            writer.write((
+                                f'<setSwitchVector device="Filter Wheel" name="CONNECTION" '
+                                f'state="Ok"><oneSwitch name="CONNECT" value="{c}"/>'
+                                f'<oneSwitch name="CONNECTED" value="{c}"/>'
+                                f'</setSwitchVector>\n').encode())
+                            await writer.drain()
+                        elif prop_name == "FILTER_SLOT":
+                            on_items = [n for n, v in items.items() if v.lower() in ("on", "true", "1")]
+                            if on_items:
+                                self._fw_slot = on_items[0]
+                            writer.write((self.fw_slot_state() + "\n").encode())
+                            await writer.drain()
 
                 elif msg.startswith("<enableBLOB"):
                     pass  # ignore
@@ -808,6 +851,16 @@ class MockIndigoServer:
         finally:
             writer.close()
             self._writer = None
+
+    def fw_slot_state(self):
+        """Return a setSwitchVector describing the current FILTER_SLOT state."""
+        slots = ["L", "R", "G", "B", "Ha"]
+        parts = "".join(
+            f'<oneSwitch name="{name}" value="{ "On" if name == self._fw_slot else "Off" }"/>'
+            for name in slots
+        )
+        return (f'<setSwitchVector device="Filter Wheel" name="FILTER_SLOT" state="Ok" '
+                f'perm="rw" rule="OneOfMany">{parts}</setSwitchVector>')
 
     async def _simulate_slew(self, writer):
         if self._slew_task and not self._slew_task.done():

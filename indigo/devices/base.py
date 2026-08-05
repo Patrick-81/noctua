@@ -13,7 +13,7 @@ import logging
 import math
 from typing import TYPE_CHECKING
 
-from ..protocol import PropertyVector
+from ..protocol import PropPerm, PropertyVector
 
 if TYPE_CHECKING:
     from ..client import IndigoClient
@@ -86,6 +86,33 @@ class BaseDevice:
         self._apply_def(pv)
 
     def on_set(self, tag: str, pv: PropertyVector) -> None:
+        # INDIGO set vectors only carry item values — merge them into the
+        # stored def so labels and other metadata survive the update.
+        existing = self._properties.get(pv.name)
+        if existing is not None and existing.items and pv.items and pv.vector_type == existing.vector_type:
+            merged = {item.name: item for item in existing.items}
+            for item in pv.items:
+                if item.name in merged:
+                    prev = merged[item.name]
+                    # Set vectors carry label=name as a fallback — keep the richer
+                    # label from the def when the incoming one is just the item name.
+                    if not item.label or item.label == item.name and prev.label and prev.label != item.name:
+                        item.label = prev.label
+                    item.target = prev.target
+                    if item.format == "":
+                        item.format = prev.format
+                    if item.min == 0.0 and item.max == 0.0 and item.step == 0.0:
+                        item.min, item.max, item.step = prev.min, prev.max, prev.step
+                    if item.size == 0:
+                        item.size = prev.size
+                merged[item.name] = item
+            pv.items = list(merged.values())
+            pv.label = pv.label or existing.label
+            pv.group = pv.group or existing.group
+            if pv.rule is None:
+                pv.rule = existing.rule
+            if pv.perm == PropPerm.RO and existing.perm != PropPerm.RO:
+                pv.perm = existing.perm
         self._properties[pv.name] = pv
         self._apply_set(pv)
 
