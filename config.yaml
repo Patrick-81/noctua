@@ -10,3 +10,9 @@ site:
   longitude: 1.568
   elevation: 210
   timezone: Europe/Paris
+telescope:
+  flip_enabled: true
+  hour_angle_margin: 0.0
+  min_altitude: 5.0
+  flip_slew_rate: Centering
+  recenter_after_flip: true

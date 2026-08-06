@@ -208,6 +208,24 @@
                 <button id="btn-abort" class="btn-glass danger">⏹ STOP</button>
                 <button id="btn-emergency" class="btn-glass danger full">🛑 EMERGENCY</button>
             </div>
+            <div id="flip-panel" class="flip-panel" style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
+                <div class="control-grid" style="grid-template-columns:1fr auto;">
+                    <span style="font-size:0.6rem; color:#aaa; align-self:center;">MERIDIAN FLIP</span>
+                    <label class="layer-cb" style="font-size:0.6rem;"><input type="checkbox" id="flip-enabled"> auto</label>
+                </div>
+                <div id="flip-status" style="font-size:0.62rem; color:#888; margin-top:4px;">HA --- (calcul en attente)</div>
+                <div class="joy-speed-row" style="margin-top:6px;">
+                    <label style="font-size:0.55rem; color:#777; flex:1;">Marge HA (h)</label>
+                    <input type="number" id="flip-margin" step="0.1" min="-2" max="6" value="0" style="width:52px;">
+                </div>
+                <div class="joy-speed-row" style="margin-top:4px;">
+                    <label style="font-size:0.55rem; color:#777; flex:1;">Alt min (°)</label>
+                    <input type="number" id="flip-min-alt" step="1" min="0" max="90" value="0" style="width:52px;">
+                </div>
+                <div class="control-grid" style="margin-top:6px;">
+                    <button id="btn-flip" class="btn-glass warning">⟳ FLIP</button>
+                </div>
+            </div>
         </div>
 
         <div id="applet-hud" class="glass-panel applet mode-specific" data-modes="mount">

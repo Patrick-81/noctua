@@ -96,6 +96,11 @@ PROP_DEFS = [
     '<defNumber name="DEC" value="0" label="DEC"/>'
     '</defNumberVector>',
 
+    '<defNumberVector device="Mount" name="MOUNT_HORIZONTAL_COORDINATES" state="Ok" perm="ro" label="Horizontal Coordinates">'
+    '<defNumber name="ALT" value="0" label="Altitude"/>'
+    '<defNumber name="AZ" value="0" label="Azimuth"/>'
+    '</defNumberVector>',
+
     '<defSwitchVector device="Mount" name="MOUNT_TRACKING" state="Ok" perm="rw" rule="OneOfMany" label="Tracking">'
     '<defSwitch name="ON" value="Off" label="Tracking ON"/>'
     '<defSwitch name="OFF" value="On" label="Tracking OFF"/>'
@@ -313,6 +318,38 @@ class MockMount:
         self._guide_moving_ns = False
         self._guide_moving_we = False
         self.drift_enabled = True
+        # Mock observing site (Mirrors config.yaml defaults)
+        self.lat_deg = 43.952
+        self.lon_deg = 1.568
+
+    def _alt_az(self):
+        """Compute altitude/azimuth from the mounted RA/DEC at the mock site."""
+        from datetime import datetime
+        import math
+        now = datetime.now()
+        jd = now.timestamp() / 86400.0 + 2440587.5
+        t = (jd - 2451545.0) / 36525.0
+        gmst = (280.46061837 + 360.98564736629 * (jd - 2451545.0)
+                + 0.000387933 * t * t - (t * t * t) / 38710000.0)
+        lst = (gmst + self.lon_deg) % 360.0
+        ha = math.radians((lst - self.ra_hours * 15.0) % 360.0)
+        dec = math.radians(self.dec_deg)
+        lat = math.radians(self.lat_deg)
+        alt = math.asin(math.sin(dec) * math.sin(lat) + math.cos(dec) * math.cos(lat) * math.cos(ha))
+        az = math.atan2(
+            -math.sin(ha),
+            math.cos(ha) * math.sin(lat) - math.tan(dec) * math.cos(lat),
+        )
+        return math.degrees(alt), (math.degrees(az) + 360.0) % 360.0
+
+    def horizontal_xml(self):
+        alt, az = self._alt_az()
+        return (
+            f'<setNumberVector device="Mount" name="MOUNT_HORIZONTAL_COORDINATES" state="Ok">'
+            f'<oneNumber name="ALT">{alt:.3f}</oneNumber>'
+            f'<oneNumber name="AZ">{az:.3f}</oneNumber>'
+            f'</setNumberVector>'
+        )
 
     def coords_xml(self, state="Ok"):
         return (
@@ -442,7 +479,8 @@ class MockMount:
     async def send_state(self, writer):
         enabled = "On" if self.drift_enabled else "Off"
         disabled = "Off" if self.drift_enabled else "On"
-        for xml in [self.connection_xml(), self.coords_xml(), self.tracking_xml(),
+        for xml in [self.connection_xml(), self.coords_xml(), self.horizontal_xml(),
+                     self.tracking_xml(),
                      self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(),
                      f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
                      f'<oneSwitch name="ENABLED">{enabled}</oneSwitch>'

@@ -43,7 +43,56 @@ def _sanitize(obj):
     if isinstance(obj, float):
         if math.isnan(obj) or math.isinf(obj):
             return None
-        return obj
+    return obj
+
+
+def _mount_flip_status(state: dict, site: dict, telescope: dict) -> dict:
+    """Compute meridian-flip figures and merge them into a mount state dict."""
+    from indigo.devices.meridian import (
+        flip_due, flip_side, fmt_ha, fmt_time_to_flip,
+        hour_angle_hours, local_sidereal_time_deg, time_to_flip,
+    )
+
+    longitude = float(site.get("longitude", 0.0) or 0.0)
+    margin = float(telescope.get("hour_angle_margin", 0.0) or 0.0)
+    min_alt = float(telescope.get("min_altitude", 0.0) or 0.0)
+    enabled = bool(telescope.get("flip_enabled", False))
+
+    ra = state.get("ra_hours")
+    alt = state.get("alt_deg")
+    lst = local_sidereal_time_deg(longitude)
+    ha = hour_angle_hours(ra, lst) if ra is not None else None
+
+    if ha is None:
+        merged = dict(state)
+        merged["flip"] = {
+            "enabled": enabled,
+            "lst_deg": lst,
+            "ha_hours": None,
+            "ha_fmt": "---",
+            "flip_due": False,
+            "flip_side": "inconnu",
+            "time_to_flip_fmt": "---",
+            "hour_angle_margin": margin,
+            "min_altitude": min_alt,
+        }
+        return merged
+
+    due = flip_due(ha, margin, min_alt, alt)
+    ttf = time_to_flip(ha, margin)
+    merged = dict(state)
+    merged["flip"] = {
+        "enabled": enabled,
+        "lst_deg": lst,
+        "ha_hours": ha,
+        "ha_fmt": fmt_ha(ha),
+        "flip_due": due,
+        "flip_side": flip_side(ha),
+        "time_to_flip_fmt": fmt_time_to_flip(ttf),
+        "hour_angle_margin": margin,
+        "min_altitude": min_alt,
+    }
+    return merged
     if isinstance(obj, dict):
         return {k: _sanitize(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -59,9 +108,16 @@ class SanitizedJSONResponse(JSONResponse):
 class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
                  config_path: Path | None = None, ui_path: Path | None = None,
-                 profiles_path: Path | None = None):
+                 profiles_path: Path | None = None, telescope_config: dict | None = None):
         self.registry = registry
         self.site = site_config or {}
+        self.telescope = dict(telescope_config or {})
+        # Defaults for meridian flip
+        self.telescope.setdefault("flip_enabled", False)
+        self.telescope.setdefault("hour_angle_margin", 0.0)
+        self.telescope.setdefault("min_altitude", 0.0)
+        self.telescope.setdefault("flip_slew_rate", "Centering")
+        self.telescope.setdefault("recenter_after_flip", True)
         self.config_path = config_path
         self.ui_path = ui_path
         self.profiles = ProfileStore(profiles_path)
@@ -348,7 +404,23 @@ class WebServer:
 
         @app.get("/api/config")
         async def get_config():
-            return {"site": self.site}
+            return {"site": self.site, "telescope": self.telescope}
+
+        @app.post("/api/config")
+        async def set_config(body: dict):
+            if "site" in body and isinstance(body["site"], dict):
+                self.site.update(body["site"])
+            if "telescope" in body and isinstance(body["telescope"], dict):
+                self.telescope.update(body["telescope"])
+            if self.config_path and self.config_path.exists():
+                with open(self.config_path) as f:
+                    cfg = yaml.safe_load(f) or {}
+                cfg["site"] = self.site
+                cfg["telescope"] = self.telescope
+                with open(self.config_path, "w") as f:
+                    yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
+                log.info("Config saved to %s", self.config_path)
+            return {"ok": True, "site": self.site, "telescope": self.telescope}
 
         @app.get("/api/ui")
         async def get_ui():
@@ -400,7 +472,16 @@ class WebServer:
         @app.get("/api/mount")
         async def get_mount():
             m = self.registry.get_mount()
-            return SanitizedJSONResponse(m.state_dict() if m else None)
+            if not m:
+                return SanitizedJSONResponse(None)
+            return SanitizedJSONResponse(self._mount_flip_status(m.state_dict()))
+
+        @app.get("/api/mount/flip/status")
+        async def get_mount_flip_status():
+            m = self.registry.get_mount()
+            if not m:
+                return SanitizedJSONResponse({"error": "no mount"})
+            return SanitizedJSONResponse(self._mount_flip_status(m.state_dict())["flip"])
 
         @app.get("/api/camera")
         async def get_camera():
@@ -507,6 +588,66 @@ class WebServer:
                 return {"error": "no mount"}
             await m.halt_move()
             return {"ok": True}
+
+        @app.post("/api/mount/flip")
+        async def mount_flip():
+            """Execute a manual meridian flip sequence."""
+            m = self.registry.get_mount()
+            if not m:
+                return {"error": "no mount"}
+            if not m.connected:
+                return {"ok": False, "error": "mount not connected"}
+            phases = []
+
+            # 1. Stop any in-progress camera exposure cleanly
+            for cam in self.registry._devices.values():
+                if getattr(cam, "DEVICE_TYPE", None) == "camera" and getattr(cam, "is_ready", False):
+                    try:
+                        await cam.abort()
+                        phases.append(f"capture abort ({cam.name})")
+                    except Exception as e:
+                        log.warning("flip: cam abort failed for %s: %s", cam.name, e)
+
+            # 2. Stop guiding if active
+            try:
+                if hasattr(self, "_guide") and hasattr(self._guide, "stop"):
+                    st = self._guide.status()
+                    if str(st.get("state", "")).lower() in ("guiding", "starting"):
+                        self._guide.stop()
+                        phases.append("guiding stopped")
+            except Exception as e:
+                log.warning("flip: guide stop failed: %s", e)
+
+            # 3. Capture current target before aborting the slew
+            ra = m.ra_hours
+            dec = m.dec_deg
+            if ra is None or dec is None:
+                return {"ok": False, "error": "mount has no coordinates to flip back to",
+                        "phases": phases}
+
+            # 4. Abort current motion, then slew to the same target (the flip itself)
+            try:
+                await m.abort()
+                phases.append("motion aborted")
+            except Exception as e:
+                log.warning("flip: abort failed: %s", e)
+            await asyncio.sleep(1.0)
+
+            # Set a centering slew rate so the flip doesn't run at max speed
+            rate = self.telescope.get("flip_slew_rate", "Centering")
+            try:
+                await m.set_slew_rate(rate)
+            except Exception:
+                pass
+
+            await m.slew_to(ra, dec)
+            phases.append(f"slew to RA={ra:.4f}h DEC={dec:.4f}°")
+
+            # 5. Optional: recenter via plate solve on the same target
+            if self.telescope.get("recenter_after_flip", True):
+                phases.append("recenter pending (solve)")
+
+            return {"ok": True, "phases": phases, "target": {"ra_hours": ra, "dec_deg": dec}}
 
         @app.post("/api/camera/expose")
         async def camera_expose(body: dict):
@@ -1050,10 +1191,17 @@ class WebServer:
             if c:
                 await c.expose(msg["duration"], msg.get("frame_type", "LIGHT"))
 
+    def _mount_flip_status(self, state: dict) -> dict:
+        """Augment a mount state dict with meridian flip figures."""
+        return _mount_flip_status(state, self.site, self.telescope)
+
     def _broadcast_state(self, state: dict) -> None:
         """Send state update to all connected WebSocket clients."""
         if not self._ws_clients:
             return
+        for name, dev in list(state.items()):
+            if dev.get("type") == "mount":
+                state[name] = self._mount_flip_status(dev)
         payload = json.dumps(_sanitize({"type": "state", "devices": state}))
         loop = asyncio.get_running_loop()
 

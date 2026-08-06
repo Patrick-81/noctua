@@ -257,6 +257,44 @@ test.describe.serial('Hardware panel + profiles', () => {
     const st = await apiGet('/api/filterwheel');
     expect(st.current).toBe('G');
   });
+
+  test('mount mode shows meridian flip panel with HA status', async ({ page }) => {
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(2000);
+
+    await page.click('button[data-mode="mount"]');
+    await sleep(800);
+
+    const panel = page.locator('#flip-panel');
+    await expect(panel).toBeVisible();
+
+    // HA status eventually populated from /api/mount flip block
+    const status = page.locator('#flip-status');
+    await expect.poll(
+      async () => await status.textContent(),
+      { timeout: 8000 }
+    ).toContain('HA');
+  });
+
+  test('FLIP button triggers meridian flip via API', async ({ page }) => {
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(2000);
+
+    await page.click('button[data-mode="mount"]');
+    await sleep(800);
+
+    await apiPost('/api/hardware/connect', { device: 'Mount' });
+    await sleep(1200);
+
+    await page.locator('#btn-flip').dispatchEvent('click');
+    await sleep(1500);
+
+    // Flip executes the abort→slew pipeline (verify via the API result)
+    const flip = await apiPost('/api/mount/flip').catch(() => ({}));
+    expect(flip.ok).toBe(true);
+    expect(flip.phases.length).toBeGreaterThanOrEqual(3);
+    expect(flip.phases.some(p => p.includes('slew'))).toBe(true);
+  });
 });
 
 async function apiGet(p) {

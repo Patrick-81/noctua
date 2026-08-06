@@ -38,8 +38,8 @@ log = logging.getLogger("indigo.main")
 
 # ── Config ───────────────────────────────────────────────────────
 
-def load_config() -> dict:
-    config_path = Path(__file__).parent / "config.yaml"
+def load_config(config_path=None) -> dict:
+    config_path = Path(config_path) if config_path else (Path(__file__).parent / "config.yaml")
     if config_path.exists():
         with open(config_path) as f:
             return yaml.safe_load(f) or {}
@@ -56,9 +56,11 @@ def main():
                         help="Web server port (default: from config.yaml or 8080)")
     parser.add_argument("--host", default=None,
                         help="Web server bind address (default: 0.0.0.0)")
+    parser.add_argument("--config", default=None,
+                        help="Path to config.yaml (default: ./config.yaml)")
     args = parser.parse_args()
 
-    config = load_config()
+    config = load_config(args.config)
     indigo_cfg = config.get("indigo", {})
     web_cfg = config.get("web", {})
 
@@ -88,11 +90,13 @@ def main():
 
     # Create web server
     site_cfg = config.get("site", {})
-    config_path = Path(__file__).parent / "config.yaml"
+    telescope_cfg = config.get("telescope", {})
+    config_path = Path(args.config) if args.config else (Path(__file__).parent / "config.yaml")
     ui_path = Path(__file__).parent / "ui.yaml"
     profiles_path = Path(os.environ.get("INDIGO_PROFILES_PATH") or (Path(__file__).parent / "profiles.yaml"))
     web = WebServer(registry, site_config=site_cfg, config_path=config_path,
-                    ui_path=ui_path, profiles_path=profiles_path)
+                    ui_path=ui_path, profiles_path=profiles_path,
+                    telescope_config=telescope_cfg)
 
     # Run everything
     async def run_all():

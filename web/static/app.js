@@ -1086,6 +1086,44 @@ function renderMountPanel() {
         const decDeg = d.dec_deg != null ? d.dec_deg : null;
         skyEngine.setTelPosition(raDeg, decDeg);
     }
+
+    renderFlipPanel(d);
+}
+
+function renderFlipPanel(d) {
+    const flipPanel = document.getElementById('flip-panel');
+    if (!flipPanel) return;
+    const flip = d.flip || {};
+    const statusEl = document.getElementById('flip-status');
+    const enabledEl = document.getElementById('flip-enabled');
+    const marginEl = document.getElementById('flip-margin');
+    const minAltEl = document.getElementById('flip-min-alt');
+
+    if (enabledEl && document.activeElement !== enabledEl) {
+        enabledEl.checked = !!flip.enabled;
+    }
+    if (marginEl && document.activeElement !== marginEl && flip.hour_angle_margin != null) {
+        marginEl.value = flip.hour_angle_margin;
+    }
+    if (minAltEl && document.activeElement !== minAltEl && flip.min_altitude != null) {
+        minAltEl.value = flip.min_altitude;
+    }
+
+    if (statusEl) {
+        const ha = flip.ha_fmt || '---';
+        const ttf = flip.time_to_flip_fmt || '---';
+        if (flip.flip_due) {
+            statusEl.textContent = `⚠ FLIP DUE (${flip.flip_side || ''}) — HA ${ha}`;
+            statusEl.style.color = '#ff5555';
+            statusEl.style.fontWeight = 'bold';
+            statusEl.classList.add('flip-due');
+        } else {
+            statusEl.textContent = `HA ${ha} (${flip.flip_side || ''}) — ${ttf}`;
+            statusEl.style.color = '#888';
+            statusEl.style.fontWeight = 'normal';
+            statusEl.classList.remove('flip-due');
+        }
+    }
 }
 
 function updateCameraFov() {
@@ -1188,6 +1226,33 @@ function mountToggleTracking() {
 function mountPark() { apiPost('/api/mount/park'); }
 function mountUnpark() { apiPost('/api/mount/unpark'); }
 function mountHome() { apiPost('/api/mount/home'); }
+
+function mountFlip() {
+    addLog('info', 'mount', 'Déclenchement du meridian flip...');
+    fetch('/api/mount/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+        .then(r => r.json())
+        .then(res => {
+            if (res.error) { addLog('error', 'mount', `Flip échoué: ${res.error}`); return; }
+            const phases = (res.phases || []).join(' → ');
+            addLog('info', 'mount', `Flip OK: ${phases}`);
+        })
+        .catch(e => addLog('error', 'mount', `Flip erreur réseau: ${e}`));
+}
+
+function saveFlipConfig() {
+    const enabled = !!document.getElementById('flip-enabled')?.checked;
+    const margin = parseFloat(document.getElementById('flip-margin')?.value) || 0;
+    const minAlt = parseFloat(document.getElementById('flip-min-alt')?.value) || 0;
+    fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ telescope: {
+            flip_enabled: enabled,
+            hour_angle_margin: margin,
+            min_altitude: minAlt,
+        } }),
+    }).catch(e => addLog('warning', 'mount', `Config flip non sauvegardée: ${e}`));
+}
 
 // ── Property panel (generic) ──────────────────────────────────
 
@@ -1507,6 +1572,10 @@ function initButtons() {
     bind('btn-unpark', mountUnpark);
     bind('btn-home', mountHome);
     bind('btn-abort', mountAbort);
+    bind('btn-flip', mountFlip);
+    bind('flip-enabled', () => { saveFlipConfig(); });
+    bind('flip-margin', () => { saveFlipConfig(); });
+    bind('flip-min-alt', () => { saveFlipConfig(); });
     bind('btn-emergency', () => {
         mountAbort();
         mountToggleTracking();
