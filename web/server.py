@@ -1071,10 +1071,12 @@ class WebServer:
         @app.post("/api/sequence/start")
         async def sequence_start(body: dict):
             from indigo.devices.sequence import validate_frames
-            frames = body.get("frames") or self.sequence_cfg.get("frames")
-            err = validate_frames(frames) if body.get("frames") is not None else None
-            if err is None and frames is not None:
+            if body.get("frames") is not None:
+                frames = body["frames"]
                 err = validate_frames(frames)
+            else:
+                frames = self.sequence_cfg.get("frames")
+                err = None
             if not frames:
                 return {"error": "no frames"}
             if err:
