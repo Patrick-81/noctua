@@ -21,10 +21,11 @@ from indigo.devices.meridian import (  # noqa: E402
 
 
 def test_lst_range_and_wrap():
-    lst = local_sidereal_time_deg(0.0)
+    now = datetime(2024, 1, 1, 0, 0, 0)
+    lst = local_sidereal_time_deg(0.0, now)
     assert 0.0 <= lst < 360.0
     # Adding 360° longitude must not change LST
-    lst2 = local_sidereal_time_deg(360.0)
+    lst2 = local_sidereal_time_deg(360.0, now)
     assert abs(lst - lst2) < 1e-9
 
 
