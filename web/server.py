@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import math
+import os
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -108,10 +109,12 @@ class SanitizedJSONResponse(JSONResponse):
 class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
                  config_path: Path | None = None, ui_path: Path | None = None,
-                 profiles_path: Path | None = None, telescope_config: dict | None = None):
+                 profiles_path: Path | None = None, telescope_config: dict | None = None,
+                 sequence_config: dict | None = None):
         self.registry = registry
         self.site = site_config or {}
         self.telescope = dict(telescope_config or {})
+        self.sequence_cfg = dict(sequence_config or {})
         # Defaults for meridian flip
         self.telescope.setdefault("flip_enabled", False)
         self.telescope.setdefault("hour_angle_margin", 0.0)
@@ -130,6 +133,9 @@ class WebServer:
         # Plate solver (lazy import to avoid circular dependency)
         from indigo.devices.solver import Solver
         self.solver = Solver()
+
+        from indigo.devices.sequence import SequenceRunner
+        self.sequence = SequenceRunner()
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
@@ -958,6 +964,146 @@ class WebServer:
         @app.post("/api/guide/reset")
         async def guide_reset():
             return SanitizedJSONResponse(self._guide.reset())
+
+        # ── Sequence ─────────────────────────────────────────────
+
+        def _seq_hooks():
+            """Build the device hooks backing the sequence runner."""
+            import asyncio as _asyncio
+            from indigo.devices.sequence import build_path
+
+            async def log(level: str, msg: str):
+                import logging as _logging
+                _logging.getLogger(__name__).log(
+                    {"info": _logging.INFO, "warning": _logging.WARNING,
+                     "error": _logging.ERROR}.get(level, _logging.INFO), msg)
+
+            # Camera + baseline image for the current pose; lets the save hook
+            # distinguish "freshly captured" frames from stale ones.
+            seq_cam = {"name": None, "baseline": b""}
+
+            async def expose(duration: float, frame_type: str) -> None:
+                cam = self.registry.get_camera()
+                if not cam:
+                    raise RuntimeError("no camera connected")
+                if not cam.is_ready:
+                    raise RuntimeError(f"camera '{cam.name}' not ready")
+                seq_cam["name"] = cam.name
+                seq_cam["baseline"] = self._camera_images.get(cam.name, b"")
+                await cam.expose(duration, frame_type)
+
+            async def wait_exposure() -> None:
+                cam = self.registry.get_camera()
+                if not cam:
+                    return
+                # Wait for CCD_EXPOSURE Busy phase to end (exposing → False).
+                while cam.exposing:
+                    await _asyncio.sleep(0.1)
+                # The BLOB push can trail the Busy→Idle transition (transfer +
+                # download) — poll until a fresh image for this camera lands.
+                baseline = seq_cam.get("baseline", b"")
+                deadline = _asyncio.get_running_loop().time() + 30.0
+                while _asyncio.get_running_loop().time() < deadline:
+                    cur = self._camera_images.get(cam.name, b"")
+                    if cur and cur != baseline:
+                        break
+                    await _asyncio.sleep(0.1)
+                # Give the state write a final beat to land before saving.
+                await _asyncio.sleep(0.2)
+
+            async def set_filter(name: str) -> None:
+                fw = self.registry.get_filterwheel()
+                if not fw:
+                    return
+                await fw.set_slot(name)
+
+            async def save(frame: dict, index: int) -> str:
+                path = build_path(self.sequence_cfg.get("save_dir", ""), frame, index)
+                name = seq_cam.get("name")
+                img = self._camera_images.get(name, self._last_image_data) if name else self._last_image_data
+                if not img:
+                    raise RuntimeError("no image data available — capture first")
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as f:
+                    f.write(img)
+                await log("info", f"sequence frame {index} saved: {path} ({len(img)} bytes)")
+                return path
+
+            async def dither() -> dict:
+                cfg = self.sequence_cfg.get("dither", {})
+                if not cfg.get("enabled", True):
+                    return {"ok": True, "skipped": True}
+                import random
+                amount = max(1.0, float(cfg.get("amount", 2.0)))
+                dx = random.gauss(0, amount)
+                dy = random.gauss(0, amount)
+                if hasattr(self, "_guide") and self._guide.status().get("state") == "guiding":
+                    st = self._guide.status()
+                    self._guide.set_reference(st.get("ref_x", 0) + dx,
+                                              st.get("ref_y", 0) + dy)
+                    return {"ok": True, "dx": dx, "dy": dy}
+                return {"ok": True, "dx": dx, "dy": dy, "guided": False}
+
+            async def delay(seconds: float) -> None:
+                if seconds and seconds > 0:
+                    await _asyncio.sleep(seconds)
+
+            return {
+                "expose": expose, "wait_exposure": wait_exposure,
+                "set_filter": set_filter, "save": save,
+                "dither": dither, "delay": delay, "log": log,
+            }
+
+        @app.get("/api/sequence/status")
+        async def sequence_status():
+            return SanitizedJSONResponse(self.sequence.status())
+
+        @app.get("/api/sequence/defaults")
+        async def sequence_defaults():
+            return SanitizedJSONResponse({
+                "frames": self.sequence_cfg.get("frames", [
+                    {"duration": 60.0, "frame_type": "LIGHT", "filter": "", "count": 1, "delay": 1.0},
+                ]),
+                "save_dir": self.sequence_cfg.get("save_dir", ""),
+                "dither": self.sequence_cfg.get("dither", {"enabled": False, "amount": 2.0}),
+            })
+
+        @app.post("/api/sequence/start")
+        async def sequence_start(body: dict):
+            from indigo.devices.sequence import validate_frames
+            frames = body.get("frames") or self.sequence_cfg.get("frames")
+            err = validate_frames(frames) if body.get("frames") is not None else None
+            if err is None and frames is not None:
+                err = validate_frames(frames)
+            if not frames:
+                return {"error": "no frames"}
+            if err:
+                return {"ok": False, "error": err}
+            if body.get("save_dir"):
+                self.sequence_cfg["save_dir"] = body["save_dir"]
+            try:
+                self.sequence.start(frames)
+            except (RuntimeError, ValueError) as e:
+                return {"ok": False, "error": str(e)}
+            task = asyncio.create_task(self.sequence.run(_seq_hooks()))
+            self.sequence._task = task
+            return {"ok": True, "status": self.sequence.status()}
+
+        @app.post("/api/sequence/stop")
+        async def sequence_stop():
+            return SanitizedJSONResponse(self.sequence.stop())
+
+        @app.post("/api/sequence/pause")
+        async def sequence_pause():
+            return SanitizedJSONResponse(self.sequence.pause())
+
+        @app.post("/api/sequence/resume")
+        async def sequence_resume():
+            return SanitizedJSONResponse(self.sequence.resume())
+
+        @app.post("/api/sequence/reset")
+        async def sequence_reset():
+            return SanitizedJSONResponse(self.sequence.reset())
 
         # ── Guide calibration ─────────────────────────────────────
 

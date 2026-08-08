@@ -57,6 +57,8 @@ class Camera(BaseDevice):
         self.offset: int = 0
         # BLOB property name (e.g. "CCD1") — set when defBLOBVector arrives
         self.blob_prop_name: str = ""
+        # True while an exposure is running (CCD_EXPOSURE state == Busy)
+        self.exposing: bool = False
         # Image callback: (data: bytes, fmt: str, url: str = "")
         self.on_image: Callable[[bytes, str, str], None] | None = None
 
@@ -101,8 +103,10 @@ class Camera(BaseDevice):
                     val = item.target if item.target is not None else item.value
                     if val is not None:
                         self.exposure_time = float(val)
+                    self.exposing = True
                 elif pv.state == "Ok":
                     self.exposure_time = 0.0
+                    self.exposing = False
             log.debug("[%s] exposure=%.1fs (state=%s)", self.name, self.exposure_time, pv.state)
         elif name == "CCD_BINNING":
             self._parse_binning(pv)
@@ -235,6 +239,7 @@ class Camera(BaseDevice):
             "target_temp": self.target_temp,
             "exposure_time": self.exposure_time,
             "frame_type": self.frame_type,
+            "exposing": self.exposing,
             "binning_x": self.binning_x,
             "binning_y": self.binning_y,
             "gain": self.gain,

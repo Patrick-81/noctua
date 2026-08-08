@@ -839,6 +839,56 @@ body {
     text-align: center;
 }
 
+/* Sequence panel */
+.seq-toolbar {
+    display: flex; justify-content: flex-end; padding: 4px 8px 0;
+}
+.seq-frame-row {
+    display: flex; align-items: center; gap: 4px; padding: 3px 8px;
+    border-bottom: 1px solid rgba(0,255,204,0.06);
+}
+.seq-frame-row:last-child { border-bottom: none; }
+.seq-frame-row .seq-col { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.seq-frame-row .seq-col-label { font-size: 0.5rem; color: #666; text-transform: uppercase; letter-spacing: 0.06em; }
+.seq-frame-row .seq-col-input {
+    background: rgba(0,0,0,0.25); border: 1px solid rgba(0,255,204,0.15); color: #ddd;
+    border-radius: 3px; font-size: 0.65rem; padding: 2px 4px; width: 100%;
+}
+.seq-frame-row .seq-col-input:focus { outline: none; border-color: rgba(0,255,204,0.5); }
+.seq-col-type { flex: 1.2; }
+.seq-col-dur { flex: 1; }
+.seq-col-filter { flex: 1.2; }
+.seq-col-count { width: 46px; }
+.seq-col-delay { width: 46px; }
+.seq-row-del {
+    background: none; border: none; color: #cc4444; cursor: pointer;
+    font-size: 0.8rem; padding: 0 2px;
+}
+.seq-row-del:hover { color: #ff6666; }
+.seq-chk {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 0.65rem; color: #bbb; cursor: pointer;
+}
+.seq-chk input { accent-color: var(--accent); }
+.seq-dith-cfg { font-size: 0.6rem; color: #888; margin-left: auto; }
+.seq-actions {
+    display: flex; gap: 4px; margin-top: 8px; padding-top: 8px;
+    border-top: 1px solid rgba(0, 255, 204, 0.08);
+}
+.seq-actions .btn-glass { font-size: 0.6rem; padding: 4px 6px; white-space: nowrap; }
+.seq-actions .btn-glass:disabled { opacity: 0.35; cursor: default; }
+.seq-current {
+    font-size: 0.65rem; color: #00ffcc; font-family: monospace;
+    margin-top: 4px; text-align: center; min-height: 14px;
+}
+.seq-dither-status, .seq-last-saved {
+    font-size: 0.6rem; color: #888; margin-top: 2px; text-align: center;
+}
+.seq-error {
+    font-size: 0.6rem; color: #ff5577; margin-top: 4px; padding: 4px 8px;
+    background: rgba(255,85,119,0.08); border-radius: 3px;
+}
+
 /* Exposure countdown */
 .cap-countdown-row {
     margin-top: 6px;

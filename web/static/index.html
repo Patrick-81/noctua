@@ -710,6 +710,45 @@
             </div>
         </div>
 
+        <!-- APPLET MODE: CAPTURE — Panneau SÉQUENCE -->
+        <div id="applet-sequence" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:380px; max-height:calc(100vh - 140px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">▶ SÉQUENCE — plan d'acquisition</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <div class="hw-section-title">Poses</div>
+            <div id="seq-frame-list"></div>
+            <div class="seq-toolbar">
+                <button id="seq-add-row" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;">＋ Ajouter une pose</button>
+            </div>
+
+            <div class="hw-section-title" style="margin-top:6px;">OPTIONS</div>
+            <div class="hw-row">
+                <span class="hw-label">Sauver dans :</span>
+                <input type="text" id="seq-save-dir" class="cap-input" style="flex:1; min-width:0;" placeholder="~/captures/">
+            </div>
+            <div class="hw-row">
+                <label class="seq-chk" title="Décaler la référence de guidage entre chaque pose">
+                    <input type="checkbox" id="seq-dith-enabled"> Dither
+                </label>
+                <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
+            </div>
+
+            <div class="seq-actions">
+                <button id="seq-start" class="btn-glass success" style="flex:1;">▶ DÉMARRER</button>
+                <button id="seq-pause" class="btn-glass" style="flex:1;" disabled>⏸ Pauser</button>
+                <button id="seq-stop" class="btn-glass danger" style="flex:1;" disabled>⏹ STOP</button>
+                <button id="seq-reset" class="btn-glass" style="flex:1;" disabled>⟲ Reset</button>
+            </div>
+
+            <div class="cap-progress-bar" id="seq-progress-bar" style="margin-top:6px;">
+                <div class="cap-progress-fill" id="seq-progress-fill" style="width:0%"></div>
+            </div>
+            <div class="cap-progress-text" id="seq-progress-text">0 / 0</div>
+            <div id="seq-current" class="seq-current">—</div>
+            <div id="seq-dither-status" class="seq-dither-status" style="display:none;"></div>
+            <div id="seq-last-saved" class="seq-last-saved" style="display:none;"></div>
+            <div id="seq-error" class="seq-error" style="display:none;"></div>
+        </div>
+
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px; height:420px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>

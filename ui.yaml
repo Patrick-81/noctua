@@ -355,6 +355,11 @@ modes:
         top: 183px
         right: null
         bottom: null
+      applet-sequence:
+        left: 1500px
+        top: 560px
+        right: null
+        bottom: null
       applet-solver:
         left: 50%
         top: 200px

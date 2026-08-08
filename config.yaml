@@ -16,3 +16,14 @@ telescope:
   min_altitude: 5.0
   flip_slew_rate: Centering
   recenter_after_flip: true
+sequence:
+  save_dir: ~/asteo/captures/
+  dither:
+    enabled: true
+    amount: 2.0
+  frames:
+    - duration: 60.0
+      frame_type: LIGHT
+      filter: ""
+      count: 1
+      delay: 1.0
