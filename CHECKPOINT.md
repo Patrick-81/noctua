@@ -238,3 +238,36 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - **Flux** : hardware 45/45, guide 38/38, autofocus 34/34, focus 24/24, polar 29/30 (2 flaky pré-existants)
 - **Polar math JS** : 53/53
 - **Playwright** : 27/27 (viewer + polar + hardware)
+
+## Session 2026-08-08 — Séquence (P2) : moteur, panneau UI, tests ; prép. test à blanc indigo_server
+
+### Feature — Moteur de séquence d'acquisition (`indigo/devices/sequence.py`)
+- `SequenceRunner` pur async : `start(plan)` → `run(hooks)` → pose par pose (**set_filter → expose → wait image → save FITS → dither**), avec `pause/resume/stop/reset`, `status()` (running, done, total, current, last_error, last_saved, last_dither, progress).
+- Hooks injectés par le serveur (le module reste device-agnostic) : `expose`, `wait_exposure`, `set_filter`, `save`, `dither`, `delay`, `log`.
+- `camera.py` : flag `exposing` (CCD_EXPOSURE Busy→Ok) = détection de fin de pose.
+- **Correction race BLOB** : le BLOB arrive souvent APRÈS le passage Busy→Idle. `wait_exposure` poll désormais jusqu'à l'arrivée d'une **image fraîche** de la caméra exposée (baseline par pose), puis petit settle.
+- Endpoints : `GET /api/sequence/{status,defaults}`, `POST /api/sequence/{start,stop,pause,resume,reset}`. `start` refuse un plan vide (fix : `frames=[]` ≠ config par défaut).
+- Config : bloc `sequence:` dans `config.yaml` (`save_dir`, `dither {enabled, amount}`, `frames` par défaut).
+
+### Feature — Panneau « SÉQUENCE » (mode Capture)
+- `#applet-sequence` : table de poses éditable (Type/Durée/Filtre/×/Pause), ajout/retrait de ligne, boutons ▶ DÉMARRER / ⏸ Pauser / ▶ Reprendre / ⏹ STOP / ⟲ Reset, barre de progression `n/total`, pose courante, statut dither, dernier fichier, erreur.
+- Poll `/api/sequence/status` 1 s (l'option « pousser via WS » reste ouverte → à faire si besoin).
+- `config.yaml` : défauts de plan chargés via `/api/sequence/defaults`.
+
+### Tests ajoutés
+- `tests/test_sequence.py` (10 unitaires) : totaux, validation, groupement de paths, états du runner (ordre, pause/resume, stop, erreurs, reset).
+- `tests/test_sequence_flow.py` (26 checks, `python tests/test_sequence_flow.py`) : mock INDIGO, run 2 poses jusqu'au bout, FITS sur disque, dither, pause/resume/reset, stop en cours.
+- `tests/sequence-ui.spec.js` (3 Playwright) : rendu panel, run 2 poses avec progression + sauvegarde + log, stop en cours.
+- Suites complètes : pytest **91**, Playwright **32**, flow séquence **26**.
+
+### Préparation — Test à blanc avec `indigo_server` (devices simulateurs)
+- `indigo_server` v2.0-374 est installé ; les drivers simulateurs sont présents dans `/usr/bin/`.
+- **Protocole vérifié** : le client du projet (XML brut sur TCP) répond sur `indigo_server` 2.x (probe → `defTextVector`…). Port dédié `-p`.
+- Commandes de lancement validées → `PLANS/plan_test_blanc_simulators.md`.
+
+### Commit du jour
+- `7032b55` feat: sequence engine + SÉQUENCE panel (P2)
+- `d54b626` feat: hardware mode rework — per-role device selectors (P1)
+- `80f915a` test: deterministic LST
+- `a84259f` fix: reject empty sequence plan
+- `c93a148` test: sequence unit + flow + Playwright (P2)
