@@ -18,7 +18,11 @@
 
         <!-- APPLET: Sélecteur de mode (toujours visible) -->
         <div id="applet-mode-bar" class="glass-panel applet">
-            <button class="mode-btn active" data-mode="mount" title="Pilotage Monture">
+            <button class="mode-btn active" data-mode="hardware" title="Matériel & propriétés">
+                <span class="mode-icon">🔧</span>
+                <span class="mode-label">Matériel</span>
+            </button>
+            <button class="mode-btn" data-mode="mount" title="Pilotage Monture">
                 <span class="mode-icon">🔭</span>
                 <span class="mode-label">Monture</span>
             </button>
@@ -37,10 +41,6 @@
             <button class="mode-btn" data-mode="astrometry" title="Astrométrie">
                 <span class="mode-icon">⭐</span>
                 <span class="mode-label">Astro</span>
-            </button>
-            <button class="mode-btn" data-mode="hardware" title="Matériel & propriétés">
-                <span class="mode-icon">🔧</span>
-                <span class="mode-label">Matériel</span>
             </button>
         </div>
 
@@ -77,9 +77,9 @@
             </div>
         </div>
 
-        <!-- APPLET: Matériel + profils (toujours visible) -->
-        <div id="applet-hardware" class="glass-panel applet">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">MATÉRIEL</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+        <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
+        <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div class="hw-row">
                 <span class="hw-label">Profil:</span>
                 <select id="hw-profile-select" title="Profil actif"></select>
@@ -92,28 +92,19 @@
                 <span class="hw-label">Optique:</span>
                 <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
             </div>
-            <div id="hw-device-list"></div>
-            <div class="hw-row">
+            <div class="hw-section-title">DEVICES</div>
+            <div id="hw-device-list" class="hw-device-list"></div>
+            <div class="hw-row" style="margin-top:6px;">
                 <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;">Tout connecter</button>
                 <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;">Tout déconnecter</button>
                 <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir">⟳</button>
                 <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
             </div>
-        </div>
-
-        <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
-        <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div class="hw-row">
-                <span class="hw-label">Profil:</span>
-                <select id="hw-mode-profile-select" title="Profil actif"></select>
-                <button id="hw-mode-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil">APPLIQUER</button>
-            </div>
-            <div class="hw-section-title">DEVICES</div>
-            <div id="hw-mode-devices" class="hw-device-list"></div>
+            <div class="hw-section-title">RÔLES</div>
+            <div id="hw-role-assign" class="hw-role-assign"></div>
             <div class="hw-section-title">PROPRIÉTÉS DU DEVICE</div>
             <div class="hw-row">
-                <select id="hw-mode-device-select" class="hw-mode-device-select">
+                <select id="hw-mode-device-select" class="hw-mode-device-select" style="flex:1;">
                     <option value="">— Sélectionnez un device —</option>
                 </select>
             </div>
@@ -729,7 +720,7 @@
                 <label class="seq-chk" title="Décaler la référence de guidage entre chaque pose">
                     <input type="checkbox" id="seq-dith-enabled"> Dither
                 </label>
-                <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
+                <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
             </div>
 
             <div class="seq-actions">

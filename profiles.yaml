@@ -1,0 +1,9 @@
+active: Rig
+profiles:
+- name: Rig
+  mount: Mount
+  camera: Main Camera
+  guide_camera: Guide Camera
+  focuser: Focuser
+  filter_wheel: Filter Wheel
+  optics: null

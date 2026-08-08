@@ -2216,13 +2216,19 @@ function initLocationUpdate() {
 // ── Hardware panel + profiles ────────────────────────────────────
 
 const HW_ROLES = [
-    ['', '—'],
     ['mount', 'Monture'],
     ['camera', 'Caméra'],
     ['guide_camera', 'Caméra guide'],
     ['focuser', 'Focuser'],
     ['filter_wheel', 'Roue à filtres'],
 ];
+const HW_ROLE_TYPES = {
+    mount: ['mount'],
+    camera: ['camera'],
+    guide_camera: ['camera'],
+    focuser: ['focuser'],
+    filter_wheel: ['filterwheel'],
+};
 const HW_ROLE_FIELDS = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel'];
 const HW_ICONS = { mount: '🔭', camera: '📷', focuser: '🔍', filterwheel: '🎨', generic: '⚙️' };
 
@@ -2240,15 +2246,6 @@ async function hwLoad() {
         _hwDevices = data.devices || {};
         _hwProfiles = data.profiles || { active: null, profiles: [] };
     } catch (e) { addLog('error', 'hw', e.message); }
-}
-
-function hwDeviceRole(name) {
-    const ap = hwActiveProfile();
-    if (!ap) return '';
-    for (const f of HW_ROLE_FIELDS) {
-        if (ap[f] === name) return f;
-    }
-    return '';
 }
 
 function renderHardwarePanel() {
@@ -2291,17 +2288,13 @@ function renderHardwarePanel() {
     }
     for (const name of names) {
         const d = _hwDevices[name];
-        const role = hwDeviceRole(name);
         const icon = HW_ICONS[d.type] || HW_ICONS.generic;
-        const opts = HW_ROLES.map(([v, l]) =>
-            `<option value="${v}" ${v === role ? 'selected' : ''}>${l}</option>`).join('');
         const row = document.createElement('div');
         row.className = 'hw-device';
         row.innerHTML =
             `<span class="hw-icon">${icon}</span>` +
             `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
             `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? '● Connecté' : '○ Hors ligne'}</span>` +
-            `<select class="hw-role" data-device="${escapeAttr(name)}">${opts}</select>` +
             `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? 'DÉC' : 'CONN'}</button>`;
         list.appendChild(row);
     }
@@ -2314,9 +2307,37 @@ function renderHardwarePanel() {
             el.className = data.connected ? 'status-online' : 'status-offline';
         }
     }).catch(() => {});
+
+    renderHardwareRoles();
 }
 
-async function hwSetRole(name, role) {
+// Per-role selectors: for each role, list the detected devices compatible with it.
+function renderHardwareRoles() {
+    const container = document.getElementById('hw-role-assign');
+    if (!container) return;
+    const ap = hwActiveProfile();
+    const fields = HW_ROLE_FIELDS;
+    container.innerHTML = '';
+    for (const f of fields) {
+        const label = HW_ROLES.find(([r]) => r === f)?.[1] || f;
+        const types = HW_ROLE_TYPES[f] || [];
+        const candidates = Object.keys(_hwDevices)
+            .filter(name => types.includes(_hwDevices[name].type))
+            .sort();
+        const opts = ['<option value="">— Aucun —</option>'];
+        for (const name of candidates) {
+            opts.push(`<option value="${escapeAttr(name)}" ${ap?.[f] === name ? 'selected' : ''}>${escapeHTML(name)}</option>`);
+        }
+        const row = document.createElement('div');
+        row.className = 'hw-row';
+        row.innerHTML =
+            `<span class="hw-label">${escapeHTML(label)}:</span>` +
+            `<select class="hw-role-select" data-role="${f}">${opts.join('')}</select>`;
+        container.appendChild(row);
+    }
+}
+
+async function hwAssignRole(role, name) {
     let ap = hwActiveProfile();
     if (!ap) {
         const profName = prompt('Aucun profil actif. Nom du nouveau profil :', 'Rig');
@@ -2335,11 +2356,11 @@ async function hwSetRole(name, role) {
     }
     const update = { name: ap.name };
     for (const f of HW_ROLE_FIELDS) update[f] = ap[f] || null;
-    if (update[role] === name) role = '';      // toggling current role → unassign
+    if (update[role] === name) name = '';      // selecting the same device again → unassign
     for (const f of HW_ROLE_FIELDS) {
         if (update[f] === name) update[f] = null;
     }
-    if (role) update[role] = name;
+    update[role] = name;
     update.optics = ap.optics || '';
     await fetch('/api/profiles', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2447,10 +2468,11 @@ function initHardwarePanel() {
         renderHardwarePanel();
     });
 
-    if (list) list.addEventListener('change', async (e) => {
-        const roleSel = e.target.closest('.hw-role');
-        if (!roleSel) return;
-        await hwSetRole(roleSel.dataset.device, roleSel.value);
+    const roleAssign = document.getElementById('hw-role-assign');
+    if (roleAssign) roleAssign.addEventListener('change', async (e) => {
+        const sel = e.target.closest('.hw-role-select');
+        if (!sel) return;
+        await hwAssignRole(sel.dataset.role, sel.value);
     });
 
     if (optics) optics.addEventListener('change', async () => {
@@ -2496,55 +2518,6 @@ function renderHardwareMode() {
     const container = document.getElementById('applet-hardware-mode');
     if (!container) return;
 
-    // Profile dropdown
-    const profSel = document.getElementById('hw-mode-profile-select');
-    if (profSel) {
-        const activeName = _hwProfiles?.active || '';
-        profSel.innerHTML = '';
-        const profiles = _hwProfiles.profiles || [];
-        if (!profiles.length) {
-            const opt = document.createElement('option');
-            opt.value = '';
-            opt.textContent = '(aucun profil)';
-            profSel.appendChild(opt);
-        } else {
-            for (const p of profiles) {
-                const opt = document.createElement('option');
-                opt.value = p.name;
-                opt.textContent = p.name;
-                profSel.appendChild(opt);
-            }
-        }
-        profSel.value = activeName;
-    }
-
-    // Device rows
-    const list = document.getElementById('hw-mode-devices');
-    if (list) {
-        list.innerHTML = '';
-        const names = Object.keys(_hwDevices);
-        if (!names.length) {
-            list.innerHTML = '<div style="color:#555; font-size:0.6rem; padding:4px;">Aucun device détecté — connectez-vous au serveur INDIGO.</div>';
-        } else {
-            for (const name of names) {
-                const d = _hwDevices[name];
-                const role = hwDeviceRole(name);
-                const icon = HW_ICONS[d.type] || HW_ICONS.generic;
-                const opts = HW_ROLES.map(([v, l]) =>
-                    `<option value="${v}" ${v === role ? 'selected' : ''}>${l}</option>`).join('');
-                const row = document.createElement('div');
-                row.className = 'hw-device';
-                row.innerHTML =
-                    `<span class="hw-icon">${icon}</span>` +
-                    `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
-                    `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? '● Connecté' : '○ Hors ligne'}</span>` +
-                    `<select class="hw-role" data-device="${escapeAttr(name)}">${opts}</select>` +
-                    `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? 'DÉC' : 'CONN'}</button>`;
-                list.appendChild(row);
-            }
-        }
-    }
-
     // Device selector + properties
     const devSel = document.getElementById('hw-mode-device-select');
     if (devSel) {
@@ -2580,59 +2553,7 @@ function renderHardwareModeProps() {
 }
 
 function initHardwareMode() {
-    const list = document.getElementById('hw-mode-devices');
-    const profSel = document.getElementById('hw-mode-profile-select');
     const devSel = document.getElementById('hw-mode-device-select');
-
-    if (profSel) profSel.addEventListener('change', async () => {
-        if (!profSel.value) return;
-        await fetch('/api/profiles/activate', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: profSel.value }),
-        });
-        await hwLoad();
-        renderHardwarePanel();
-        renderHardwareMode();
-    });
-
-    const applyBtn = document.getElementById('hw-mode-profile-apply');
-    if (applyBtn) applyBtn.addEventListener('click', async () => {
-        const ap = hwActiveProfile();
-        if (!ap) { addLog('warning', 'hw', 'Aucun profil à appliquer'); return; }
-        addLog('info', 'hw', `Application du profil "${ap.name}"...`);
-        const res = await fetch('/api/profiles/apply', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: ap.name }),
-        }).then(r => r.json()).catch(() => null);
-        await hwLoad();
-        renderHardwarePanel();
-        renderHardwareMode();
-        if (res?.ok) addLog('info', 'hw', `Profil "${ap.name}" appliqué`);
-        else if (res?.error) addLog('error', 'hw', res.error);
-    });
-
-    if (list) list.addEventListener('click', async (e) => {
-        const btn = e.target.closest('button[data-action]');
-        if (!btn) return;
-        const device = btn.dataset.device;
-        const action = btn.dataset.action;
-        const res = await fetch(`/api/hardware/${action}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device }),
-        }).then(r => r.json()).catch(() => null);
-        if (res?.error) addLog('error', 'hw', `${device}: ${res.error}`);
-        await hwLoad();
-        renderHardwarePanel();
-        renderHardwareMode();
-    });
-
-    if (list) list.addEventListener('change', async (e) => {
-        const roleSel = e.target.closest('.hw-role');
-        if (!roleSel) return;
-        await hwSetRole(roleSel.dataset.device, roleSel.value);
-        renderHardwareMode();
-    });
-
     if (devSel) devSel.addEventListener('change', () => {
         _hwModeDevice = devSel.value || null;
         renderHardwareModeProps();
@@ -7459,7 +7380,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
 
     // Apply UI config: mode
-    switchMode(uiConfig.mode || 'mount');
+    switchMode(uiConfig.mode || 'hardware');
     loadAppletPositions();
 
     // Apply UI config: log levels

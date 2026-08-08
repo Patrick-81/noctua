@@ -94,7 +94,9 @@ test.describe.serial('Hardware panel + profiles', () => {
   test('hardware panel lists mock devices with roles', async ({ page }) => {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
     await sleep(2000);
-    const panel = page.locator('#applet-hardware');
+    await page.click('button[data-mode="hardware"]');
+    await sleep(500);
+    const panel = page.locator('#applet-hardware-mode');
     await expect(panel).toBeVisible();
 
     // The panel should show device rows (at least the 5 mock devices)
@@ -210,12 +212,22 @@ test.describe.serial('Hardware panel + profiles', () => {
     expect(allOff).toBe(await page.locator('#hw-device-list .hw-device').count());
   });
 
-  test('role select present on each device row', async ({ page }) => {
+  test('per-role selectors list compatible devices', async ({ page }) => {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
     await sleep(1500);
-    const selects = page.locator('#hw-device-list .hw-device select.hw-role');
+    const selects = page.locator('#hw-role-assign .hw-role-select');
     const count = await selects.count();
-    expect(count).toBe(5);
+    expect(count).toBe(5); // one selector per role
+
+    // Camera role (and guide_camera) must list the camera devices
+    const cam = page.locator('#hw-role-assign select[data-role="camera"] option');
+    const camTexts = await cam.allTextContents();
+    expect(camTexts).toEqual(expect.arrayContaining(['Main Camera', 'Guide Camera']));
+
+    const mount = page.locator('#hw-role-assign select[data-role="mount"] option');
+    const mountTexts = await mount.allTextContents();
+    expect(mountTexts).toEqual(expect.arrayContaining(['Mount']));
+    expect(mountTexts).not.toEqual(expect.arrayContaining(['Main Camera']));
   });
 
   test('capture panel shows filter wheel selector (connected)', async ({ page }) => {

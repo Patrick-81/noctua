@@ -225,6 +225,11 @@ body {
     letter-spacing: 0.08em; padding: 6px 8px 2px; border-top: 1px solid rgba(0,255,204,0.08);
     margin-top: 4px;
 }
+.hw-role-assign {
+    padding: 4px 8px;
+    display: flex; flex-direction: column; gap: 4px;
+}
+.hw-role-assign .hw-row { padding: 2px 0; }
 .hw-mode-device-select {
     flex: 1; min-width: 0; font-size: 0.7rem;
 }
