@@ -72,20 +72,30 @@ class Focuser(BaseDevice):
         """Move focuser to an absolute position."""
         self.target_position = position
         self.is_moving = True
+        item_name = self.get_item_name("FOCUSER_POSITION", "TARGET_POSITION", "POSITION")
         await self.send_number("FOCUSER_POSITION", [
-            {"name": "TARGET_POSITION", "value": position},
+            {"name": item_name, "value": position},
         ])
         log.info("[%s] goto %d", self.name, position)
 
     async def move_relative(self, direction: str, steps: int) -> None:
-        """Move focuser relative to current position. direction: IN/OUT"""
+        """Move focuser relative to current position. direction: IN/OUT."""
         d = direction.upper()
+        # Resolve the actual switch item names from the def (INDIGO drivers
+        # use MOVE_INWARD/MOVE_OUTWARD; the mock used IN/OUT).
+        pv = self.get_prop("FOCUSER_DIRECTION")
+        item_names = {i.name.upper() for i in pv.items} if pv and pv.items else set()
+        mapping = {"IN": "MOVE_INWARD", "OUT": "MOVE_OUTWARD"}
+        if d in ("IN", "OUT") and item_names and d not in item_names:
+            real = mapping.get(d)
+            if real and real in item_names:
+                d = real
         self.is_moving = True
         await self.send_switch("FOCUSER_DIRECTION", [
             {"name": d, "value": True},
         ])
         await self.send_number("FOCUSER_STEPS", [
-            {"name": "STEPS", "value": steps},
+            {"name": self.get_item_name("FOCUSER_STEPS", "STEPS"), "value": steps},
         ])
 
     async def halt(self) -> None:

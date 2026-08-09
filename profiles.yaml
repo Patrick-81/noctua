@@ -7,3 +7,10 @@ profiles:
   focuser: Focuser
   filter_wheel: Filter Wheel
   optics: null
+- name: Simulateurs
+  mount: Mount Simulator
+  camera: CCD Imager Simulator
+  guide_camera: CCD Guider Simulator
+  focuser: CCD Imager Simulator (focuser)
+  filter_wheel: CCD Imager Simulator (wheel)
+  optics: null

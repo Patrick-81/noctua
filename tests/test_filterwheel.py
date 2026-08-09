@@ -20,6 +20,9 @@ class FakeClient:
     async def send_new_switch(self, device, prop_name, items):
         self.sent.append((prop_name, items))
 
+    async def send_new_number(self, device, prop_name, items):
+        self.sent.append((prop_name, items))
+
 
 def _slot_pv(items, rule=PropRule.ONE_OF_MANY):
     """Build a FILTER_SLOT switch PropertyVector from (name, label, value) tuples."""
@@ -107,6 +110,86 @@ def test_state_dict_contains_filterwheel_type():
     sd = fw.state_dict()
     assert sd["type"] == "filterwheel"
     assert "FILTER_SLOT" in sd["properties"]
+
+
+# ── Native INDIGO 2.x convention: WHEEL_SLOT / WHEEL_SLOT_NAME ──
+
+
+def _pv_number(name, items):
+    """Build a number PropertyVector from (item_name, value) tuples."""
+    from indigo.protocol import Item
+    return PropertyVector(
+        device="Filter Wheel", name=name, vector_type=VectorType.NUMBER,
+        state="Ok", items=[Item(name=n, value=v) for n, v in items],
+    )
+
+
+def _pv_text(name, items):
+    from indigo.protocol import Item
+    return PropertyVector(
+        device="Filter Wheel", name=name, vector_type=VectorType.TEXT,
+        state="Ok", items=[Item(name=n, value=v) for n, v in items],
+    )
+
+
+def test_wheel_names_parses_slots():
+    fw = make_fw()
+    fw.connected = True
+    fw.on_def("defTextVector", _pv_text("WHEEL_SLOT_NAME", [
+        ("SLOT_NAME_1", "Filter #1"), ("SLOT_NAME_2", "Filter #2"),
+        ("SLOT_NAME_3", "Filter #3"),
+    ]))
+    fw.on_def("defNumberVector", _pv_number("WHEEL_SLOT", [("SLOT", 2.0)]))
+    assert [s["name"] for s in fw.slots] == ["Filter #1", "Filter #2", "Filter #3"]
+    assert fw.current_slot == "Filter #2"
+    assert fw.is_attached()
+
+
+def test_wheel_set_slot_sends_number():
+    import asyncio
+    fw = make_fw()
+    fw.on_def("defTextVector", _pv_text("WHEEL_SLOT_NAME", [
+        ("SLOT_NAME_1", "Filter #1"), ("SLOT_NAME_2", "Filter #2"),
+        ("SLOT_NAME_3", "Filter #3"),
+    ]))
+    fw.on_def("defNumberVector", _pv_number("WHEEL_SLOT", [("SLOT", 1.0)]))
+    asyncio.run(fw.set_slot("Filter #3"))
+    assert fw.client.sent == [("WHEEL_SLOT", [{"name": "SLOT", "value": 3.0}])]
+    assert fw.current_slot == "Filter #3"
+
+
+def test_wheel_set_slot_unknown_raises():
+    import asyncio
+    fw = make_fw()
+    fw.on_def("defTextVector", _pv_text("WHEEL_SLOT_NAME", [
+        ("SLOT_NAME_1", "Filter #1"), ("SLOT_NAME_2", "Filter #2"),
+    ]))
+    fw.on_def("defNumberVector", _pv_number("WHEEL_SLOT", [("SLOT", 1.0)]))
+    try:
+        asyncio.run(fw.set_slot("Nope"))
+        assert False, "should raise"
+    except ValueError as e:
+        assert "Unknown filter slot" in str(e)
+
+
+def test_wheel_requires_property_to_set():
+    import asyncio
+    fw = make_fw()
+    try:
+        asyncio.run(fw.set_slot("Filter #1"))
+        assert False, "should raise"
+    except RuntimeError as e:
+        assert "FILTER_SLOT/WHEEL_SLOT" in str(e)
+
+
+def test_wheel_slots_list():
+    fw = make_fw()
+    assert fw.slots_list() == []
+    fw.on_def("defTextVector", _pv_text("WHEEL_SLOT_NAME", [
+        ("SLOT_NAME_1", "Red"), ("SLOT_NAME_2", "Green"),
+    ]))
+    names = [s["name"] for s in fw.slots_list()]
+    assert names == ["Red", "Green"]
 
 
 if __name__ == "__main__":

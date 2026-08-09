@@ -56,6 +56,8 @@ def parse_fits(data: bytes) -> tuple[np.ndarray | None, int, int]:
         w = int(get("NAXIS1") or "0")
         h = int(get("NAXIS2") or "0")
         bitpix = int(get("BITPIX") or "32")
+        bzero = float(get("BZERO") or "0")
+        bscale = float(get("BSCALE") or "1")
 
         if naxis < 2 or w == 0 or h == 0:
             return None, 0, 0
@@ -89,6 +91,11 @@ def parse_fits(data: bytes) -> tuple[np.ndarray | None, int, int]:
             pixels = arr.astype(np.float64)
         else:
             return None, 0, 0
+
+        # Apply FITS scaling (BZERO/BSCALE). INDIGO CCD simulators commonly
+        # emit 16-bit data as an unsigned short via BZERO=32768/BSCALE=1.
+        if bzero != 0 or bscale != 1:
+            pixels = pixels * bscale + bzero
 
         # Tolerate truncated FITS (intermittent BLOB corruption): salvage a
         # partial image so star detection / calibration don't hard-fail.

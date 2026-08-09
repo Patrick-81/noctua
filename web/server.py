@@ -383,7 +383,7 @@ class WebServer:
             fw = self.registry.get_filterwheel()
             if not fw:
                 return {"found": False, "name": None, "slots": [], "current": None}
-            attached = fw.get_prop("FILTER_SLOT") is not None and fw.connected
+            attached = fw.is_attached()
             return {
                 "found": True,
                 "name": fw.name,
@@ -405,7 +405,6 @@ class WebServer:
                 await fw.set_slot(name)
             except (RuntimeError, ValueError) as e:
                 return {"error": str(e)}
-            fw.current_slot = name
             return {"ok": True, "slot": name}
 
         @app.get("/api/config")
@@ -1083,6 +1082,10 @@ class WebServer:
                 return {"ok": False, "error": err}
             if body.get("save_dir"):
                 self.sequence_cfg["save_dir"] = body["save_dir"]
+            if body.get("dither") is not None:
+                cur = self.sequence_cfg.get("dither", {}) or {}
+                merged = {**cur, **body["dither"]}
+                self.sequence_cfg["dither"] = merged
             try:
                 self.sequence.start(frames)
             except (RuntimeError, ValueError) as e:

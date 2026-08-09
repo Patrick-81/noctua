@@ -2965,7 +2965,10 @@ async function seqStart() {
         res = await fetch('/api/sequence/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ frames, save_dir: saveDir }),
+            body: JSON.stringify({
+                frames, save_dir: saveDir,
+                dither: { enabled: !!dith, amount: (_seqDefaults.dither && _seqDefaults.dither.amount) ?? 2.0 },
+            }),
         }).then(r => r.json());
     } catch (e) {
         addLog('error', 'sequence', 'Impossible de démarrer la séquence');
@@ -3280,12 +3283,35 @@ function renderCaptureFilter() {
             : `${fw.name} (déconnectée)`;
     }
     if (!sel) return;
-    const slots = (fw.dev.props || []).find(p => p.name === 'FILTER_SLOT') || null;
-    const opts = slots ? slots.items.map(i =>
-        `<option value="${escapeAttr(i.name)}">${escapeHTML(i.label || i.name)}</option>`).join('')
-        : '';
-    const current = slots && slots.items.find(i => i.value === true);
-    const selected = _captureFilter || (current ? current.name : '');
+    // Support both conventions: FILTER_SLOT (switch, mock) and
+    // WHEEL_SLOT (number) + WHEEL_SLOT_NAME (text, native INDIGO 2.x).
+    const switchPv = (fw.dev.props || []).find(p => p.name === 'FILTER_SLOT') || null;
+    const wheelNames = (fw.dev.props || []).find(p => p.name === 'WHEEL_SLOT_NAME') || null;
+    const wheelPv = (fw.dev.props || []).find(p => p.name === 'WHEEL_SLOT') || null;
+    let opts = '';
+    let current = null;
+    if (switchPv) {
+        opts = switchPv.items.map(i =>
+            `<option value="${escapeAttr(i.name)}">${escapeHTML(i.label || i.name)}</option>`).join('');
+        const selItem = switchPv.items.find(i => i.value === true);
+        current = selItem ? selItem.name : null;
+    } else if (wheelNames) {
+        opts = wheelNames.items.map(i => {
+            const m = i.name.match(/_(\d+)$/);
+            const value = (i.value || i.label || i.name);
+            return `<option value="${escapeAttr(value)}">${escapeHTML(value)}</option>`;
+        }).join('');
+        // Current slot from WHEEL_SLOT number (1-based index)
+        if (wheelPv && wheelPv.items && wheelPv.items[0]) {
+            const idx = Math.round(Number(wheelPv.items[0].value));
+            const curItem = wheelNames.items.find(i => {
+                const m = i.name.match(/_(\d+)$/);
+                return m && parseInt(m.group(1), 10) === idx;
+            });
+            current = curItem ? (curItem.value || curItem.label || curItem.name) : null;
+        }
+    }
+    const selected = _captureFilter || (current || '');
     const html = '<option value="">— Aucun —</option>' + opts;
     // renderCaptureFilter runs on every WS state broadcast. Only touch the DOM
     // when the option set changed, to avoid tearing while the page re-renders.
