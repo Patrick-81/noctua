@@ -10,6 +10,7 @@ Provides:
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import math
@@ -137,8 +138,15 @@ class WebServer:
         from indigo.devices.sequence import SequenceRunner
         self.sequence = SequenceRunner()
 
+        # Live stacking engine (Seiza LiveStacker) — device-agnostic pile
+        from indigo.devices.live_stack import LiveStackEngine
+        self.stacking = LiveStackEngine(options=self.sequence_cfg.get("stack", {}))
+
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
+
+        # Wire image callbacks as soon as a camera is discovered (no 2 s wait)
+        registry.on_device_added = self._on_camera_discovered
 
         # Install weblog handler on the root logger
         weblog_handler.setLevel(logging.DEBUG)
@@ -210,6 +218,12 @@ class WebServer:
                                 for item in fmt_pv.items
                             ]
                             await dev.send_switch("CCD_IMAGE_FORMAT", items)
+
+    def _on_camera_discovered(self, dev):
+        """Wire the image callback as soon as a camera device appears."""
+        if hasattr(dev, "on_image") and dev.on_image is None:
+            dev.on_image = self._make_image_callback(dev.name)
+            log.debug("Wired image callback for camera: %s", dev.name)
 
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
@@ -998,7 +1012,7 @@ class WebServer:
                 # Wait for CCD_EXPOSURE Busy phase to end (exposing → False).
                 while cam.exposing:
                     await _asyncio.sleep(0.1)
-                # The BLOB push can trail the Busy→Idle transition (transfer +
+                # The BLOB push can lag the Busy→Idle transition (transfer +
                 # download) — poll until a fresh image for this camera lands.
                 baseline = seq_cam.get("baseline", b"")
                 deadline = _asyncio.get_running_loop().time() + 30.0
@@ -1043,6 +1057,25 @@ class WebServer:
                     return {"ok": True, "dx": dx, "dy": dy}
                 return {"ok": True, "dx": dx, "dy": dy, "guided": False}
 
+            async def stack(path: str, frame: dict) -> None:
+                """Push a freshly saved LIGHT frame into the live stack."""
+                enabled = self.sequence_cfg.get("stack", {}).get("enabled", False)
+                if not enabled:
+                    return
+                try:
+                    img_bytes = await _asyncio.to_thread(Path(path).read_bytes)
+                except Exception:
+                    img_bytes = self._camera_images.get(seq_cam.get("name"), self._last_image_data)
+                if not img_bytes:
+                    raise RuntimeError("no image data to stack")
+                res = await _asyncio.to_thread(self.stacking.push_fits, img_bytes)
+                await log("debug", f"stacking push: ok={res.get('ok')} "
+                                   f"accepted={res.get('accepted')} "
+                                   f"error={res.get('error', '')} reason={res.get('reason', '')}")
+                # Push a fresh preview to WebSocket clients
+                loop = _asyncio.get_running_loop()
+                loop.create_task(self._broadcast_stacking_snapshot(path))
+
             async def delay(seconds: float) -> None:
                 if seconds and seconds > 0:
                     await _asyncio.sleep(seconds)
@@ -1050,6 +1083,7 @@ class WebServer:
             return {
                 "expose": expose, "wait_exposure": wait_exposure,
                 "set_filter": set_filter, "save": save,
+                "stack": stack,
                 "dither": dither, "delay": delay, "log": log,
             }
 
@@ -1065,6 +1099,7 @@ class WebServer:
                 ]),
                 "save_dir": self.sequence_cfg.get("save_dir", ""),
                 "dither": self.sequence_cfg.get("dither", {"enabled": False, "amount": 2.0}),
+                "stack": self.sequence_cfg.get("stack", {"enabled": False}),
             })
 
         @app.post("/api/sequence/start")
@@ -1086,6 +1121,12 @@ class WebServer:
                 cur = self.sequence_cfg.get("dither", {}) or {}
                 merged = {**cur, **body["dither"]}
                 self.sequence_cfg["dither"] = merged
+            if body.get("stack") is not None:
+                cur = self.sequence_cfg.get("stack", {}) or {}
+                merged = {**cur, **body["stack"]}
+                self.sequence_cfg["stack"] = merged
+                if body["stack"].get("enabled"):
+                    self.stacking.reset()
             try:
                 self.sequence.start(frames)
             except (RuntimeError, ValueError) as e:
@@ -1109,6 +1150,43 @@ class WebServer:
         @app.post("/api/sequence/reset")
         async def sequence_reset():
             return SanitizedJSONResponse(self.sequence.reset())
+
+        # ── Live stacking ─────────────────────────────────────────
+
+        @app.get("/api/stacking/status")
+        async def stacking_status():
+            return SanitizedJSONResponse(self.stacking.status())
+
+        @app.post("/api/stacking/reset")
+        async def stacking_reset():
+            return SanitizedJSONResponse(self.stacking.reset())
+
+        @app.post("/api/stacking/configure")
+        async def stacking_configure(body: dict):
+            return SanitizedJSONResponse(self.stacking.configure(body))
+
+        @app.post("/api/stacking/masters")
+        async def stacking_masters(body: dict):
+            return SanitizedJSONResponse(self.stacking.build_masters(
+                bias_dir=body.get("bias_dir") or None,
+                dark_dir=body.get("dark_dir") or None,
+                flat_dir=body.get("flat_dir") or None))
+
+        @app.post("/api/stacking/save")
+        async def stacking_save(body: dict):
+            save_dir = body.get("dir", "") or self.sequence_cfg.get("save_dir", "")
+            path = await asyncio.to_thread(
+                self.stacking.save_master, save_dir,
+                body.get("name", "master"), body.get("format", "fits"))
+            return SanitizedJSONResponse(path)
+
+        @app.get("/api/stacking/snapshot")
+        async def stacking_snapshot():
+            import base64 as _b64
+            png = await asyncio.to_thread(self.stacking.snapshot_png)
+            if not png:
+                return SanitizedJSONResponse({"ok": False, "error": "no stack available"})
+            return SanitizedJSONResponse({"ok": True, "png": _b64.b64encode(png).decode("ascii")})
 
         # ── Guide calibration ─────────────────────────────────────
 
@@ -1399,20 +1477,19 @@ class WebServer:
                 "format": fmt,
                 "data": b64,
             })
-            loop = asyncio.get_running_loop()
+        loop = asyncio.get_running_loop()
 
-            async def _safe_send(ws):
-                try:
-                    await ws.send_text(payload)
-                except Exception:
-                    self._safe_remove_client(ws)
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
 
-            for ws in self._ws_clients[:]:
-                loop.create_task(_safe_send(ws))
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))
 
     async def _fetch_and_broadcast(self, device_name: str, url: str, fmt: str) -> None:
         """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""
-        import base64
         import aiohttp
         try:
             # The INDIGO server runs on the same host as the INDIGO TCP connection
@@ -1432,24 +1509,7 @@ class WebServer:
                         return
                     data = await resp.read()
                     log.debug("BLOB fetched: %d bytes from %s", len(data), fetch_url)
-                    # Store last image for save endpoint
-                    self._last_image_data = data
-                    self._camera_images[device_name] = data
-
-                    if not self._ws_clients:
-                        return
-                    b64 = base64.b64encode(data).decode("ascii")
-                    payload = json.dumps({
-                        "type": "image",
-                        "device": device_name,
-                        "format": fmt,
-                        "data": b64,
-                    })
-                    for ws in self._ws_clients[:]:
-                        try:
-                            await ws.send_text(payload)
-                        except Exception:
-                            self._safe_remove_client(ws)
+                    self._on_camera_image(device_name, data, fmt)
         except Exception as e:
             log.error("Failed to fetch BLOB from %s: %s", url, e)
 
@@ -1458,6 +1518,36 @@ class WebServer:
         if not self._ws_clients:
             return
         payload = json.dumps(_sanitize({"type": "solver_result", "result": result}))
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))
+
+    async def _broadcast_stacking_snapshot(self, path: str = "") -> None:
+        """Broadcast the current live-stack preview to WebSocket clients."""
+        if not self._ws_clients:
+            return
+        try:
+            png = self.stacking.snapshot_png()
+        except Exception:  # noqa: BLE001
+            png = None
+        if not png:
+            return
+        await self._broadcast_image("stacking", base64.b64encode(png).decode("ascii"))
+
+    async def _broadcast_image(self, device: str, b64data: str) -> None:
+        """Low-level helper pushing a base64 image message to WS clients."""
+        if not self._ws_clients:
+            return
+        payload = json.dumps(_sanitize({
+            "type": "image", "device": device, "format": "png", "data": b64data,
+        }))
         loop = asyncio.get_running_loop()
 
         async def _safe_send(ws):

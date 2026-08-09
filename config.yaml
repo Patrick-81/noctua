@@ -21,6 +21,8 @@ sequence:
   dither:
     enabled: true
     amount: 2.0
+  stack:
+    enabled: false
   frames:
     - duration: 60.0
       frame_type: LIGHT

@@ -64,6 +64,7 @@ class SequenceRunner:
           - ``expose(duration, frame_type, filter)``
           - ``wait_exposure()``         → await until current pose finishes
           - ``save(frame, index)``      → save to disk, return path
+          - ``stack(path, frame)``      → optional live-stacking hook (nullable)
           - ``dither()``                → optional, nullable
           - ``delay(seconds)``          → sleep between frames
           - ``log(level, msg)``         → emit a server-side log line
@@ -128,6 +129,15 @@ class SequenceRunner:
             self._save_saved = path
             if fl:
                 await fl("info", f"sauvé → {path}")
+
+            # Optional live stacking of the freshly saved frame
+            st = h.get("stack")
+            if st and frame.get("frame_type", "LIGHT") in ("LIGHT",):
+                try:
+                    await st(path, frame)
+                except Exception as e:  # noqa: BLE001
+                    if fl:
+                        await fl("warning", f"stacking skipped: {e}")
 
         di = h.get("dither")
         if di:

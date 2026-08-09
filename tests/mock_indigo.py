@@ -22,6 +22,8 @@ import signal
 import struct
 import sys
 
+import numpy as np
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [mock_indigo] %(levelname)s: %(message)s",
@@ -49,23 +51,22 @@ def _sexagesimal(deg: float, is_ra: bool = False) -> str:
 # ── FITS generator ──────────────────────────────────────────────
 
 def _make_fits(width: int, height: int, stars: list[tuple[int, int, float, float]],
-               bg: float = 100.0) -> bytes:
-    """Generate a minimal FITS image with Gaussian stars."""
-    import array
+               bg: float = 100.0, noise: float = 4.0) -> bytes:
+    """Generate a minimal FITS image with Gaussian stars (vectorized).
+
+    ``noise``: sigma of the Gaussian read noise added per pixel (skew from a
+    flat background toward a realistic scene). Set 0 for a deterministic image.
+    """
     import sys
-    img = array.array('h')  # signed short (BITPIX=16)
-    # Pre-compute background
-    bg_val = int(bg)
-    for y in range(height):
-        for x in range(width):
-            val = bg_val
-            for cx, cy, peak, sigma in stars:
-                dx = x - cx
-                dy = y - cy
-                val += int(peak * math.exp(-(dx*dx + dy*dy) / (2 * sigma * sigma)))
-            # Clamp to int16
-            val = max(-32768, min(32767, val))
-            img.append(val)
+
+    yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+    img = np.full((height, width), float(bg), dtype=np.float32)
+    for cx, cy, peak, sigma in stars:
+        img += peak * np.exp(-((xx - cx) * (xx - cx) + (yy - cy) * (yy - cy)) / (2.0 * sigma * sigma))
+    if noise:
+        rng = np.random.default_rng()
+        img += rng.normal(0, noise, (height, width)).astype(np.float32)
+    img = np.clip(img, -32768, 32767).astype(np.int16)
 
     cards = [
         "SIMPLE  =                    T",
@@ -76,10 +77,9 @@ def _make_fits(width: int, height: int, stars: list[tuple[int, int, float, float
         "END",
     ]
     header = "".join(c.ljust(80) for c in cards).ljust(2880)
-    # FITS requires big-endian byte order; array('h') uses native order
-    if sys.byteorder == 'little':
-        img.byteswap()
-    return header.encode("ascii") + img.tobytes()
+    # FITS requires big-endian byte order
+    data = img.astype(">i2").tobytes()
+    return header.encode("ascii") + data
 
 
 # ── Property definitions ───────────────────────────────────────────
@@ -621,6 +621,9 @@ class MockCamera:
             (width // 2, height * 2 // 3, 6000, 3.5),
             (width // 3, height * 3 // 4, 3000, 2.0),
             (width * 2 // 3, height // 2, 4500, 2.8),
+            (width // 7, height * 2 // 3, 3200, 2.2),
+            (width * 5 // 6, height * 4 // 5, 2800, 2.6),
+            (width // 3, height // 5, 2600, 2.4),
         ]
         # Guide drift override: if set, use this single star instead of _stars
         self.star_override: tuple[float, float, float, float] | None = None
@@ -703,9 +706,9 @@ class MockCamera:
                 star_pos = (int(sx), int(sy), peak, sigma)
                 fits_data = _make_fits(w, h, [star_pos], bg=200)
             else:
-                # Default: random jitter on configured stars
+                # Default: random jitter on configured stars (guide-scale shake)
                 import random
-                stars = [(cx + random.randint(-2, 2), cy + random.randint(-2, 2), peak, sigma)
+                stars = [(cx + random.randint(-1, 1), cy + random.randint(-1, 1), peak, sigma)
                          for cx, cy, peak, sigma in self._stars[:8]]
                 fits_data = _make_fits(w, h, stars)
             # Send as BLOB

@@ -137,7 +137,17 @@ def test_pause_resume_reset():
     time.sleep(0.8)
     p = api_post("/api/sequence/pause")
     check(p.get("paused") is True, "paused True")
-    done_at_pause = p.get("done")
+    # Let the in-flight pose finish (pause acts at frame boundaries) before
+    # locking the baseline for the "no progress while paused" check. Wait for a
+    # stable plateau (4 equal reads @ 0.3 s) so we are past the finishing frame.
+    plateau = [p.get("done", 0)]
+    for _ in range(30):
+        time.sleep(0.3)
+        cur = api_get("/api/sequence/status").get("done")
+        plateau.append(cur)
+        if len(plateau) >= 4 and len(set(plateau[-4:])) == 1:
+            break
+    done_at_pause = plateau[-1]
     time.sleep(1.2)
     st = api_get("/api/sequence/status")
     check(st.get("done") == done_at_pause, "no progress while paused")
