@@ -1,7 +1,7 @@
-# Checkpoint — Autoguidage Viewer + Corrections Display
+# Checkpoint — Noctua (autoguidage + contrôle INDIGO)
 
 ## Projet
-`indigo_devices` : interface web (FastAPI + Vanilla JS) pour contrôle d'équipements astronomiques via serveur INDIGO.
+`Noctua` : interface web (FastAPI + Vanilla JS) pour contrôle d'équipements astronomiques via serveur INDIGO.
 
 ## Architecture
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)

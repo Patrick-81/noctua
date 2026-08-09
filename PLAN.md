@@ -1,4 +1,4 @@
-# indigo_devices — Plan du projet
+# Noctua — Plan du projet
 
 ## Objectif
 Contrôler des périphériques INDIGO (monture, caméra, focuser) via une interface web minimaliste.

@@ -1,5 +1,5 @@
 // ═══════════════════════════════════════════════════════════════
-// INDIGO Devices — App principal (applets flottants)
+// Noctua — App principal (applets flottants)
 // ═══════════════════════════════════════════════════════════════
 
 import { SkyEngine } from '/sky-engine.js';
