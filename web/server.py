@@ -141,6 +141,9 @@ class WebServer:
         # Live stacking engine (Seiza LiveStacker) — device-agnostic pile
         from indigo.devices.live_stack import LiveStackEngine
         self.stacking = LiveStackEngine(options=self.sequence_cfg.get("stack", {}))
+        # Auto-stacking session state (short-exposure loop feeding the engine)
+        self._stacking_session: asyncio.Task | None = None
+        self._stacking_stop = False
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
@@ -980,8 +983,13 @@ class WebServer:
 
         # ── Sequence ─────────────────────────────────────────────
 
-        def _seq_hooks():
-            """Build the device hooks backing the sequence runner."""
+        def _seq_hooks(save_dir: str | None = None):
+            """Build the device hooks backing the sequence runner.
+
+            ``save_dir`` optionally overrides the root used by build_path; the
+            sequence/capture runner injects a per-session ``capture_TS/`` dir
+            while the stacking session injects ``livestack_TS/``.
+            """
             import asyncio as _asyncio
             from indigo.devices.sequence import build_path
 
@@ -1031,7 +1039,8 @@ class WebServer:
                 await fw.set_slot(name)
 
             async def save(frame: dict, index: int) -> str:
-                path = build_path(self.sequence_cfg.get("save_dir", ""), frame, index)
+                base = save_dir if save_dir is not None else self.sequence_cfg.get("save_dir", "")
+                path = build_path(base, frame, index)
                 name = seq_cam.get("name")
                 img = self._camera_images.get(name, self._last_image_data) if name else self._last_image_data
                 if not img:
@@ -1127,13 +1136,20 @@ class WebServer:
                 self.sequence_cfg["stack"] = merged
                 if body["stack"].get("enabled"):
                     self.stacking.reset()
+            # Each run gets its own typed, timestamped directory under the root:
+            #   <root>/capture_YYYYMMDD_HHMMSS/
+            from datetime import datetime as _dt
+            root_dir = os.path.expanduser(self.sequence_cfg.get("save_dir", ""))
+            session_dir = os.path.join(root_dir, f"capture_{_dt.now().strftime('%Y%m%d_%H%M%S')}")
+            os.makedirs(session_dir, exist_ok=True)
+            self.sequence_cfg["session_dir"] = session_dir
             try:
                 self.sequence.start(frames)
             except (RuntimeError, ValueError) as e:
                 return {"ok": False, "error": str(e)}
-            task = asyncio.create_task(self.sequence.run(_seq_hooks()))
+            task = asyncio.create_task(self.sequence.run(_seq_hooks(save_dir=session_dir)))
             self.sequence._task = task
-            return {"ok": True, "status": self.sequence.status()}
+            return {"ok": True, "session_dir": session_dir, "status": self.sequence.status()}
 
         @app.post("/api/sequence/stop")
         async def sequence_stop():
@@ -1155,10 +1171,17 @@ class WebServer:
 
         @app.get("/api/stacking/status")
         async def stacking_status():
-            return SanitizedJSONResponse(self.stacking.status())
+            st = self.stacking.status()
+            st["session"] = {
+                "running": self._stacking_session is not None and not self._stacking_session.done(),
+                "stop_requested": self._stacking_stop,
+            }
+            st["session_dir"] = getattr(self, "_stacking_session_dir", None)
+            return SanitizedJSONResponse(st)
 
         @app.post("/api/stacking/reset")
         async def stacking_reset():
+            self._stacking_stop = True
             return SanitizedJSONResponse(self.stacking.reset())
 
         @app.post("/api/stacking/configure")
@@ -1187,6 +1210,46 @@ class WebServer:
             if not png:
                 return SanitizedJSONResponse({"ok": False, "error": "no stack available"})
             return SanitizedJSONResponse({"ok": True, "png": _b64.b64encode(png).decode("ascii")})
+
+        @app.post("/api/stacking/start")
+        async def stacking_start(body: dict):
+            """Start an auto-stacking session: short LIGHT poses captured and
+            pushed into the live stack until max_frames accepted (0 = continuous).
+            Each pose FITS is saved under <root>/livestack_YYYYMMDD_HHMMSS/."""
+            if self._stacking_session is not None and not self._stacking_session.done():
+                return {"ok": False, "error": "stacking session already running"}
+            duration = float(body.get("duration", 5.0))
+            max_frames = int(body.get("max_frames", 0) or 0)
+            filter_name = body.get("filter", "") or ""
+            dark_dir = body.get("dark_dir") or None
+            flat_dir = body.get("flat_dir") or None
+            root_dir = os.path.expanduser(body.get("save_dir") or self.sequence_cfg.get("save_dir", ""))
+            if not root_dir:
+                return {"ok": False, "error": "no save directory configured"}
+
+            from datetime import datetime as _dt
+            session_dir = os.path.join(root_dir, f"livestack_{_dt.now().strftime('%Y%m%d_%H%M%S')}")
+            os.makedirs(session_dir, exist_ok=True)
+
+            self.stacking.configure({"max_frames": max_frames})
+            self.stacking.reset()
+            if dark_dir or flat_dir:
+                await asyncio.to_thread(
+                    self.stacking.build_masters, dark_dir=dark_dir, flat_dir=flat_dir)
+
+            self._stacking_stop = False
+            self._stacking_session_dir = session_dir
+            self._stacking_session = asyncio.create_task(
+                self._stacking_session_loop(duration, max_frames, session_dir, filter_name))
+            return {"ok": True, "session_dir": session_dir,
+                    "status": self.stacking.status()}
+
+        @app.post("/api/stacking/stop")
+        async def stacking_stop():
+            self._stacking_stop = True
+            st = self.stacking.status()
+            st["session"] = {"running": False, "stop_requested": True}
+            return SanitizedJSONResponse(st)
 
         # ── Guide calibration ─────────────────────────────────────
 
@@ -1528,6 +1591,72 @@ class WebServer:
 
         for ws in self._ws_clients[:]:
             loop.create_task(_safe_send(ws))
+
+    async def _stacking_session_loop(self, duration: float, max_frames: int,
+                                     session_dir: str, filter_name: str = "") -> None:
+        """Auto-stacking loop: repeatedly capture short LIGHT poses, save each
+        FITS under the livestack session dir, and push it into the engine.
+
+        Runs until the caller stops it, or until ``max_frames`` accepted frames
+        are stacked (max_frames == 0 → continuous).
+        """
+        import asyncio as _asyncio
+        try:
+            cam = self.registry.get_camera()
+            if not cam:
+                self._stacking_stop = True
+                raise RuntimeError("no camera connected")
+            if not cam.is_ready:
+                self._stacking_stop = True
+                raise RuntimeError(f"camera '{cam.name}' not ready")
+
+            if filter_name:
+                fw = self.registry.get_filterwheel()
+                if fw:
+                    await fw.set_slot(filter_name)
+
+            frame_descr = {"duration": duration, "frame_type": "LIGHT",
+                           "filter": filter_name, "count": 1, "delay": 0.0}
+            idx = 0
+            while not self._stacking_stop:
+                st = self.stacking.status()
+                if max_frames > 0 and st.get("complete"):
+                    break
+
+                base = self._camera_images.get(cam.name, b"")
+                await cam.expose(duration, "LIGHT")
+                while cam.exposing and not self._stacking_stop:
+                    await _asyncio.sleep(0.1)
+                deadline = _asyncio.get_running_loop().time() + 30.0
+                while _asyncio.get_running_loop().time() < deadline and not self._stacking_stop:
+                    cur = self._camera_images.get(cam.name, b"")
+                    if cur and cur != base:
+                        break
+                    await _asyncio.sleep(0.1)
+                await _asyncio.sleep(0.2)
+
+                idx += 1
+                from datetime import datetime as _dt
+                ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+                group = (filter_name or "light").replace("/", "_")
+                path = os.path.join(session_dir, f"light_{group}_{idx:03d}_{ts}.fits")
+                img = self._camera_images.get(cam.name, self._last_image_data)
+                with open(path, "wb") as f:
+                    f.write(img)
+
+                res = await _asyncio.to_thread(self.stacking.push_fits, img)
+                logging.getLogger(__name__).debug(
+                    f"stacking session frame {idx}: ok={res.get('ok')} "
+                    f"accepted={res.get('accepted')} err={res.get('error','')}")
+                _asyncio.get_running_loop().create_task(self._broadcast_stacking_snapshot(path))
+            logging.getLogger(__name__).info(
+                f"stacking session ended: {self.stacking.status().get('accepted')} "
+                f"accepted in {session_dir}")
+        except Exception as e:  # noqa: BLE001
+            self._stacking_stop = True
+            logging.getLogger(__name__).error(f"stacking session failed: {e}")
+        finally:
+            self._stacking_session = None
 
     async def _broadcast_stacking_snapshot(self, path: str = "") -> None:
         """Broadcast the current live-stack preview to WebSocket clients."""

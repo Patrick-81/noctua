@@ -23,6 +23,7 @@ sequence:
     amount: 2.0
   stack:
     enabled: false
+    max_frames: 0
   frames:
     - duration: 60.0
       frame_type: LIGHT

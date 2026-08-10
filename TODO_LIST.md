@@ -1,6 +1,13 @@
 # TODO List — Prochaines étapes
 
 ## Faits
+- [x] Live stacking automatisé : panneau LIVE STACKING dédié (poses courtes, compteur `max_frames` 0=continu, dark/flat optionnels)
+- [x] Séparation claire capture / stacking : SÉQUENCE = poses unitaires dans `<root>/capture_TS/`, LIVE STACKING = `<root>/livestack_TS/`
+- [x] Répertoire racine unique partagé (`sequence.save_dir`) + sous-dossiers horodatés typés par processus
+- [x] Session stacking auto : boucle expose→save FITS→push empileur→snapshot WS, arrêt sur cible atteinte ou STOP
+- [x] Masters dark/flat optionnels appliqués à chaque pose (calibration avant empilement)
+- [x] Doc UTILISATION.md : table des deux processus + sections 8.3/8.4 + arborescence
+- [x] Robustesse UI : détection fin de séquence par compteurs (run rapide entre deux polls)
 - [x] RMS AD/DEC/Total (fenêtre 60 s) dans le panneau Dérive
 - [x] Courbe SNR jaune superposée au canvas de dérive (axe droit 0/25/50)
 - [x] Impulsions de correction dans le panneau Dérive (même ligne Trames/RA/DEC)
@@ -26,6 +33,10 @@
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 
 ## À tester
+- [ ] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct
+- [ ] Live stacking avec dark/flat : masters po seulement si les dossiers sont renseignés (sinon aucune calibration)
+- [ ] Sauvegarde master (FITS + PNG) après une session terminée dans `livestack_TS/`
+- [ ] Fichiers `capture_TS/{filtre}/` bien séparés de `livestack_TS/`
 - [ ] **CR « Étoile perdue »** : re-tester calibration après Ctrl+Shift+R (hypothèse cache navigateur stale `app.js`). Si reproduit → fournir log mock + log serveur (`run.py`) pendant l'échec
 - [ ] Courbe SNR jaune visible pendant un guidage réel (mock ou caméra)
 - [ ] Toast « Calibration terminée » + bouton « Démarrer guidage »
@@ -35,7 +46,9 @@
 - [ ] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh).
 
 ## Améliorations possibles
-- [ ] Workflow automatique : bouton unique « Démarrer » qui enchaîne capture→sélection→calibration→guidage
+- [ ] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s
+- [ ] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible
+- [ ] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`)
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
 - [ ] Découper `app.js` en modules séparés
 

@@ -116,9 +116,11 @@ def test_run_completes_and_saves():
 
 
 def test_files_written():
-    print("\n=== Test: FITS files written under save_dir/L ===")
+    print("\n=== Test: FITS files written under save_dir/capture_TS/L/ ===")
     st = api_get("/api/sequence/status")
-    group_dir = os.path.join(SAVE_DIR, "L")
+    sessions = sorted(glob.glob(os.path.join(SAVE_DIR, "capture_*")))
+    check(sessions, "capture session dir created")
+    group_dir = os.path.join(sessions[-1], "L") if sessions else os.path.join(SAVE_DIR, "L")
     files = sorted(glob.glob(os.path.join(group_dir, "light_L_*.fits")))
     check(len(files) == 2, f"2 light fits saved (found {len(files)})")
     if files:

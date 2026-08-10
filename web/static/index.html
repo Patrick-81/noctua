@@ -740,6 +740,53 @@
             <div id="seq-error" class="seq-error" style="display:none;"></div>
         </div>
 
+        <!-- APPLET MODE: CAPTURE — Panneau LIVE STACKING -->
+        <div id="applet-stacking" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:16px; width:380px; max-height:calc(100vh - 140px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◈ LIVE STACKING — accumulation en direct</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+
+            <div class="hw-section-title">Configuration</div>
+            <div class="hw-row">
+                <span class="hw-label">Durée de pose (s)</span>
+                <input type="number" id="stk-duration" class="cap-input" value="5" min="0.5" step="0.5" style="flex:1; min-width:0;">
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Poses à empiler</span>
+                <input type="number" id="stk-max-frames" class="cap-input" value="0" min="0" step="1" title="Nombre de LIGHT à accepter avant arrêt. 0 = en continu." style="flex:1; min-width:0;">
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Filtre</span>
+                <input type="text" id="stk-filter" class="cap-input" placeholder="L, R, Ha…" style="flex:1; min-width:0;">
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Sauver dans (root)</span>
+                <input type="text" id="stk-save-dir" class="cap-input" placeholder="~/asteo/captures/" style="flex:1; min-width:0;">
+            </div>
+
+            <div class="hw-section-title">Calibration (optionnel)</div>
+            <div class="hw-row">
+                <span class="hw-label">Dark master</span>
+                <input type="text" id="stk-dark-dir" class="cap-input" placeholder="répertoire FITS" style="flex:1; min-width:0;">
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">Flat master</span>
+                <input type="text" id="stk-flat-dir" class="cap-input" placeholder="répertoire FITS" style="flex:1; min-width:0;">
+            </div>
+
+            <div class="seq-actions" style="margin-top:8px;">
+                <button id="stk-start" class="btn-glass success" style="flex:1;">▶ DÉMARRER</button>
+                <button id="stk-stop" class="btn-glass danger" style="flex:1;" disabled>⏹ STOP</button>
+                <button id="stk-reset" class="btn-glass" style="flex:1;" disabled>⟲ Reset</button>
+            </div>
+            <div class="seq-actions" style="margin-top:4px;">
+                <button id="stk-save-master" class="btn-glass" style="flex:1;" disabled>💾 Sauver le master</button>
+                <button id="stk-save-png" class="btn-glass" style="flex:1;" disabled>🖼 Master PNG</button>
+            </div>
+
+            <div class="stk-status" id="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888;">Ready</div>
+            <div id="stk-session-dir" class="stk-session-dir" style="font-size:0.6rem; color:#00b3a0;"></div>
+            <div id="stk-error" class="seq-error" style="display:none;"></div>
+        </div>
+
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px; height:420px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>

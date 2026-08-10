@@ -117,28 +117,62 @@ Puis :
 
 ## 8. Mode Capture (📷)
 
-### 8.1 Paramètres
+Le mode Capture regroupe **deux processus distincts** qui ne doivent pas être confondus :
+
+| Processus | Panneau | Usage | Destination FITS |
+| --------- | ------- | ----- | ----------------- |
+| **Capture unitaire / série** | SÉQUENCE | poses longues, une par une, sauvegardées pour **traitement ultérieur** | `<root>/capture_YYYYMMDD_HHMMSS/` |
+| **Live stacking** | LIVE STACKING | poses courtes accumulées **en direct** en une seule image (vue empilée) | `<root>/livestack_YYYYMMDD_HHMMSS/` |
+
+Les deux partagent le même **répertoire racine** (`sequence.save_dir` dans `config.yaml`). Chaque session ouvre son propre sous-dossier horodaté et typé, ce qui les rend identifiables tout en gardant les images individuelles du live stacking exploitables pour un traitement postérieur (elles sont des FITS complets).
+
+### 8.1 Paramètres de pose
+
+Panneau CAPTURE SETTINGS (paramètres caméra) :
 
 - Caméra (sélecteur si plusieurs), binning, gain, offset, température (courante + cible), type de pose (LIGHT/DARK/FLAT/BIAS).
 - Roue à filtres : sélecteur + séquence de filtres (ex. `L,R,G,B` ou `Ha,R,G,B`).
+- **EXPOSER** : lance `count` poses avec `delay` inter-pose, affichées au fur et à mesure dans l'aperçu.
 
 ### 8.2 Aperçu
 
 - Image FITS affichée avec **étirement automatique** (histogramme) ou manuel (curseur « Noir », mode AUTO).
 - Zoom/pan, bouton **1:1**, **◻ adapter**, **⤢ plein écran** (Échap ou re-clic pour sortir).
 - Redimensionner le panneau par la poignée `⣿`.
-- **Enregistrer** (mode Capture uniquement) : sauvegarde du FITS couramment affiché.
+- **Enregistrer** : sauvegarde du FITS couramment affiché dans le répertoire racine.
+- Pendant un live stacking, l'aperçu montre la **vue empilée étirée** (push WebSocket) au lieu du dernier FITS.
 
 > Le panneau d'aperçu ne disparaît jamais tout seul pour une raison quelconque : s'il semble masqué,
 > vérifiez qu'aucun panneau superposé ne le recouvre (épingles 📌) et que le mode Capture est actif.
 
-### 8.3 Séquence d'acquisition
+### 8.3 Capture unitaire / série (panneau SÉQUENCE)
 
-- Plan éditable : type de pose, durée, filtre, nombre de poses, pause entre poses.
+Objectif : accumuler des poses qui seront **traitées plus tard** (Siril, PixInsight…). Les temps de pose sont
+généralement longs ; chaque image est sauvegardée individuellement.
+
+- Plan éditable : type de pose (LIGHT/DARK/FLAT/BIAS), durée, filtre, nombre de poses, pause entre poses.
 - Contrôles : **Démarrer**, pause, reprendre, arrêt, reset — progression affichée.
 - **Dithering** (si activé dans `config.yaml`) entre les poses.
-- **Live stacking** (optionnel) : empilement en direct des poses, reset, masters, sauvegarde du résultat.
-- Fichiers nommés `capture_{filtre}_{timestamp}.fits` dans `sequence.save_dir`.
+- Fichiers alignés par filtre dans `capture_YYYYMMDD_HHMMSS/{filtre}/`, nommés `light_{filtre}_NNN_{timestamp}.fits`.
+- ⚠️ **Pose unitaire ≠ stacking** : chaque FITS est indépendant, aucune accumulation n'est faite.
+
+### 8.4 Live stacking (panneau LIVE STACKING)
+
+Objectif : voir un objet **s'accumuler en direct** en poses courtes. La 1ʳᵉ image sert de référence ; les suivantes
+sont alignées (appariement d'étoiles), les images trop décalées ou trop pauvres en étoiles sont **rejetées**.
+L'aperçu affiche l'image empilée étirée, mise à jour après chaque pose acceptée.
+
+- **Durée de pose (s)** : poses courtes (quelques secondes), adaptées au flux accumulé.
+- **Poses à empiler** : nombre de LIGHT à **accepter** avant arrêt automatique de la session.
+  **0 = en continu** jusqu'au bouton STOP. Si des poses sont rejetées, elle ne comptent pas.
+- **Filtre** : filtre éventuellement appliqué (roue à filtres) avant la session.
+- **Sauver dans (root)** : répertoire racine partagé (défaut `sequence.save_dir`).
+  Les images vont dans `livestack_YYYYMMDD_HHMMSS/` ; le master peut y être sauvegardé ensuite.
+- **Calibration (optionnel)** : chemins vers des dossiers de **dark** et/ou **flat** (FITS) servant à bâtir les
+  masters de calibration appliqués à chaque pose avant empilement.
+- Contrôles : **DÉMARRER**, **STOP**, **⟲ Reset**, **Master** (le master empilé en FITS), **Master PNG**.
+- **Session terminée** : quand le nombre de poses acceptées atteint la cible, la session s'arrête et peut
+  sauver un master. Le bouton STOP arrête toute session en cours (avec ou sans cible).
 
 ---
 
@@ -160,7 +194,7 @@ Puis :
 | Logs | `✓` dans le journal des événements | traçabilité (WebSocket `log`) |
 | Site / fuseau | `config.yaml` | calcul LST, hauteur méridienne |
 | Flip méridien | `config.yaml` (`telescope.*`) | marge angulaire, altitude min, recentrage |
-| Répertoire FITS | `config.yaml` (`sequence.save_dir`) | destinéation des captures |
+| Répertoire racine FITS | `config.yaml` (`sequence.save_dir`) | racine des sessions `capture_TS/` et `livestack_TS/` |
 | Profils | `profiles.yaml` | sets de périphériques nommés |
 
 ---
@@ -169,9 +203,20 @@ Puis :
 
 | Fichier | Contenu |
 | ------- | ------- |
-| `config.yaml` | INDIGO (hôte/port), web (hôte/port), site, telescope (flip), sequence (save_dir, dither, stack) |
+| `config.yaml` | INDIGO (hôte/port), web (hôte/port), site, telescope (flip), sequence (save_dir, dither, stack, max_frames) |
 | `profiles.yaml` | Profils matériel : `{ name, mount, camera, guide_camera, focuser, filter_wheel, optics }` |
 | `ui.yaml` | Disposition des panneaux par mode, log levels, couches du ciel, histogramme, driver sélectionné |
+
+Le bloc `sequence.stack` de `config.yaml` permet la rétro-compatibilité (l'ancienne poussée automatique des
+poses de la séquence vers l'empileur) :
+
+```yaml
+sequence:
+  save_dir: ~/asteo/captures/   # racine partagée unique
+  stack:
+    enabled: false              # false → stacking piloté par le panneau LIVE STACKING
+    max_frames: 0               # 0 = continu ; sinon nb de LIGHT à empiler
+```
 
 ---
 
@@ -183,3 +228,4 @@ Puis :
 | Un panneau semble manquant | Peut être réduit (`+` dans sa barre) ou recouvert — vérifier les épingles 📌 et les positions sauvegardées |
 | Cache navigateur obsolète | Ctrl+Shift+R pour recharger `app.js` |
 | Aperçu vide après une pose | Consulter le journal (niveaux error/warning) et la barre de statut du panneau aperçu |
+| Stacking n'accepte aucune pose | Trop de dérive, pas assez d'étoiles, ou calibration dark/flat inadaptée — consulter `rejected` et la raison dans le statut |

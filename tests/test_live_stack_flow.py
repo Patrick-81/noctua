@@ -134,6 +134,36 @@ def test_reset_endpoint():
     check(r.get("accepted") == 0 and r.get("running") is False, "reset works")
 
 
+def test_auto_stacking_session():
+    print("\n=== Test: auto-stacking session (short poses → livestack_TS/) ===")
+    api_post("/api/stacking/reset")
+    r = api_post("/api/stacking/start", {
+        "duration": 0.1, "max_frames": 3,
+        "save_dir": SAVE_DIR, "filter": "L"})
+    check(r.get("ok") is True, f"stacking session started (got {r.get('error')})")
+    check(r.get("session_dir") and "livestack_" in r["session_dir"],
+          "session_dir is a livestack_* folder")
+    check(os.path.isdir(r["session_dir"]), "session dir exists on disk")
+
+    ok = wait_until(lambda: api_get("/api/stacking/status").get("complete") is True,
+                    timeout=40)
+    check(ok, "session auto-completes at max_frames")
+
+    st = api_get("/api/stacking/status")
+    check(st.get("accepted", 0) >= 3,
+          f"accepted >= 3 (got {st.get('accepted')})")
+    check(st["session"]["running"] is False, "session runner finished")
+    files = sorted(glob.glob(os.path.join(r["session_dir"], "light_*.fits")))
+    check(len(files) >= 3, f"live poses saved in session dir (found {len(files)})")
+
+    # Save the master while the finished stack is still live
+    mr = api_post("/api/stacking/save", {"dir": r["session_dir"]})
+    check(mr.get("ok") is True, "master saved after session")
+    check(mr.get("path") and os.path.exists(mr["path"]), "master exists on disk")
+
+    api_post("/api/stacking/reset")
+
+
 # ── Main ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -213,6 +243,7 @@ sequence:
         test_sequence_with_stacking()
         test_save_master()
         test_reset_endpoint()
+        test_auto_stacking_session()
     finally:
         print("\n\nShutting down...")
         if "logfile" in dir() and logfile:

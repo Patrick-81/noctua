@@ -104,6 +104,32 @@ def test_options_configure():
     check(st["ok"] is True, "configure accepted")
 
 
+def test_max_frames_completes():
+    e = LiveStackEngine()
+    st = e.configure({"max_frames": 2})
+    check(st["max_frames"] == 2 and st["complete"] is False, "max_frames configured")
+    e.push_array(starfield())
+    r = e.push_array(starfield(dx=2.5, dy=-1.5, seed=2))
+    check(r.get("accepted") is True, "second frame accepted")
+    st = e.status()
+    check(st["complete"] is True, "complete after max_frames accepted")
+    r = e.push_array(starfield(seed=3))
+    check(r.get("ok") is False and r.get("complete"), "push refused once complete")
+    st = e.reset()
+    check(st["complete"] is False and st["accepted"] == 0, "reset clears complete")
+
+
+def test_max_frames_zero_is_continuous():
+    e = LiveStackEngine()
+    e.configure({"max_frames": 0})
+    e.push_array(starfield())
+    for i in range(3):
+        r = e.push_array(starfield(dx=i * 1.5, dy=-i, seed=4 + i))
+        check(r.get("accepted") is True, f"continuous push {i + 2} accepted")
+    st = e.status()
+    check(st["complete"] is False, "never completes when max_frames == 0")
+
+
 # ── Main ───────────────────────────────────────────────────────
 
 passed = 0
@@ -125,7 +151,8 @@ def main():
     print("=== Live stack engine units ===")
     for fn in (test_engine_available, test_accept_reject, test_reset,
                test_push_fits_roundtrip, test_snapshot_and_master,
-               test_calibration_masters, test_options_configure):
+               test_calibration_masters, test_options_configure,
+               test_max_frames_completes, test_max_frames_zero_is_continuous):
         fn()
     success = failed == 0
     print(f"\nResults: {passed} passed, {failed} failed")

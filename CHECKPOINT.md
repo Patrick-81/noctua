@@ -7,6 +7,44 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-10 — Live stacking automatisé + séparation capture / stacking (P3)
+
+### Contexte — deux processus distincts
+Avant : le stacking n'était pilotable que via `sequence.stack.enabled` (poussée des LIGHT de la séquence dans l'empileur), aucune UI dédiée, confusion entre « pose unitaire » et « accumulation en direct ». Décision : **deux panneaux séparés** dans le mode Capture.
+
+### Feature — Panneau LIVE STACKING dédié (`#applet-stacking`)
+- Nouvel applet en mode capture (durée de pose, **poses à empiler**, filtre, root, dark/flat optionnels).
+- Backend : session auto-stacking — loop de poses courtes : expose → attente image fraîche → sauvegarde FITS → push `LiveStackEngine` → snapshot WS (vue empilée étirée dans l'aperçu).
+- **`max_frames`** : nombre de LIGHT **acceptées** avant arrêt automatique (**0 = continu**) ; `LiveStackEngine` refuse les pushes une fois `complete` ; état `complete`/`max_frames` dans `status()`.
+- **Dark/flat optionnels** par session : dossiers FITS → masters de calibration (`build_masters`) appliqués à chaque pose avant empilement.
+- Répertoire de session : `<root>/livestack_YYYYMMDD_HHMMSS/` (FITS individuels complets, exploitables ensuite).
+- Endpoints : `POST /api/stacking/{start,stop}`, `GET /api/stacking/status` (+`session`, `session_dir`).
+- Fix bug critique déterré : `_push_array` re-prenait `self._lock` (lock non réentrant) → deadlock bloquait tout push.
+
+### Feature — Séquence = captures unitaires avec session dir (`capture_TS/`)
+- `/api/sequence/start` crée `<root>/capture_YYYYMMDD_HHMMSS/` et l'injecte via `_seq_hooks(save_dir=…)`.
+- `_seq_hooks` accepte une surcharge `save_dir` (réutilisée par la session stacking).
+- Fichiers alignés par filtre dans `<root>/capture_TS/{filtre}/light_{filtre}_NNN_{ts}.fits`.
+
+### Feature — Distinction documentée + UI
+- `docs/UTILISATION.md` : table des deux processus, sections 8.3 (SÉQUENCE) et 8.4 (LIVE STACKING), arborescence racine partagée `capture_TS/` vs `livestack_TS/`, bloc `sequence.stack` rétro-compat.
+- `config.yaml` : `stack.max_frames: 0`.
+- Robustesse frontend : détection de fin de séquence par compteurs quand un run rapide termine entre deux polls (pas seulement la transition running→idle).
+
+### Tests
+- `tests/test_live_stack.py` : +`test_max_frames_completes`, `test_max_frames_zero_is_continuous` (+9 checks).
+- `tests/test_live_stack_flow.py` : session auto-stacking (démarrage, `livestack_TS/`, auto-complete à 3, master sauvegardé dans la session dir).
+- `tests/test_sequence_flow.py` : fichiers vérifiés sous `capture_TS/L/`.
+- Suites complètes : **pytest 105** ✓, flow séquence **27** ✓, flow live-stack **23** ✓, **Playwright 34** ✓, `node --check app.js` ✓.
+
+### Fichiers modifiés
+- `indigo/devices/live_stack.py` : `max_frames`, `complete`, `_maybe_complete`, configure/reset/status étendus, fix lock.
+- `web/server.py` : `_stacking_session_loop`, endpoints stacking start/stop/status, `_seq_hooks(save_dir)`, session `capture_TS/`.
+- `web/static/index.html` + `app.js` : applet LIVE STACKING, init/bootstrap, robustesse fin séquence.
+- `config.yaml`, `docs/UTILISATION.md`, `tests/test_live_stack.py`, `tests/test_live_stack_flow.py`, `tests/test_sequence_flow.py`.
+
+## Session 2026-08-04 — Affichages RMS/SNR, durcissement calibration, panneau Dérive
+
 ## Session 2026-08-04 — Affichages RMS/SNR, durcissement calibration, panneau Dérive
 
 ### Feature — RMS AD/DEC/Total dans le panneau Dérive

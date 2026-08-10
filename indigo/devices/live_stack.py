@@ -174,6 +174,10 @@ class LiveStackEngine:
         self._disposition: dict | None = None
         self._window: int | None = None  # last snapshot png (PNG bytes of the stretched stack)
         self._last_error: str | None = None
+        # Number of LIGHT frames to stack before auto-completing.
+        # 0 (default) = unlimited (continuous until stopped).
+        self._max_frames: int = int(dict(options or {}).get("max_frames", 0) or 0)
+        self._complete = False
 
         # Master calibration images (float32 arrays), built lazily
         self._calibration: dict[str, np.ndarray | None] = {"bias": None, "dark": None, "flat": None}
@@ -184,6 +188,11 @@ class LiveStackEngine:
         with self._lock:
             self._opts.update({k: v for k, v in (options or {}).items() if k in (
                 "normalization", "rejection", "maximum_drift_fraction", "maximum_drift_pixels")})
+            if options and "max_frames" in options:
+                mf = int(options["max_frames"] or 0)
+                self._max_frames = max(0, mf)
+                self._opts["max_frames"] = self._max_frames
+                self._complete = False
         return self.status()
 
     def reset(self) -> dict:
@@ -195,6 +204,7 @@ class LiveStackEngine:
             self._disposition = None
             self._window = None
             self._last_error = None
+            self._complete = False
         log.info("Live stack reset")
         return self.status()
 
@@ -209,6 +219,8 @@ class LiveStackEngine:
                 "last": self._disposition,
                 "error": self._last_error,
                 "has_window": self._window is not None,
+                "max_frames": self._max_frames,
+                "complete": self._complete,
             }
 
     def _options(self):
@@ -270,6 +282,9 @@ class LiveStackEngine:
             return self._push_array(img)
 
     def _push_array(self, img: np.ndarray) -> dict:
+        # NOTE: callers (push_fits/push_array) already hold self._lock.
+        if self._max_frames > 0 and self._complete:
+            return {"ok": False, "error": "stack complete", "complete": True}
         # If we have masters, calibrate the frame first (bias/dark subtraction, flat division).
         img = self._apply_calibration(img)
 
@@ -282,6 +297,7 @@ class LiveStackEngine:
             self._ref_set = True
             self._accepted = 1
             self._disposition = {"accepted": True, "frame": 1, "reason": "reference"}
+            self._maybe_complete()
             return {"ok": True, "accepted": True, **self._disposition}
 
         try:
@@ -296,7 +312,12 @@ class LiveStackEngine:
         else:
             self._rejected += 1
         self._disposition = d
+        self._maybe_complete()
         return {"ok": True, **d}
+
+    def _maybe_complete(self) -> None:
+        if self._max_frames > 0 and self._accepted >= self._max_frames:
+            self._complete = True
 
     def _disposition_from(self, disp) -> dict:
         fields = ("accepted", "matched_stars", "rms_pixels", "translation_x", "translation_y",
