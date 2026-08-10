@@ -181,4 +181,57 @@ test.describe.serial('Viewer multi-modes', () => {
     const histoDisplay = await page.locator('#cap-histo-canvas').evaluate(el => el.style.display);
     expect(histoDisplay).toBe('none');
   });
+
+  test('capture preview stays visible after enlarge + restore cycles', async ({ page }) => {
+    openPage(page).then(() => page.click(MODE_CAPTURE)).catch(() => {});
+    await page.waitForTimeout(2500);
+    const panel = page.locator('#applet-capture-preview');
+    await expect(panel).toBeVisible();
+
+    // Trigger an expose so an image arrives (enables the preview + enlarge button)
+    await page.click('#cap-expose-btn');
+    const enlBtn = page.locator('#cap-zoom-enlarge');
+    await expect(enlBtn).toBeVisible();
+
+    for (let i = 1; i <= 2; i++) {
+      await enlBtn.click();
+      await sleep(250);
+      await expect(panel.evaluate(el => el.classList.contains('enlarged'))).resolves.toBe(true);
+      await enlBtn.click();
+      await sleep(350);
+      await expect(panel).toBeVisible();
+      await expect(panel.evaluate(el => el.classList.contains('enlarged'))).resolves.toBe(false);
+    }
+
+    // Escape also exits enlarge
+    await enlBtn.click();
+    await sleep(200);
+    await expect(panel.evaluate(el => el.classList.contains('enlarged'))).resolves.toBe(true);
+    await page.keyboard.press('Escape');
+    await sleep(300);
+    await expect(panel.evaluate(el => el.classList.contains('enlarged'))).resolves.toBe(false);
+    await expect(panel).toBeVisible();
+  });
+
+  test('capture preview does not vanish after switching modes', async ({ page }) => {
+    await openPage(page);
+    const panel = page.locator('#applet-capture-preview');
+
+    await page.click(MODE_CAPTURE);
+    await sleep(300);
+    await expect(panel).toBeVisible();
+
+    await page.click(MODE_MOUNT);
+    await sleep(300);
+    await expect(panel).toBeHidden();
+
+    await page.click(MODE_CAPTURE);
+    await sleep(300);
+    await expect(panel).toBeVisible();
+
+    // Image arriving must not flip the panel to hidden
+    await page.click('#cap-expose-btn');
+    await sleep(1500);
+    await expect(panel).toBeVisible();
+  });
 });

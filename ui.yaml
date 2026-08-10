@@ -278,19 +278,19 @@ modes:
       applet-log: false
       applet-capture-preview: false
     applets:
-      applet-hardware:
-        left: 62px
-        top: 169px
+      applet-hardware-mode:
+        left: 16px
+        top: 70px
         right: null
         bottom: null
       applet-legend:
-        left: 1700px
+        left: 1680px
         top: 650px
         right: null
         bottom: null
       applet-log:
         left: 54px
-        top: 780px
+        top: 693px
         right: null
         bottom: null
       applet-status:
@@ -298,24 +298,9 @@ modes:
         top: 12px
         right: null
         bottom: null
-      applet-joystick:
-        left: 56px
-        top: 120px
-        right: null
-        bottom: null
-      applet-commands:
-        left: 56px
-        top: 380px
-        right: null
-        bottom: null
       applet-hud:
         left: 1591.39px
         top: 166px
-        right: null
-        bottom: null
-      applet-search:
-        left: 16px
-        top: 560px
         right: null
         bottom: null
       applet-focuser-control:
@@ -361,18 +346,18 @@ modes:
         right: null
         bottom: null
       applet-capture-settings:
-        left: 1481px
-        top: 209px
-        right: null
-        bottom: null
-      applet-capture-preview:
-        left: 611px
-        top: 183px
+        left: 1390px
+        top: 40px
         right: null
         bottom: null
       applet-sequence:
-        left: 1500px
-        top: 560px
+        left: 910px
+        top: 150px
+        right: null
+        bottom: null
+      applet-capture-preview:
+        left: 89px
+        top: 131px
         right: null
         bottom: null
       applet-solver:

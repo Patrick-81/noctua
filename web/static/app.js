@@ -545,11 +545,21 @@ class Viewer {
                 const enlarged = panel.classList.toggle('enlarged');
                 if (enlarged) {
                     panel.dataset.inlineStyle = panel.getAttribute('style') || '';
+                    panel.dataset.prevDisplay = window.getComputedStyle(panel).display;
                     panel.removeAttribute('style');
                     setTimeout(() => this.fitZoom(), 50);
                 } else {
-                    panel.setAttribute('style', panel.dataset.inlineStyle || 'display:block;');
+                    const prevDisplay = panel.dataset.prevDisplay;
+                    if (panel.dataset.inlineStyle && panel.dataset.inlineStyle !== 'display:block;') {
+                        panel.setAttribute('style', panel.dataset.inlineStyle);
+                    } else {
+                        panel.removeAttribute('style');
+                    }
                     delete panel.dataset.inlineStyle;
+                    delete panel.dataset.prevDisplay;
+                    if (prevDisplay && prevDisplay !== 'none') {
+                        panel.style.display = prevDisplay;
+                    }
                     this.resetZoom();
                     this._renderStretched();
                     this.fitZoom();
@@ -601,17 +611,17 @@ class Viewer {
             vp.addEventListener('touchcancel', () => { vp.classList.remove('panning'); this._touchState = null; });
         }
 
-        // Keyboard: Escape to exit enlarge
-        if (!isGuide) {
-            document.addEventListener('keydown', (e) => {
-                if (e.key !== 'Escape') return;
-                const panel = document.getElementById('applet-capture-preview');
-                if (panel?.classList.contains('enlarged')) {
-                    e.preventDefault();
-                    document.getElementById('cap-zoom-enlarge')?.click();
-                }
-            });
-        }
+        // Keyboard: Escape to exit enlarge (applies to whichever preview is enlarged)
+        document.addEventListener('keydown', (e) => {
+            if (e.key !== 'Escape') return;
+            const enlBtnId = this.zoomEnlargeId;
+            const btn = document.getElementById(enlBtnId);
+            const panel = document.getElementById(this.containerId);
+            if (btn && panel?.classList.contains('enlarged')) {
+                e.preventDefault();
+                btn.click();
+            }
+        });
 
         this.fitZoom();
     }
