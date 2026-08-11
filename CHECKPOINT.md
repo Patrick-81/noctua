@@ -7,6 +7,42 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-11 — Validation UI section « À tester » (items 1–11) + infra Playwright guidage
+
+### Contexte
+Résidu de la section « À tester » de `TODO_LIST.md` : 4 items live-stacking (déjà couverts par les flow tests) + 7 items guidage/calibration/aperçu. Objectif : automatiser le reste en Playwright, confirmer/rejeter la CR « Étoile perdue », cocher les items, puis suite complète verte.
+
+### Items 1–4 — Live stacking (déjà implémentés, tests ajoutés)
+- `tests/test_live_stack_flow.py` enrichi de 3 tests (**52 checks, 0 failed**) :
+  - `test_continuous_session_manual_stop` : `max_frames=0` (continu) + STOP manuel → snapshot PNG, master FITS+PNG dans la session, état complet.
+  - `test_calibration_only_with_dirs` : dark/flat masters appliqués **seulement** si les dossiers sont renseignés (sinon aucune calibration).
+  - `test_dirs_filters_separation` : `capture_TS/{filtre}/` strictement séparé de `livestack_TS/`.
+- Imports ajoutés : `numpy`, `_arr_to_fits` depuis `indigo.devices.live_stack` (`sys.path.insert(0, ROOT)`).
+- Fix assertion trop stricte : `master_*.fits` autorisé dans `livestack_TS/` (la sauvegarde master y est légitime).
+
+### Items 5–10 — Nouvelle spec Playwright `tests/guide-validation.spec.js` (2 tests, **2 passed**)
+- **Item 5 (CR « Étoile perdue »)** : calibration complète après `page.reload()` (hypothèse cache stale refutée) ; **retry focus-metric 3× vérifié** en injectant 2 échecs transitoires via `page.route` → calibration aboutit quand même, log « Métrique étoile indisponible (tentative N/3) ».
+- **Items 7–8** : toast « Calibration terminée » + bouton « Démarrer guidage » ; gains RA/DEC **auto-populés** depuis `x_rate`/`y_rate` (`guide-ra-gain`/`guide-dec-gain` ≠ 1.0) ; tracé calibration non vide ; re-calibration après refresh toujours OK.
+- **Items 9 + 6** : workflow **Capture → Auto → Lancer** → frame_count ≥ 2, graphe 120 s dessiné, **courbe SNR jaune** vérifiée côté backend (`/api/guide/status` history porte `snr > 0`).
+- **Item 10 (zoom/pan)** : molette (zoom > 1), clic-glisser (panX change), boutons 1:1 (=1.0) / ◻ (fit < 1), **double-clic reset**.
+- Helper `uiClick()` : `dispatchEvent(new MouseEvent('click'))` car le panneau Dérive chevauche le bas du panneau Aperçu et intercepte les vrais clics pointer.
+
+### Fix déterré par le test — double-clic en mode guidage
+`Viewer.initZoomPan()` : le dbl-click cliquait en dur `#cap-zoom-enlarge` (bouton du viewer **capture**), donc ne resettait **jamais** le zoom guide. Corrigé : utilise `this.zoomEnlargeId` et `resetZoom()` quand `isGuide` (`web/static/app.js`).
+
+### Item 11 — BUG aperçu GUIDAGE « match=true sans image »
+**Non reproductible** : `tests/repro_guide_preview.js` (graphique) — canvas 640×480 rendu, 50 étoiles détectées, status «✨ 50 étoiles», status bar OK. Cosmétique : `console.log` WS ligne 968 affiche les `%s` non substitués (sans impact).
+
+### TODO + suites
+- `TODO_LIST.md` : les 11 items de « À tester » cochés (avec références de test), section 100 % validée.
+- **Playwright complet : 36/36** (viewer 11 + polar 10 + hardware 3 + sequence 3 + guide-validation 2… ; specs existantes non régressées). `node --check web/static/app.js` ✓.
+
+### Fichiers modifiés / ajoutés
+- `web/static/app.js` : fix dbl-click guide (`initZoomPan`).
+- `tests/guide-validation.spec.js` *(nouveau)*, `tests/repro_guide_preview.js` *(nouveau)*.
+- `tests/test_live_stack_flow.py` : +3 tests items 1–4.
+- `TODO_LIST.md` : items 1–11 cochés.
+
 ## Session 2026-08-10 — Live stacking automatisé + séparation capture / stacking (P3)
 
 ### Contexte — deux processus distincts

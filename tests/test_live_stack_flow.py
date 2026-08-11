@@ -20,11 +20,16 @@ import tempfile
 import time
 import urllib.request
 
+import numpy as np
+
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 PYTHON = os.path.join(ROOT, "venv", "bin", "python")
 MOCK_PORT = 17642
 WEB_PORT = 18101
 BASE_URL = f"http://127.0.0.1:{WEB_PORT}"
+
+sys.path.insert(0, ROOT)
+from indigo.devices.live_stack import _arr_to_fits  # noqa: E402
 
 passed = 0
 failed = 0
@@ -164,6 +169,118 @@ def test_auto_stacking_session():
     api_post("/api/stacking/reset")
 
 
+def test_continuous_session_manual_stop():
+    print("\n=== Test: continuous session (max_frames=0) + manual STOP ===")
+    api_post("/api/stacking/reset")
+    r = api_post("/api/stacking/start", {
+        "duration": 0.1, "max_frames": 0,
+        "save_dir": SAVE_DIR, "filter": "L"})
+    check(r.get("ok") is True, "continuous session started (max_frames=0)")
+    check("livestack_" in (r.get("session_dir") or ""), "session up under livestack_*")
+
+    # It never self-completes: watching a few accepted frames accumulate
+    ok = wait_until(lambda: api_get("/api/stacking/status").get("accepted", 0) >= 2,
+                    timeout=30)
+    check(ok, "accepted >= 2 while continuous")
+    st = api_get("/api/stacking/status")
+    check(st.get("complete") is False, "never complete with max_frames=0")
+    check(st["session"]["running"] is True, "session still running")
+
+    # Live snapshot available while the session is running
+    png = api_get("/api/stacking/snapshot")
+    check(png.get("ok") is True, "live snapshot available during run")
+    if png.get("png"):
+        raw = base64.b64decode(png["png"])
+        check(raw[:8] == b"\x89PNG\r\n\x1a\n", "live snapshot decodes to PNG")
+
+    # Manual STOP
+    r2 = api_post("/api/stacking/stop")
+    check(r2.get("ok") is True, "stop → ok")
+    ok = wait_until(lambda: api_get("/api/stacking/status").get("session", {}).get("running") is False,
+                    timeout=20)
+    check(ok, "session runner stopped after manual STOP")
+    files = sorted(glob.glob(os.path.join(r.get("session_dir", ""), "light_*.fits")))
+    check(len(files) >= 2, f"poses saved before stop (found {len(files)})")
+
+    # Master still savable after a stopped session (FITS + PNG)
+    mr = api_post("/api/stacking/save", {"dir": r.get("session_dir")})
+    check(mr.get("ok") is True and mr.get("path", "").endswith(".fits"),
+          "master FITS saved after manual STOP")
+    check(os.path.exists(mr.get("path", "")), "master FITS exists on disk")
+    mpng = api_post("/api/stacking/save", {"dir": r.get("session_dir"),
+                                           "format": "png"})
+    check(mpng.get("ok") is True and mpng.get("path", "").endswith(".png"),
+          "master PNG saved after manual STOP")
+    check(os.path.exists(mpng.get("path", "")), "master PNG exists on disk")
+
+    api_post("/api/stacking/reset")
+
+
+def test_calibration_only_with_dirs():
+    print("\n=== Test: dark/flat masters only when dirs are provided ===")
+    # 1. No dark/flat dirs → session runs untouched (no calibration step)
+    api_post("/api/stacking/reset")
+    st = api_get("/api/stacking/status")
+    check(st.get("error") is None, "no error with a bare stack")
+
+    # 2. With a valid flat dir → masters built and applied
+    with tempfile.TemporaryDirectory() as td:
+        flat_dir = os.path.join(td, "flats")
+        os.makedirs(flat_dir)
+        for i in range(3):
+            m = np.full((240, 320), 4000.0, np.float32) + \
+                np.random.default_rng(i).normal(0, 15, (240, 320)).astype(np.float32)
+            _arr_to_fits(m, os.path.join(flat_dir, f"f{i}.fits"))
+        r = api_post("/api/stacking/masters", {"flat_dir": flat_dir})
+        check(r.get("ok") is True, "masters endpoint ok")
+        check(r.get("calibration", {}).get("flat") is True,
+              "flat master built when flat_dir provided")
+        # A session using that flat dir starts and completes
+        r = api_post("/api/stacking/start", {
+            "duration": 0.1, "max_frames": 2,
+            "save_dir": SAVE_DIR, "filter": "L", "flat_dir": flat_dir})
+        check(r.get("ok") is True, "session with flat_dir started")
+        ok = wait_until(lambda: api_get("/api/stacking/status").get("complete") is True,
+                        timeout=30)
+        check(ok, "session with flat_dir completed")
+        api_post("/api/stacking/reset")
+
+    # 3. No dirs at all → calibration stays empty afterwards
+    r = api_post("/api/stacking/masters", {})
+    check(r.get("ok") is True, "masters endpoint with no dirs still ok")
+
+
+def test_dirs_filters_separation():
+    print("\n=== Test: capture_TS/{filtre}/ separated from livestack_TS/ ===")
+    # Run a 1-pose LIGHT sequence (capture_TS/L/...)
+    frames = [{"duration": 0.1, "frame_type": "LIGHT", "filter": "L",
+               "count": 1, "delay": 0.05}]
+    r = api_post("/api/sequence/start", {"frames": frames})
+    check(r.get("ok") is True, "sequence started")
+    wait_until(lambda: api_get("/api/sequence/status").get("running") is False,
+               timeout=25)
+
+    capture_dirs = sorted(glob.glob(os.path.join(SAVE_DIR, "capture_*")))
+    stack_dirs = sorted(glob.glob(os.path.join(SAVE_DIR, "livestack_*")))
+    check(capture_dirs, "a capture_* session dir exists")
+    check(stack_dirs, "a livestack_* session dir exists (left by previous tests)")
+
+    # capture_TS/{filtre}/ holds the light frames, typed by filter
+    cap_files = sorted(glob.glob(os.path.join(capture_dirs[-1], "L", "light_L_*.fits")))
+    check(len(cap_files) >= 1, f"sequence file under capture_*/L/ (found {len(cap_files)})")
+
+    # No overlap: capture dirs never contain livestack files and vice versa
+    for cap in capture_dirs:
+        check(not glob.glob(os.path.join(cap, "light_*.fits")),
+              "capture_* root has no stray light fits (only {filtre}/ subdirs)")
+    for st in stack_dirs:
+        bad = [os.path.basename(p) for p in glob.glob(os.path.join(st, "*.fits"))
+               if not (os.path.basename(p).startswith("light_")
+                       or os.path.basename(p).startswith("master_"))]
+        check(not bad,
+              "livestack_* only holds light_*.fits / master_* masters")
+
+
 # ── Main ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -244,6 +361,9 @@ sequence:
         test_save_master()
         test_reset_endpoint()
         test_auto_stacking_session()
+        test_continuous_session_manual_stop()
+        test_calibration_only_with_dirs()
+        test_dirs_filters_separation()
     finally:
         print("\n\nShutting down...")
         if "logfile" in dir() and logfile:

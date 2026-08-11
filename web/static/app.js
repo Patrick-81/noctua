@@ -520,10 +520,10 @@ class Viewer {
             }
         });
 
-        // Double-click reset
+        // Double-click reset / enlarge
         vp.addEventListener('dblclick', () => {
-            if (this.features?.enlarge) {
-                const btn = document.getElementById('cap-zoom-enlarge');
+            if (this.features?.enlarge && !isGuide) {
+                const btn = document.getElementById(this.zoomEnlargeId);
                 if (btn) btn.click();
             } else {
                 this.resetZoom();

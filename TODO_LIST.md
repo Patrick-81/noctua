@@ -33,17 +33,17 @@
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 
 ## À tester
-- [ ] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct
-- [ ] Live stacking avec dark/flat : masters po seulement si les dossiers sont renseignés (sinon aucune calibration)
-- [ ] Sauvegarde master (FITS + PNG) après une session terminée dans `livestack_TS/`
-- [ ] Fichiers `capture_TS/{filtre}/` bien séparés de `livestack_TS/`
-- [ ] **CR « Étoile perdue »** : re-tester calibration après Ctrl+Shift+R (hypothèse cache navigateur stale `app.js`). Si reproduit → fournir log mock + log serveur (`run.py`) pendant l'échec
-- [ ] Courbe SNR jaune visible pendant un guidage réel (mock ou caméra)
-- [ ] Toast « Calibration terminée » + bouton « Démarrer guidage »
-- [ ] Calibration : vérifier tracé correct + auto-population gains
-- [ ] Guidage : clic étoile → Capture → Auto → Lancer → graphe 120s
-- [ ] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻
-- [ ] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh).
+- [x] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct → `test_live_stack_flow.py::test_continuous_session_manual_stop`
+- [x] Live stacking avec dark/flat : masters po seulement si les dossiers sont renseignés (sinon aucune calibration) → `test_calibration_only_with_dirs`
+- [x] Sauvegarde master (FITS + PNG) après une session terminée dans `livestack_TS/` → inclus dans `test_continuous_session_manual_stop`
+- [x] Fichiers `capture_TS/{filtre}/` bien séparés de `livestack_TS/` → `test_dirs_filters_separation`
+- [x] **CR « Étoile perdue »** : re-tester calibration après Ctrl+Shift+R (hypothèse cache navigateur stale `app.js`). Si reproduit → fournir log mock + log serveur (`run.py`) pendant l'échec → **non reproductible** : calibration re-testée après refresh complet, retry focus-metric 3× vérifié (échecs transitoires injectés), gains auto + toast confirmés par `tests/guide-validation.spec.js`
+- [x] Courbe SNR jaune visible pendant un guidage réel (mock ou caméra) — testé : historique `/api/guide/status` porte le SNR, canvas drift dessiné
+- [x] Toast « Calibration terminée » + bouton « Démarrer guidage »
+- [x] Calibration : vérifier tracé correct + auto-population gains
+- [x] Guidage : clic étoile → Capture → Auto → Lancer → graphe 120s
+- [x] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻ — **fix** : double-clic en mode guidage cliquait `#cap-zoom-enlarge` (panneau capture) au lieu de reset le zoom (`Viewer.initZoomPan`, app.js)
+- [x] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh). → **non reproductible** : `tests/repro_guide_preview.js` (canvas 640×480, détection 50 étoiles, status «✨ 50 étoiles»). Cosmétique : `console.log` ligne 968 affiche les `%s` non substitués (sans impact).
 
 ## Améliorations possibles
 - [ ] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s
