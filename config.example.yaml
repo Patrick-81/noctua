@@ -1,0 +1,34 @@
+# Noctua — Exemple de configuration
+# Copiez ce fichier vers config.yaml puis ajustez les valeurs.
+indigo:
+  host: 192.168.1.25        # adresse du serveur INDIGO
+  port: 7624
+web:
+  host: 0.0.0.0             # interface d'écoute (0.0.0.0 = LAN local)
+  port: 8080
+site:
+  name: Montdurausse
+  latitude: 43.952          # degrés Nord
+  longitude: 1.568          # degrés Est
+  elevation: 210            # mètres
+  timezone: Europe/Paris
+telescope:
+  flip_enabled: true
+  hour_angle_margin: 0.0
+  min_altitude: 5.0
+  flip_slew_rate: Centering
+  recenter_after_flip: true
+sequence:
+  save_dir: ~/asteo/captures/
+  dither:
+    enabled: true
+    amount: 2.0
+  stack:
+    enabled: false
+    max_frames: 0
+  frames:
+    - duration: 60.0
+      frame_type: LIGHT
+      filter: ""
+      count: 1
+      delay: 1.0

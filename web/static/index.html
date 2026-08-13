@@ -4,9 +4,13 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Noctua — INDIGO Control</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='10' r='6' fill='%2300ffcc'/%3E%3Cpath d='M10 18l-4 12h20l-4-12Z' fill='%2300ffcc' opacity='.6'/%3E%3C/svg%3E">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
+    <link rel="icon" type="image/x-icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="stylesheet" href="/style.css">
     <script src="/lib/d3.min.js"></script>
+    <script src="/i18n.js"></script>
 </head>
 <body>
 
@@ -18,54 +22,58 @@
 
         <!-- APPLET: Sélecteur de mode (toujours visible) -->
         <div id="applet-mode-bar" class="glass-panel applet">
-            <button class="mode-btn active" data-mode="hardware" title="Matériel & propriétés">
+            <button class="mode-btn active" data-mode="hardware" title="Matériel & propriétés" data-i18n-title="mode.hardware.title">
                 <span class="mode-icon">🔧</span>
-                <span class="mode-label">Matériel</span>
+                <span class="mode-label" data-i18n="mode.hardware">Matériel</span>
             </button>
-            <button class="mode-btn" data-mode="mount" title="Pilotage Monture">
+            <button class="mode-btn" data-mode="mount" title="Pilotage Monture" data-i18n-title="mode.mount.title">
                 <span class="mode-icon">🔭</span>
-                <span class="mode-label">Monture</span>
+                <span class="mode-label" data-i18n="mode.mount">Monture</span>
             </button>
-            <button class="mode-btn" data-mode="focuser" title="Focuser">
+            <button class="mode-btn" data-mode="focuser" title="Focuser" data-i18n-title="mode.focuser.title">
                 <span class="mode-icon">🔍</span>
-                <span class="mode-label">Focuser</span>
+                <span class="mode-label" data-i18n="mode.focuser">Focuser</span>
             </button>
-            <button class="mode-btn" data-mode="guiding" title="Autoguidage">
+            <button class="mode-btn" data-mode="guiding" title="Autoguidage" data-i18n-title="mode.guiding.title">
                 <span class="mode-icon">🎯</span>
-                <span class="mode-label">Guidage</span>
+                <span class="mode-label" data-i18n="mode.guiding">Guidage</span>
             </button>
-            <button class="mode-btn" data-mode="capture" title="Capture">
+            <button class="mode-btn" data-mode="capture" title="Capture" data-i18n-title="mode.capture.title">
                 <span class="mode-icon">📷</span>
-                <span class="mode-label">Capture</span>
+                <span class="mode-label" data-i18n="mode.capture">Capture</span>
             </button>
-            <button class="mode-btn" data-mode="astrometry" title="Astrométrie">
+            <button class="mode-btn" data-mode="astrometry" title="Astrométrie" data-i18n-title="mode.astrometry.title">
                 <span class="mode-icon">⭐</span>
-                <span class="mode-label">Astro</span>
+                <span class="mode-label" data-i18n="mode.astrometry">Astro</span>
             </button>
         </div>
 
         <!-- APPLET: Connexion INDIGO (toujours visible) -->
         <div id="applet-connection" class="glass-panel applet">
             <div id="conn-row-top">
-                <select id="indigo-protocol" title="Protocole INDIGO">
+                <select id="indigo-protocol" title="Protocole INDIGO" data-i18n-title="conn.protocol.title">
                     <option value="connect">Connect</option>
                     <option value="attach">Attach</option>
                 </select>
-                <input id="indigo-ip" placeholder="Hôte" value="192.168.1.25" style="width:110px;">
-                <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;">
+                <input id="indigo-ip" placeholder="Hôte" value="192.168.1.25" style="width:110px;" data-i18n-placeholder="conn.host">
+                <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;" data-i18n-placeholder="conn.port">
                 <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
                 <span id="indigo-status" class="status-offline">● Hors ligne</span>
+                <select id="i18n-lang" title="Langue" style="margin-left:4px; font-size:0.55rem;">
+                    <option value="fr">FR</option>
+                    <option value="en">EN</option>
+                </select>
             </div>
             <div id="conn-row-attach" style="display:none;">
-                <span style="color:#666; font-size:0.6rem;">Driver:</span>
+                <span style="color:#666; font-size:0.6rem;" data-i18n="conn.driver">Driver:</span>
                 <select id="indigo-driver" style="width:160px;"></select>
-                <button id="btn-indigo-attach" class="btn-glass warning" style="font-size:0.6rem;">ATTACHER</button>
+                <button id="btn-indigo-attach" class="btn-glass warning" style="font-size:0.6rem;" data-i18n="conn.attach">ATTACHER</button>
             </div>
             <div id="conn-row-serial" style="display:none;">
                 <span style="color:#444;">|</span>
-                <span style="color:#666; font-size:0.6rem;">Port:</span>
+                <span style="color:#666; font-size:0.6rem;" data-i18n="conn.port_label">Port:</span>
                 <input id="indigo-serial" placeholder="/dev/ttyUSB0" style="width:110px;">
-                <button id="btn-indigo-apply-port" class="btn-glass" style="font-size:0.6rem;">APPLIQUER</button>
+                <button id="btn-indigo-apply-port" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.apply">APPLIQUER</button>
             </div>
             <div id="conn-row-location">
                 <span style="color:#88ff88;">📍</span>
@@ -73,39 +81,39 @@
                 <span style="color:#666;">°N</span>
                 <input id="obs-lon" value="1.568" style="width:60px;">
                 <span style="color:#666;">°E</span>
-                <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;">MAJ</button>
+                <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.update">MAJ</button>
             </div>
         </div>
 
         <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
         <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="hw.title">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div class="hw-row">
-                <span class="hw-label">Profil:</span>
+                <span class="hw-label" data-i18n="hw.profile">Profil:</span>
                 <select id="hw-profile-select" title="Profil actif"></select>
-                <button id="hw-profile-new" class="btn-glass" style="font-size:0.6rem;" title="Nouveau profil">＋</button>
-                <button id="hw-profile-save" class="btn-glass" style="font-size:0.6rem;" title="Enregistrer le profil actif">💾</button>
-                <button id="hw-profile-delete" class="btn-glass danger" style="font-size:0.6rem;" title="Supprimer le profil actif">🗑</button>
-                <button id="hw-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil">APPLIQUER</button>
+                <button id="hw-profile-new" class="btn-glass" style="font-size:0.6rem;" title="Nouveau profil" data-i18n-title="hw.new_profile">＋</button>
+                <button id="hw-profile-save" class="btn-glass" style="font-size:0.6rem;" title="Enregistrer le profil actif" data-i18n-title="hw.save_profile">💾</button>
+                <button id="hw-profile-delete" class="btn-glass danger" style="font-size:0.6rem;" title="Supprimer le profil actif" data-i18n-title="hw.delete_profile">🗑</button>
+                <button id="hw-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil" data-i18n="hw.apply_profile">APPLIQUER</button>
             </div>
             <div class="hw-row">
-                <span class="hw-label">Optique:</span>
+                <span class="hw-label" data-i18n="hw.optics">Optique:</span>
                 <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
             </div>
-            <div class="hw-section-title">DEVICES</div>
+            <div class="hw-section-title" data-i18n="hw.devices">DEVICES</div>
             <div id="hw-device-list" class="hw-device-list"></div>
             <div class="hw-row" style="margin-top:6px;">
-                <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;">Tout connecter</button>
-                <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;">Tout déconnecter</button>
-                <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir">⟳</button>
+                <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;" data-i18n="hw.connect_all">Tout connecter</button>
+                <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.disconnect_all">Tout déconnecter</button>
+                <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
                 <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
             </div>
-            <div class="hw-section-title">RÔLES</div>
+            <div class="hw-section-title" data-i18n="hw.roles">RÔLES</div>
             <div id="hw-role-assign" class="hw-role-assign"></div>
-            <div class="hw-section-title">PROPRIÉTÉS DU DEVICE</div>
+            <div class="hw-section-title" data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</div>
             <div class="hw-row">
                 <select id="hw-mode-device-select" class="hw-mode-device-select" style="flex:1;">
-                    <option value="">— Sélectionnez un device —</option>
+                    <option value="" data-i18n="hw.select_device">— Sélectionnez un device —</option>
                 </select>
             </div>
             <div id="hw-mode-props" class="device-panel hw-mode-props"></div>
@@ -113,23 +121,23 @@
 
         <!-- APPLET: Légende (toujours visible) -->
         <div id="applet-legend" class="glass-panel applet">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">LÉGENDE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div class="legend-item"><span class="line-sample" style="background: rgba(255,255,255,0.04);"></span> Voie Lactée</div>
-            <div class="legend-item"><span class="line-sample" style="background: #00ffff;"></span> Équateur Céleste</div>
-            <div class="legend-item"><span class="line-sample" style="border-top: 2px dashed #ffff00;"></span> Écliptique</div>
-            <div class="legend-item"><span class="line-sample" style="background: #ff00ff;"></span> Méridien Local</div>
-            <div class="legend-item"><span class="line-sample" style="background: rgba(0,255,204,0.2);"></span> Constellations</div>
-            <div class="legend-item"><span class="dot-sample" style="background: rgba(255,0,150,0.6);"></span> Ciel Profond</div>
-            <div class="legend-item"><span class="dot-sample" style="background: #ffcc00;"></span> Planètes</div>
-            <div class="legend-item"><span class="dot-sample" style="background: #ff8800; box-shadow: 0 0 8px #ff880066;"></span> Télescope</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="legend.title">LÉGENDE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div class="legend-item"><span class="line-sample" style="background: rgba(255,255,255,0.04);"></span> <span data-i18n="legend.milkyway">Voie Lactée</span></div>
+            <div class="legend-item"><span class="line-sample" style="background: #00ffff;"></span> <span data-i18n="legend.equator">Équateur Céleste</span></div>
+            <div class="legend-item"><span class="line-sample" style="border-top: 2px dashed #ffff00;"></span> <span data-i18n="legend.ecliptic">Écliptique</span></div>
+            <div class="legend-item"><span class="line-sample" style="background: #ff00ff;"></span> <span data-i18n="legend.meridian">Méridien Local</span></div>
+            <div class="legend-item"><span class="line-sample" style="background: rgba(0,255,204,0.2);"></span> <span data-i18n="legend.constellations">Constellations</span></div>
+            <div class="legend-item"><span class="dot-sample" style="background: rgba(255,0,150,0.6);"></span> <span data-i18n="legend.dso">Ciel Profond</span></div>
+            <div class="legend-item"><span class="dot-sample" style="background: #ffcc00;"></span> <span data-i18n="legend.planets">Planètes</span></div>
+            <div class="legend-item"><span class="dot-sample" style="background: #ff8800; box-shadow: 0 0 8px #ff880066;"></span> <span data-i18n="legend.telescope">Télescope</span></div>
         </div>
 
         <!-- APPLET: Log (toujours visible) -->
         <div id="applet-log" class="glass-panel applet">
             <div class="applet-drag">
                 <span class="drag-icon">⣿⣿</span>
-                <span class="hud-title" style="margin:0; border:none; padding:0;">LOG</span>
-                <button class="applet-minimize" title="Réduire / étendre"></button>
+                <span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="log.title">LOG</span>
+                <button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button>
             </div>
             <div class="log-header">
                 <div class="log-filters">
@@ -139,8 +147,8 @@
                     <label><input type="checkbox" data-level="debug"> debug</label>
                 </div>
                 <div class="log-actions">
-                    <button id="log-copy" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;">Copier</button>
-                    <button id="log-clear" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;">Clear</button>
+                    <button id="log-copy" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;" data-i18n="log.copy">Copier</button>
+                    <button id="log-clear" class="btn-glass" style="font-size:0.6rem; padding:2px 8px;" data-i18n="log.clear">Clear</button>
                 </div>
             </div>
             <div id="log-content"></div>
@@ -151,29 +159,29 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-status" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">STATUS</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div class="status-item"><span class="label">Tracking</span><span class="value" id="status-tracking">● OFF</span></div>
-            <div class="status-item"><span class="label">Slewing</span><span class="value" id="status-slewing">● IDLE</span></div>
-            <div class="status-item"><span class="label">Parking</span><span class="value" id="status-parking">● IDLE</span></div>
-            <div class="status-item"><span class="label">Homing</span><span class="value" id="status-homing">● IDLE</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="stat.title">STATUS</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div class="status-item"><span class="label" data-i18n="stat.tracking">Tracking</span><span class="value" id="status-tracking">● OFF</span></div>
+            <div class="status-item"><span class="label" data-i18n="stat.slewing">Slewing</span><span class="value" id="status-slewing">● IDLE</span></div>
+            <div class="status-item"><span class="label" data-i18n="stat.parking">Parking</span><span class="value" id="status-parking">● IDLE</span></div>
+            <div class="status-item"><span class="label" data-i18n="stat.homing">Homing</span><span class="value" id="status-homing">● IDLE</span></div>
         </div>
 
         <div id="applet-pilotage" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ PILOTAGE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="pil.title">◈ PILOTAGE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div id="obj-search-wrap">
-                <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off">
+                <input type="text" id="obj-search" placeholder="Rechercher (M1, NGC 7000...)" autocomplete="off" data-i18n-placeholder="pil.search">
                 <div id="obj-search-results" class="obj-search-results" style="display:none"></div>
             </div>
             <div style="margin-top:8px;"></div>
             <div class="joy-grid">
                 <div></div>
-                <button class="joy-btn" data-dir="north" title="Nord">▲</button>
+                <button class="joy-btn" data-dir="north" title="Nord" data-i18n-title="pil.north">▲</button>
                 <div></div>
-                <button class="joy-btn" data-dir="west" title="Ouest">◄</button>
-                <button class="joy-btn stop-btn" data-dir="stop" title="Stop">●</button>
-                <button class="joy-btn" data-dir="east" title="Est">►</button>
+                <button class="joy-btn" data-dir="west" title="Ouest" data-i18n-title="pil.west">◄</button>
+                <button class="joy-btn stop-btn" data-dir="stop" title="Stop" data-i18n-title="pil.stop_title">●</button>
+                <button class="joy-btn" data-dir="east" title="Est" data-i18n-title="pil.east">►</button>
                 <div></div>
-                <button class="joy-btn" data-dir="south" title="Sud">▼</button>
+                <button class="joy-btn" data-dir="south" title="Sud" data-i18n-title="pil.south">▼</button>
                 <div></div>
             </div>
             <div class="joy-speed-row">
@@ -183,84 +191,84 @@
                     <option value="Find" selected>Find</option>
                     <option value="Max">Max</option>
                 </select>
-                <button id="btn-sync" class="btn-glass" title="Synchroniser">⟳ SYNC</button>
+                <button id="btn-sync" class="btn-glass" title="Synchroniser" data-i18n-title="pil.sync">⟳ SYNC</button>
             </div>
             <div id="target-info" class="target-info">Cible : —</div>
             <div class="joy-speed-row" style="margin-top:6px;">
-                <button id="btn-obj-select" class="btn-glass" title="Choisir un objet du catalogue">🌌 OBJET</button>
-                <button id="btn-goto" class="btn-glass success" title="Pointer la cible sélectionnée">➤ GOTO</button>
+                <button id="btn-obj-select" class="btn-glass" title="Choisir un objet du catalogue" data-i18n-title="pil.object_btn">🌌 OBJET</button>
+                <button id="btn-goto" class="btn-glass success" title="Pointer la cible sélectionnée" data-i18n-title="pil.goto_btn">➤ GOTO</button>
             </div>
-            <div style="font-size:0.55rem; color:#666; margin-top:6px;">Maintien pour déplacement continu</div>
+            <div style="font-size:0.55rem; color:#666; margin-top:6px;" data-i18n="pil.hold_hint">Maintien pour déplacement continu</div>
             <div class="control-grid" style="margin-top:8px;">
-                <button id="btn-park" class="btn-glass warning">⏸ PARK</button>
-                <button id="btn-unpark" class="btn-glass success">▶ UNPARK</button>
-                <button id="btn-home" class="btn-glass">🏠 HOME</button>
-                <button id="btn-tracking" class="btn-glass success">🔭 TRACK</button>
-                <button id="btn-abort" class="btn-glass danger">⏹ STOP</button>
-                <button id="btn-emergency" class="btn-glass danger full">🛑 EMERGENCY</button>
+                <button id="btn-park" class="btn-glass warning" data-i18n="pil.park">⏸ PARK</button>
+                <button id="btn-unpark" class="btn-glass success" data-i18n="pil.unpark">▶ UNPARK</button>
+                <button id="btn-home" class="btn-glass" data-i18n="pil.home">🏠 HOME</button>
+                <button id="btn-tracking" class="btn-glass success" data-i18n="pil.track">🔭 TRACK</button>
+                <button id="btn-abort" class="btn-glass danger" data-i18n="pil.stop">⏹ STOP</button>
+                <button id="btn-emergency" class="btn-glass danger full" data-i18n="pil.emergency">🛑 EMERGENCY</button>
             </div>
             <div id="flip-panel" class="flip-panel" style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
                 <div class="control-grid" style="grid-template-columns:1fr auto;">
-                    <span style="font-size:0.6rem; color:#aaa; align-self:center;">MERIDIAN FLIP</span>
-                    <label class="layer-cb" style="font-size:0.6rem;"><input type="checkbox" id="flip-enabled"> auto</label>
+                    <span style="font-size:0.6rem; color:#aaa; align-self:center;" data-i18n="pil.flip">MERIDIAN FLIP</span>
+                    <label class="layer-cb" style="font-size:0.6rem;"><input type="checkbox" id="flip-enabled"> <span data-i18n="pil.flip_auto">auto</span></label>
                 </div>
                 <div id="flip-status" style="font-size:0.62rem; color:#888; margin-top:4px;">HA --- (calcul en attente)</div>
                 <div class="joy-speed-row" style="margin-top:6px;">
-                    <label style="font-size:0.55rem; color:#777; flex:1;">Marge HA (h)</label>
+                    <label style="font-size:0.55rem; color:#777; flex:1;" data-i18n="pil.flip_margin">Marge HA (h)</label>
                     <input type="number" id="flip-margin" step="0.1" min="-2" max="6" value="0" style="width:52px;">
                 </div>
                 <div class="joy-speed-row" style="margin-top:4px;">
-                    <label style="font-size:0.55rem; color:#777; flex:1;">Alt min (°)</label>
+                    <label style="font-size:0.55rem; color:#777; flex:1;" data-i18n="pil.flip_min_alt">Alt min (°)</label>
                     <input type="number" id="flip-min-alt" step="1" min="0" max="90" value="0" style="width:52px;">
                 </div>
                 <div class="control-grid" style="margin-top:6px;">
-                    <button id="btn-flip" class="btn-glass warning">⟳ FLIP</button>
+                    <button id="btn-flip" class="btn-glass warning" data-i18n="pil.flip_btn">⟳ FLIP</button>
                 </div>
             </div>
         </div>
 
         <div id="applet-hud" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ CONSOLE DE POINTAGE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div style="font-size:0.7rem; color:#aaa;">Réticule central (RA, DEC) :</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="hud.title">◈ CONSOLE DE POINTAGE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div style="font-size:0.7rem; color:#aaa;" data-i18n="hud.rt_label">Réticule central (RA, DEC) :</div>
             <div class="hud-value" id="tele-coords">000.00° , +00.00°</div>
-            <div style="font-size:0.7rem; color:#aaa; margin-top:6px;">Télescope :</div>
+            <div style="font-size:0.7rem; color:#aaa; margin-top:6px;" data-i18n="hud.telescope">Télescope :</div>
             <div class="hud-value" id="tele-real-coords" style="font-size:0.8rem; color:#ff8800;">--- Hors ligne ---</div>
             <div class="hud-geo" id="station-display">Station : 43.95°N / 1.57°E</div>
 
             <div class="slider-container">
-                <label for="mag-slider">Magnitude Limite : <span id="mag-value">6.0</span></label>
+                <label for="mag-slider"><span data-i18n="hud.mag">Magnitude Limite :</span> <span id="mag-value">6.0</span></label>
                 <input type="range" id="mag-slider" min="0.0" max="8.0" step="0.2" value="6.0">
             </div>
 
             <div class="rotation-locks">
                 <div class="hud-title" style="font-size:0.6rem; margin-bottom:3px;">VERROUillage ROTATION</div>
                 <div class="lock-row">
-                    <button id="btn-lock-zenith" class="btn-glass lock-btn" title="Bloquer rotation azimutale — ne garder que le bas/haut (altitude)">⊕ Zénith</button>
-                    <button id="btn-lock-ew" class="btn-glass lock-btn" title="Bloquer rotation altitude — ne garder que l'axe E/O (azimut)">⟷ E/O</button>
+                    <button id="btn-lock-zenith" class="btn-glass lock-btn" title="Bloquer rotation azimutale — ne garder que le bas/haut (altitude)" data-i18n-title="hud.lock_zenith.title" data-i18n="hud.lock_zenith">⊕ Zénith</button>
+                    <button id="btn-lock-ew" class="btn-glass lock-btn" title="Bloquer rotation altitude — ne garder que l'axe E/O (azimut)" data-i18n-title="hud.lock_ew.title" data-i18n="hud.lock_ew">⟷ E/O</button>
                 </div>
             </div>
 
             <div class="layer-toggles">
-                <button id="btn-toggle-display" class="btn-glass" style="font-size:0.65rem; width:100%;">☰ AFFICHAGE ▾</button>
+                <button id="btn-toggle-display" class="btn-glass" style="font-size:0.65rem; width:100%;" data-i18n="hud.display_btn">☰ AFFICHAGE ▾</button>
                 <div id="display-panel" class="display-panel" style="display:none;">
                     <div class="toggle-section">
-                        <div class="toggle-section-label">Objets</div>
-                        <label class="layer-cb"><input type="checkbox" data-layer="stars" checked> ⚪ Étoiles</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="dsos" checked> 🔴 DSO</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="planets" checked> 🟡 Planètes</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="constellations" checked> ✶ Constellations</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="milkyway" checked> ☁ Voie Lactée</label>
+                        <div class="toggle-section-label" data-i18n="hud.section.objects">Objets</div>
+                        <label class="layer-cb"><input type="checkbox" data-layer="stars" checked> <span data-i18n="hud.stars">⚪ Étoiles</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="dsos" checked> <span data-i18n="hud.dso">🔴 DSO</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="planets" checked> <span data-i18n="hud.planets">🟡 Planètes</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="constellations" checked> <span data-i18n="hud.constellations">✶ Constellations</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="milkyway" checked> <span data-i18n="hud.milkyway">☁ Voie Lactée</span></label>
                     </div>
                     <div class="toggle-section">
-                        <div class="toggle-section-label">Grilles / Lignes</div>
-                        <label class="layer-cb"><input type="checkbox" data-layer="grid" checked> ╋ Grille</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="equator" checked> — Équateur</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="ecliptic" checked> ╌ Écliptique</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="meridian" checked> ┆ Méridien</label>
-                        <label class="layer-cb"><input type="checkbox" data-layer="horizon" checked> 🌅 Horizon</label>
+                        <div class="toggle-section-label" data-i18n="hud.section.grids">Grilles / Lignes</div>
+                        <label class="layer-cb"><input type="checkbox" data-layer="grid" checked> <span data-i18n="hud.grid">╋ Grille</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="equator" checked> <span data-i18n="hud.equator">— Équateur</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="ecliptic" checked> <span data-i18n="hud.ecliptic">-- Écliptique</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="meridian" checked> <span data-i18n="hud.meridian">┆ Méridien</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="horizon" checked> <span data-i18n="hud.horizon">🌅 Horizon</span></label>
                     </div>
                     <div class="toggle-section">
-                        <div class="toggle-section-label">Catalogues DSO</div>
+                        <div class="toggle-section-label" data-i18n="hud.section.dso_cat">Catalogues DSO</div>
                         <label class="layer-cb"><input type="checkbox" data-catalog="messier" checked> M (Messier)</label>
                         <label class="layer-cb"><input type="checkbox" data-catalog="ngc" checked> NGC</label>
                         <label class="layer-cb"><input type="checkbox" data-catalog="ic" checked> IC</label>
@@ -271,31 +279,31 @@
                         <label class="layer-cb"><input type="checkbox" data-catalog="vdb" checked> VdB (van den Bergh)</label>
                         <label class="layer-cb"><input type="checkbox" data-catalog="lbn" checked> LBN</label>
                         <label class="layer-cb"><input type="checkbox" data-catalog="rcw" checked> RCW</label>
-                        <label class="layer-cb"><input type="checkbox" data-catalog="snr" checked> SNR (Rémanents)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="snr" checked> <span data-i18n="hud.snr">SNR (Rémanents)</span></label>
                         <label class="layer-cb"><input type="checkbox" data-catalog="cr" checked> Cr (Crab)</label>
-                        <label class="layer-cb"><input type="checkbox" data-catalog="other" checked> Autres (B, ESO, PGC...)</label>
+                        <label class="layer-cb"><input type="checkbox" data-catalog="other" checked> <span data-i18n="hud.other">Autres (B, ESO, PGC...)</span></label>
                     </div>
                 </div>
             </div>
 
             <div class="time-container">
-                <div class="hud-title" style="font-size:0.75rem; margin-bottom:4px; border-bottom-color:rgba(0,255,204,0.08);">⏱ GESTION TEMPORELLE</div>
+                <div class="hud-title" style="font-size:0.75rem; margin-bottom:4px; border-bottom-color:rgba(0,255,204,0.08);" data-i18n="hud.time_title">⏱ GESTION TEMPORELLE</div>
                 <div class="time-mode-toggle">
-                    <button id="btn-mode-realtime" class="mode-btn active">🕐 Temps Réel</button>
-                    <button id="btn-mode-manual" class="mode-btn">✏️ Manuel</button>
+                    <button id="btn-mode-realtime" class="mode-btn active" data-i18n="hud.realtime">🕐 Temps Réel</button>
+                    <button id="btn-mode-manual" class="mode-btn" data-i18n="hud.manual">✏️ Manuel</button>
                 </div>
                 <div id="manual-controls" style="display:none; gap:6px; flex-direction:column;">
                     <div style="display:flex; gap:6px;">
                         <input type="date" id="manual-date" style="flex:1;">
                         <input type="time" id="manual-time" step="1" style="flex:1;">
                     </div>
-                    <button id="btn-apply-manual" style="background:rgba(255,0,85,0.12); color:#ff0055; border:1px solid rgba(255,0,85,0.3); border-radius:4px; font-family:monospace; font-size:0.7rem; padding:4px; cursor:pointer;">Appliquer</button>
+                    <button id="btn-apply-manual" style="background:rgba(255,0,85,0.12); color:#ff0055; border:1px solid rgba(255,0,85,0.3); border-radius:4px; font-family:monospace; font-size:0.7rem; padding:4px; cursor:pointer;" data-i18n="hud.apply">Appliquer</button>
                 </div>
-                <div class="time-row"><span>Date/Heure locale :</span><span id="clock-display">--:--:--</span></div>
+                <div class="time-row"><span><span data-i18n="hud.local_time">Date/Heure locale :</span></span><span id="clock-display">--:--:--</span></div>
                 <div class="time-row"><span>LST :</span><span id="lst-display">--:--:--</span></div>
             </div>
 
-            <div class="hud-help">🖱️ Glisser : Pivoter | 📜 Molette : Zoom</div>
+            <div class="hud-help" data-i18n="hud.help">🖱️ Glisser : Pivoter | 📜 Molette : Zoom</div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
@@ -303,16 +311,16 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-focuser-control" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:80px; right:16px; width:220px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUSER</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="foc.title">◈ FOCUSER</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:6px 8px;">
                 <div class="cap-section">
-                    <div class="cap-label">Caméra</div>
+                    <div class="cap-label" data-i18n="foc.camera">Caméra</div>
                     <select id="foc-camera-select" class="input-glass" style="width:100%; font-size:0.65rem;">
-                        <option value="">— aucune —</option>
+                        <option value="" data-i18n="foc.none">— aucune —</option>
                     </select>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Position</div>
+                    <div class="cap-label" data-i18n="foc.position">Position</div>
                     <div class="cap-row" style="align-items:baseline; gap:6px;">
                         <span id="foc-pos-current" style="font-size:1.2rem; color:#00ffcc; font-weight:bold; font-family:monospace;">—</span>
                         <span style="font-size:0.65rem; color:#666;">/ <span id="foc-pos-target">—</span></span>
@@ -324,7 +332,7 @@
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Vitesse</div>
+                    <div class="cap-label" data-i18n="foc.speed">Vitesse</div>
                     <div class="cap-row">
                         <input id="foc-speed-input" type="number" class="input-glass" style="flex:1; width:60px;" value="500" min="1" max="10000" step="100">
                         <span style="font-size:0.6rem; color:#666;">steps/s</span>
@@ -332,7 +340,7 @@
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Déplacement rapide</div>
+                    <div class="cap-label" data-i18n="foc.fast_move">Déplacement rapide</div>
                     <div class="cap-row" style="gap:4px;">
                         <button class="btn-glass cap-btn-sm foc-rel" data-steps="-1000" style="flex:1;">−1k</button>
                         <button class="btn-glass cap-btn-sm foc-rel" data-steps="-100" style="flex:1;">−100</button>
@@ -343,26 +351,26 @@
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Position absolue</div>
+                    <div class="cap-label" data-i18n="foc.abs_position">Position absolue</div>
                     <div class="cap-row">
-                        <input id="foc-abs-input" type="number" class="input-glass" style="flex:1;" placeholder="position...">
+                        <input id="foc-abs-input" type="number" class="input-glass" style="flex:1;" placeholder="position..." data-i18n-placeholder="foc.abs_placeholder">
                         <button id="foc-abs-go" class="btn-glass success cap-btn-sm" style="flex:0;">GO</button>
                     </div>
                 </div>
                 <div class="cap-section cap-actions" style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:4px;">
-                    <button id="foc-halt-btn" class="btn-glass warning" style="width:100%; font-size:0.7rem;">⏹ Arrêter</button>
+                    <button id="foc-halt-btn" class="btn-glass warning" style="width:100%; font-size:0.7rem;" data-i18n="foc.halt">⏹ Arrêter</button>
                 </div>
             </div>
         </div>
 
         <div id="applet-focuser-position" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:340px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◈ FOCUS — HFR</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="foc-hfr.title">◈ FOCUS — HFR</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
-                    <span style="font-size:0.6rem; color:#666;">Steps: <span id="foc-hfr-count" style="color:#00ffcc;">0</span></span>
-                    <span style="font-size:0.6rem; color:#666;">Best: <span id="foc-hfr-best" style="color:#00ffcc;">—</span></span>
+                    <span style="font-size:0.6rem; color:#666;"><span data-i18n="foc-hfr.steps">Steps:</span> <span id="foc-hfr-count" style="color:#00ffcc;">0</span></span>
+                    <span style="font-size:0.6rem; color:#666;"><span data-i18n="foc-hfr.best">Best:</span> <span id="foc-hfr-best" style="color:#00ffcc;">—</span></span>
                     <div style="flex:1;"></div>
-                    <button id="foc-hfr-reset" class="btn-glass cap-btn-sm" style="font-size:0.55rem;">Reset</button>
+                    <button id="foc-hfr-reset" class="btn-glass cap-btn-sm" style="font-size:0.55rem;" data-i18n="foc-hfr.reset">Reset</button>
                 </div>
                 <canvas id="foc-hfr-canvas" width="320" height="100" style="width:100%; height:100px; background:#0a0a12; border-radius:4px;"></canvas>
                 <canvas id="foc-history-canvas" width="320" height="60" style="width:100%; height:60px; background:#0a0a12; border-radius:4px; margin-top:4px;"></canvas>
@@ -370,17 +378,17 @@
         </div>
 
         <div id="applet-autofocus" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; bottom:16px; right:16px; width:360px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◎ AUTOFOCUS — V-curve</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="af.title">◎ AUTOFOCUS — V-curve</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
-                    <span style="font-size:0.6rem; color:#666;">Plage:</span>
+                    <span style="font-size:0.6rem; color:#666;" data-i18n="af.range">Plage:</span>
                     <input id="af-range" type="number" class="input-glass" style="width:60px; font-size:0.65rem;" value="2000" min="100" max="20000" step="100">
-                    <span style="font-size:0.6rem; color:#666;">Points:</span>
+                    <span style="font-size:0.6rem; color:#666;" data-i18n="af.points">Points:</span>
                     <input id="af-points" type="number" class="input-glass" style="width:40px; font-size:0.65rem;" value="25" min="5" max="100">
                 </div>
                 <div style="display:flex; gap:4px; margin-bottom:4px;">
-                    <button id="af-start" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.65rem;">▶ Lancer</button>
-                    <button id="af-stop" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled>⏹ Stop</button>
+                    <button id="af-start" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.65rem;" data-i18n="af.start">▶ Lancer</button>
+                    <button id="af-stop" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled data-i18n="af.stop">⏹ Stop</button>
                 </div>
                 <div id="af-progress-wrap" style="display:none; margin-bottom:4px;">
                     <div style="display:flex; justify-content:space-between; font-size:0.6rem; color:#888; margin-bottom:2px;">
@@ -391,12 +399,12 @@
                         <div id="af-progress-bar" style="height:100%; width:0%; background:#00ffcc; border-radius:2px; transition:width 0.3s;"></div>
                     </div>
                     <div id="af-info-line" style="display:flex; justify-content:space-between; font-size:0.55rem; color:#666; margin-top:2px;">
-                        <span id="af-curr-hfr">HFR: —</span>
+                        <span id="af-curr-hfr"><span data-i18n="af.hfr">HFR:</span> —</span>
                         <span id="af-curr-pos">Pos: —</span>
                     </div>
                 </div>
                 <div id="af-result" style="display:none; font-size:0.6rem; color:#888; margin-bottom:4px;">
-                    <span>Best: <span id="af-best-pos" style="color:#00ffcc;">—</span></span>
+                    <span><span data-i18n="af.best">Best:</span> <span id="af-best-pos" style="color:#00ffcc;">—</span></span>
                     <span style="margin-left:8px;">HFR: <span id="af-best-hfr" style="color:#00ffcc;">—</span></span>
                 </div>
                 <canvas id="af-vcurve-canvas" width="340" height="120" style="width:100%; height:120px; background:#0a0a12; border-radius:4px;"></canvas>
@@ -408,34 +416,34 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-guide-checklist" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:430px; width:220px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ GUIDAGE — Checklist</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="guide.checklist.title">◎ GUIDAGE — Checklist</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div id="guide-checklist-body" style="padding:6px 8px;"></div>
         </div>
 
         <div id="applet-guide-preview" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; left:16px; width:400px; height:350px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ GUIDAGE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="guide.preview.title">◎ GUIDAGE — Aperçu</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div id="guide-preview-viewport" style="overflow:hidden; position:absolute; top:10%; left:7%; right:7%; bottom:21%; border-radius:4px; touch-action:none;">
                 <canvas id="guide-preview-canvas" style="width:100%; height:100%; display:block; border-radius:4px;"></canvas>
                 <canvas id="guide-preview-overlay" width="380" height="240" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; border-radius:4px;"></canvas>
             </div>
             <div id="guide-preview-status" style="font-size:0.6rem; color:#ffaa00; position:absolute; bottom:16.5%; left:7%; right:7%; text-align:center;">Cliquez «📷 Capture» ou «⭐ Auto»</div>
             <div style="position:absolute; bottom:5%; left:7%; right:7%; display:flex; gap:4px; align-items:center;">
-                <button id="guide-capture-btn" class="btn-glass" style="font-size:0.65rem;">📷 Capture</button>
-                <button id="guide-autoselect-btn" class="btn-glass" style="font-size:0.65rem;">⭐ Auto</button>
+                <button id="guide-capture-btn" class="btn-glass" style="font-size:0.65rem;" data-i18n="guide.capture">📷 Capture</button>
+                <button id="guide-autoselect-btn" class="btn-glass" style="font-size:0.65rem;" data-i18n="guide.auto">⭐ Auto</button>
                 <div style="flex:1;"></div>
                 <button id="guide-preview-zoom-reset" class="cap-zoom-btn">1:1</button>
                 <button id="guide-preview-zoom-fit" class="cap-zoom-btn">◻</button>
                 <span id="guide-preview-zoom-level" style="font-size:0.6rem; color:#888; min-width:36px;">100%</span>
-                <button id="guide-zoom-enlarge" class="cap-zoom-btn" title="Agrandir">⤢</button>
+                <button id="guide-zoom-enlarge" class="cap-zoom-btn" title="Agrandir" data-i18n-title="prev.enlarge">⤢</button>
             </div>
-            <div id="guide-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
+            <div id="guide-resize-handle" class="cap-resize-handle" title="Redimensionner" data-i18n-title="prev.resize_title">⣿</div>
         </div>
 
         <div id="applet-guiding-graph" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:620px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Dérive</span><button id="guide-refresh-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Rafraîchir">↻</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="guide.graph.title">◎ AUTOGUIDAGE — Dérive</span><button id="guide-refresh-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Rafraîchir" data-i18n-title="guide.refresh">↻</button><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:6px 8px;">
                 <div style="display:flex; gap:8px; align-items:center; margin-bottom:4px; font-size:0.6rem;">
-                    <span style="color:#666;">Trames: <span id="guide-frame-count" style="color:#00ffcc;">0</span></span>
+                    <span style="color:#666;"><span data-i18n="guide.frames">Trames:</span> <span id="guide-frame-count" style="color:#00ffcc;">0</span></span>
                     <span style="color:#666;">RA: <span id="guide-drift-ra" style="color:#00ffcc;">0.0</span>″</span>
                     <span style="color:#666;">DEC: <span id="guide-drift-dec" style="color:#00ffcc;">0.0</span>″</span>
                     <span style="color:#666;">Corr. RA: <span id="guide-corr-ra" style="color:#44cc44;">0ms —</span></span>
@@ -456,30 +464,30 @@
                 <div style="display:flex; gap:8px; margin-top:4px; font-size:0.6rem; color:#888;">
                     <span style="color:#44cc44;">● AD (RA)</span>
                     <span style="color:#4488ff;">● DEC</span>
-                    <span style="color:#ff4444;">— Tolérance</span>
+                    <span style="color:#ff4444;" data-i18n="guide.tolerance">— Tolérance</span>
                     <span style="color:#ffaa00;">── SNR</span>
                 </div>
             </div>
         </div>
 
         <div id="applet-guiding-settings" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:80px; right:16px; width:280px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ AUTOGUIDAGE — Paramètres</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="guide.settings.title">◎ AUTOGUIDAGE — Paramètres</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:6px 8px;">
                 <div class="cap-section">
-                    <div class="cap-label">Caméra guide</div>
+                    <div class="cap-label" data-i18n="guide.camera">Caméra guide</div>
                     <select id="guide-camera-select" class="input-glass" style="width:100%; font-size:0.65rem;">
-                        <option value="">— aucune —</option>
+                        <option value="" data-i18n="guide.no_guide_cam">— aucune —</option>
                     </select>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Exposition</div>
+                    <div class="cap-label" data-i18n="guide.exposure">Exposition</div>
                     <div class="cap-row">
                         <input id="guide-exposure" type="number" class="input-glass" style="flex:1; width:60px;" value="1.0" min="0.1" max="30" step="0.5">
                         <span style="font-size:0.6rem; color:#666;">sec</span>
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Binning</div>
+                    <div class="cap-label" data-i18n="guide.binning">Binning</div>
                     <div class="cap-row">
                         <select id="guide-binning" class="input-glass" style="flex:1; font-size:0.65rem;">
                             <option value="1">1×1</option>
@@ -489,27 +497,27 @@
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Agressivité</div>
+                    <div class="cap-label" data-i18n="guide.aggression">Agressivité</div>
                     <div class="cap-row">
                         <input id="guide-aggressiveness" type="range" class="input-glass" style="flex:1;" min="0" max="1" step="0.05" value="0.8">
                         <span id="guide-aggr-val" style="font-size:0.6rem; color:#00ffcc; width:28px; text-align:right;">0.8</span>
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Gain RA / DEC (px→ms)</div>
+                    <div class="cap-label" data-i18n="guide.gain_ra_dec">Gain RA / DEC (px→ms)</div>
                     <div class="cap-row" style="gap:4px;">
                         <input id="guide-ra-gain" type="number" class="input-glass" style="flex:1;" value="1.0" min="0.1" step="0.1">
                         <input id="guide-dec-gain" type="number" class="input-glass" style="flex:1;" value="1.0" min="0.1" step="0.1">
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Pulse max (ms)</div>
+                    <div class="cap-label" data-i18n="guide.max_pulse">Pulse max (ms)</div>
                     <div class="cap-row">
                         <input id="guide-max-pulse" type="number" class="input-glass" style="flex:1;" value="2000" min="100" max="5000" step="100">
                     </div>
                 </div>
                 <div class="cap-section">
-                    <div class="cap-label">Tolérance (± arcsec)</div>
+                    <div class="cap-label" data-i18n="guide.tol_label">Tolérance (± arcsec)</div>
                     <div class="cap-row">
                         <input id="guide-tolerance" type="number" class="input-glass" style="flex:1;" value="10" min="1" max="120" step="1">
                         <span style="font-size:0.6rem; color:#666;">″</span>
@@ -517,10 +525,10 @@
                 </div>
                 <div class="cap-section cap-actions" style="border-top:1px solid rgba(255,255,255,0.06); padding-top:6px; margin-top:4px;">
                     <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
-                        <button id="guide-start-btn" class="btn-glass success" style="font-size:0.65rem;">▶ Lancer</button>
-                        <button id="guide-stop-btn" class="btn-glass warning" style="font-size:0.65rem;" disabled>⏹ Stop</button>
-                        <button id="guide-pause-btn" class="btn-glass" style="font-size:0.65rem;" disabled>⏸ Pause</button>
-                        <button id="guide-reset-btn" class="btn-glass" style="font-size:0.65rem;">↺ Reset</button>
+                        <button id="guide-start-btn" class="btn-glass success" style="font-size:0.65rem;" data-i18n="guide.start">▶ Lancer</button>
+                        <button id="guide-stop-btn" class="btn-glass warning" style="font-size:0.65rem;" disabled data-i18n="af.stop">⏹ Stop</button>
+                        <button id="guide-pause-btn" class="btn-glass" style="font-size:0.65rem;" disabled data-i18n="guide.pause">⏸ Pause</button>
+                        <button id="guide-reset-btn" class="btn-glass" style="font-size:0.65rem;" data-i18n="guide.reset">↺ Reset</button>
                     </div>
                 </div>
             </div>
@@ -531,31 +539,29 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-calibration" class="glass-panel applet mode-specific" data-modes="guiding" style="display:none; top:440px; left:16px; width:520px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.85rem;">◎ CALIBRATION MONTURE</span><button id="cal-refresh-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Rafraîchir">↻</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.85rem;" data-i18n="cal.title">◎ CALIBRATION MONTURE</span><button id="cal-refresh-btn" class="btn-glass" style="font-size:0.5rem; padding:1px 5px; margin-left:auto; margin-right:4px;" title="Rafraîchir" data-i18n-title="guide.refresh">↻</button><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div style="padding:8px 10px;">
                 <div style="display:flex; gap:6px; margin-bottom:4px;">
-                    <button id="cal-start-btn" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;">▶ Calibrer</button>
-                    <button id="cal-stop-btn" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;" disabled>⏹ Stop</button>
+                    <button id="cal-start-btn" class="btn-glass success cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;" data-i18n="cal.calibrate">▶ Calibrer</button>
+                    <button id="cal-stop-btn" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.8rem; padding:6px;" disabled data-i18n="af.stop">⏹ Stop</button>
                 </div>
                 <div id="cal-status-wrap" style="display:none; font-size:0.75rem; color:#aaa; margin-bottom:6px;">
-                    <span id="cal-phase">Phase: —</span>
-                    <span style="margin-left:10px;" id="cal-step-count">Steps: 0</span>
-                    <span style="margin-left:10px;">
-                        Pulse: <input type="number" id="cal-pulse-ms" value="500" min="100" max="5000" step="50" style="width:55px; background:#1a1a2a; color:#ccc; border:1px solid #333; border-radius:2px; font-size:0.75rem; text-align:center;">ms
-                    </span>
+                    <span><span data-i18n="cal.phase">Phase:</span> <span id="cal-phase">—</span></span>
+                    <span style="margin-left:10px;"><span data-i18n="cal.steps">Steps:</span> <span id="cal-step-count">0</span></span>
+                    <span style="margin-left:10px;"><span data-i18n="cal.pulse">Pulse:</span> <input type="number" id="cal-pulse-ms" value="500" min="100" max="5000" step="50" style="width:55px; background:#1a1a2a; color:#ccc; border:1px solid #333; border-radius:2px; font-size:0.75rem; text-align:center;">ms</span>
                     <span style="margin-left:10px;" id="cal-quality"></span>
                 </div>
                 <div style="display:flex; gap:4px; margin-bottom:4px;">
-                    <button id="cal-tab-graph" class="btn-glass cap-btn-sm cal-tab-active" style="flex:1; font-size:0.7rem; padding:3px;">📊 Graphe</button>
-                    <button id="cal-tab-crosshair" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.7rem; padding:3px;">◎ Cible</button>
+                    <button id="cal-tab-graph" class="btn-glass cap-btn-sm cal-tab-active" style="flex:1; font-size:0.7rem; padding:3px;" data-i18n="cal.graph">📊 Graphe</button>
+                    <button id="cal-tab-crosshair" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.7rem; padding:3px;" data-i18n="cal.crosshair">◎ Cible</button>
                 </div>
                 <canvas id="cal-graph-canvas" width="500" height="260" style="width:100%; height:260px; background:#0a0a12; border-radius:4px;"></canvas>
                 <canvas id="cal-crosshair-canvas" width="500" height="260" style="width:100%; height:260px; background:#0a0a12; border-radius:4px; display:none;"></canvas>
                 <div id="cal-results" style="display:none; margin-top:6px; font-size:0.7rem; color:#888;">
-                    <span>Taux RA: <span id="cal-x-rate" style="color:#44cc44;">—</span> px/ms</span>
-                    <span style="margin-left:10px;">DEC: <span id="cal-y-rate" style="color:#4488ff;">—</span> px/ms</span>
-                    <span style="margin-left:10px;">Angle: <span id="cal-ortho" style="color:#00ffcc;">—</span>°</span>
-                    <span style="margin-left:10px;">Qualité: <span id="cal-badge" style="color:#4a4;">—</span></span>
+                    <span><span data-i18n="cal.rate_ra">Taux RA:</span> <span id="cal-x-rate" style="color:#44cc44;">—</span> px/ms</span>
+                    <span style="margin-left:10px;"><span data-i18n="cal.rate_dec">DEC:</span> <span id="cal-y-rate" style="color:#4488ff;">—</span> px/ms</span>
+                    <span style="margin-left:10px;"><span data-i18n="cal.angle">Angle:</span> <span id="cal-ortho" style="color:#00ffcc;">—</span>°</span>
+                    <span style="margin-left:10px;"><span data-i18n="cal.quality">Qualité:</span> <span id="cal-badge" style="color:#4a4;">—</span></span>
                 </div>
             </div>
         </div>
@@ -565,24 +571,24 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:260px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CAPTURE</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="cap.title">◎ CAPTURE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
             <!-- Camera status indicator -->
             <div class="cam-status-bar" id="cam-status-bar">
                 <span class="cam-status-led" id="cam-status-led"></span>
                 <span class="cam-status-label" id="cam-status-label">Pas de caméra</span>
-                <button id="btn-cam-connect" class="btn-glass success" style="font-size:0.55rem; display:none; margin-left:6px;">CONNECTER</button>
+                <button id="btn-cam-connect" class="btn-glass success" style="font-size:0.55rem; display:none; margin-left:6px;" data-i18n="cap.connect">CONNECTER</button>
             </div>
 
             <!-- Camera selector (only shown when >1 camera) -->
             <div class="cap-section" id="cap-camera-section" style="display:none;">
-                <div class="cap-label">Caméra</div>
+                <div class="cap-label" data-i18n="cap.camera">Caméra</div>
                 <select id="cap-camera-select" class="cap-select" style="width:100%;"></select>
             </div>
 
             <!-- Frame type -->
             <div class="cap-section">
-                <div class="cap-label">Type de frame</div>
+                <div class="cap-label" data-i18n="cap.frame_type">Type de frame</div>
                 <div class="cap-frame-type">
                     <button class="btn-glass cap-ft-btn active" data-frame="LIGHT">LIGHT</button>
                     <button class="btn-glass cap-ft-btn" data-frame="DARK">DARK</button>
@@ -593,31 +599,31 @@
 
             <!-- Filter wheel -->
             <div class="cap-section" id="cap-filter-section" style="display:none;">
-                <div class="cap-label">Filtre</div>
+                <div class="cap-label" data-i18n="cap.filter">Filtre</div>
                 <div class="cap-row">
                     <select id="cap-filter-select" class="cap-select">
-                        <option value="">— Aucun —</option>
+                        <option value="" data-i18n="cap.none">— Aucun —</option>
                     </select>
                     <span class="cap-info" id="cap-filter-wheel-info"></span>
                 </div>
                 <div class="cap-row" style="margin-top:4px;">
-                    <span class="cap-label" style="color:#666;">Séquence filtres:</span>
+                    <span class="cap-label" style="color:#666;" data-i18n="cap.filter_seq">Séquence filtres:</span>
                     <input type="text" id="cap-filter-seq" class="cap-input" placeholder="L,R,G,B ou Ha (vide = filtre courant)">
                 </div>
             </div>
 
             <!-- Exposure -->
             <div class="cap-section">
-                <div class="cap-label">Temps de pose</div>
+                <div class="cap-label" data-i18n="cap.exposure">Temps de pose</div>
                 <div class="cap-row">
-                    <input type="number" id="cap-exposure" class="cap-input" value="1.0" min="0" step="0.1" placeholder="secondes">
+                    <input type="number" id="cap-exposure" class="cap-input" value="1.0" min="0" step="0.1" placeholder="secondes" data-i18n-placeholder="cap.exposure_hint">
                     <span class="cap-unit">s</span>
                 </div>
             </div>
 
             <!-- Binning -->
             <div class="cap-section">
-                <div class="cap-label">Binning</div>
+                <div class="cap-label" data-i18n="guide.binning">Binning</div>
                 <div class="cap-row">
                     <select id="cap-binning" class="cap-select">
                         <option value="1">1×1</option>
@@ -630,7 +636,7 @@
 
             <!-- Gain -->
             <div class="cap-section">
-                <div class="cap-label">Gain</div>
+                <div class="cap-label" data-i18n="cap.gain">Gain</div>
                 <div class="cap-row">
                     <input type="range" id="cap-gain-slider" class="cap-slider" min="0" max="600" step="1" value="0">
                     <input type="number" id="cap-gain" class="cap-input cap-input-sm" value="0" min="0" max="600" step="1">
@@ -648,22 +654,22 @@
 
             <!-- Temperature -->
             <div class="cap-section">
-                <div class="cap-label">Température</div>
+                <div class="cap-label" data-i18n="cap.temp">Température</div>
                 <div class="cap-row">
                     <span class="cap-temp-current" id="cap-temp-current">--- °C</span>
                     <span class="cap-temp-arrow">→</span>
                     <input type="number" id="cap-target-temp" class="cap-input cap-input-sm" value="-10" step="0.5" placeholder="°C">
-                    <button id="cap-set-temp" class="btn-glass cap-btn-sm" title="Appliquer">❄</button>
+                    <button id="cap-set-temp" class="btn-glass cap-btn-sm" title="Appliquer" data-i18n-title="cap.temp_apply">❄</button>
                 </div>
             </div>
 
             <!-- Sequence -->
             <div class="cap-section">
-                <div class="cap-label">Séquence</div>
+                <div class="cap-label" data-i18n="cap.seq">Séquence</div>
                 <div class="cap-row">
-                    <span class="cap-seq-label">Nombre :</span>
+                    <span class="cap-seq-label" data-i18n="cap.count">Nombre :</span>
                     <input type="number" id="cap-count" class="cap-input cap-input-sm" value="1" min="1" max="999" step="1">
-                    <span class="cap-seq-label">Pause :</span>
+                    <span class="cap-seq-label" data-i18n="cap.pause">Pause :</span>
                     <input type="number" id="cap-delay" class="cap-input cap-input-sm" value="0" min="0" step="0.5">
                     <span class="cap-unit">s</span>
                 </div>
@@ -671,13 +677,13 @@
 
             <!-- Exposure progress -->
             <div class="cap-section cap-progress" id="cap-progress-section" style="display:none;">
-                <div class="cap-label">Progression</div>
+                <div class="cap-label" data-i18n="cap.progress">Progression</div>
                 <div class="cap-progress-bar">
                     <div class="cap-progress-fill" id="cap-progress-fill" style="width:0%"></div>
                 </div>
                 <div class="cap-progress-text" id="cap-progress-text">0 / 0</div>
                 <div class="cap-countdown-row" id="cap-countdown-row" style="display:none;">
-                    <span class="cap-countdown-label">Exposition</span>
+                    <span class="cap-countdown-label" data-i18n="cap.countdown">Exposition</span>
                     <span class="cap-countdown-value" id="cap-countdown">00:00.0</span>
                     <div class="cap-progress-bar" style="height:4px; margin-top:3px;">
                         <div class="cap-progress-fill cap-exp-fill" id="cap-exp-fill" style="width:0%;"></div>
@@ -687,47 +693,53 @@
 
             <!-- Actions -->
             <div class="cap-section cap-actions">
-                <button id="cap-expose-btn" class="btn-glass success cap-action-btn">▶ EXPOSER</button>
-                <button id="cap-abort-btn" class="btn-glass danger cap-action-btn">⏹ STOP</button>
+                <button id="cap-expose-btn" class="btn-glass success cap-action-btn" data-i18n="cap.expose">▶ EXPOSER</button>
+                <button id="cap-abort-btn" class="btn-glass danger cap-action-btn" data-i18n="seq.stop">⏹ STOP</button>
             </div>
 
             <!-- Save -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
-                <div class="cap-label">Sauvegarde</div>
+                <div class="cap-label" data-i18n="cap.save">Sauvegarde</div>
                 <div class="cap-row">
                     <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
-                    <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;">💾 Sauver</button>
+                    <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
                 </div>
+            </div>
+
+            <!-- Live stacking toggle -->
+            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
+                <button id="cap-stacking-toggle" class="btn-glass" style="width:100%; font-size:0.6rem; padding:4px 8px;" data-i18n="cap.stacking_toggle">◈ Live stacking</button>
             </div>
         </div>
 
         <!-- APPLET MODE: CAPTURE — Panneau SÉQUENCE -->
         <div id="applet-sequence" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:380px; max-height:calc(100vh - 140px);">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">▶ SÉQUENCE — plan d'acquisition</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="seq.title">▶ SÉQUENCE — plan d'acquisition</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
-            <div class="hw-section-title">Poses</div>
+            <div class="hw-section-title" data-i18n="seq.poses">Poses</div>
             <div id="seq-frame-list"></div>
             <div class="seq-toolbar">
-                <button id="seq-add-row" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;">＋ Ajouter une pose</button>
+                <button id="seq-add-row" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="seq.add_pose">＋ Ajouter une pose</button>
+                <button id="seq-del-last" class="btn-glass" style="font-size:0.6rem; padding:3px 8px; margin-left:4px;" title="Retirer la dernière pose" data-i18n-title="seq.remove_last">－</button>
             </div>
 
-            <div class="hw-section-title" style="margin-top:6px;">OPTIONS</div>
+            <div class="hw-section-title" style="margin-top:6px;" data-i18n="seq.options">OPTIONS</div>
             <div class="hw-row">
-                <span class="hw-label">Sauver dans :</span>
+                <span class="hw-label" data-i18n="seq.save_in">Sauver dans :</span>
                 <input type="text" id="seq-save-dir" class="cap-input" style="flex:1; min-width:0;" placeholder="~/captures/">
             </div>
             <div class="hw-row">
-                <label class="seq-chk" title="Décaler la référence de guidage entre chaque pose">
-                    <input type="checkbox" id="seq-dith-enabled"> Dither
+                <label class="seq-chk" title="Décaler la référence de guidage entre chaque pose" data-i18n-title="seq.dither_title">
+                    <input type="checkbox" id="seq-dith-enabled"> <span data-i18n="seq.dither">Dither</span>
                 </label>
-                <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
+                <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
             </div>
 
             <div class="seq-actions">
-                <button id="seq-start" class="btn-glass success" style="flex:1;">▶ DÉMARRER</button>
-                <button id="seq-pause" class="btn-glass" style="flex:1;" disabled>⏸ Pauser</button>
-                <button id="seq-stop" class="btn-glass danger" style="flex:1;" disabled>⏹ STOP</button>
-                <button id="seq-reset" class="btn-glass" style="flex:1;" disabled>⟲ Reset</button>
+                <button id="seq-start" class="btn-glass success" style="flex:1;" data-i18n="seq.start">▶ DÉMARRER</button>
+                <button id="seq-pause" class="btn-glass" style="flex:1;" disabled data-i18n="seq.pause">⏸ Pauser</button>
+                <button id="seq-stop" class="btn-glass danger" style="flex:1;" disabled data-i18n="seq.stop">⏹ STOP</button>
+                <button id="seq-reset" class="btn-glass" style="flex:1;" disabled data-i18n="common.reset">⟲ Reset</button>
             </div>
 
             <div class="cap-progress-bar" id="seq-progress-bar" style="margin-top:6px;">
@@ -742,44 +754,44 @@
 
         <!-- APPLET MODE: CAPTURE — Panneau LIVE STACKING -->
         <div id="applet-stacking" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:200px; left:16px; width:380px; max-height:calc(100vh - 140px);">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◈ LIVE STACKING — accumulation en direct</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="stk.title">◈ LIVE STACKING — accumulation en direct</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
-            <div class="hw-section-title">Configuration</div>
+            <div class="hw-section-title" data-i18n="stk.config">Configuration</div>
             <div class="hw-row">
-                <span class="hw-label">Durée de pose (s)</span>
+                <span class="hw-label" data-i18n="stk.duration">Durée de pose (s)</span>
                 <input type="number" id="stk-duration" class="cap-input" value="5" min="0.5" step="0.5" style="flex:1; min-width:0;">
             </div>
             <div class="hw-row">
-                <span class="hw-label">Poses à empiler</span>
-                <input type="number" id="stk-max-frames" class="cap-input" value="0" min="0" step="1" title="Nombre de LIGHT à accepter avant arrêt. 0 = en continu." style="flex:1; min-width:0;">
+                <span class="hw-label" data-i18n="stk.max_frames">Poses à empiler</span>
+                <input type="number" id="stk-max-frames" class="cap-input" value="0" min="0" step="1" title="Nombre de LIGHT à accepter avant arrêt. 0 = en continu." data-i18n-title="stk.max_frames_title" style="flex:1; min-width:0;">
             </div>
             <div class="hw-row">
-                <span class="hw-label">Filtre</span>
+                <span class="hw-label" data-i18n="stk.filter">Filtre</span>
                 <input type="text" id="stk-filter" class="cap-input" placeholder="L, R, Ha…" style="flex:1; min-width:0;">
             </div>
             <div class="hw-row">
-                <span class="hw-label">Sauver dans (root)</span>
+                <span class="hw-label" data-i18n="stk.save_root">Sauver dans (root)</span>
                 <input type="text" id="stk-save-dir" class="cap-input" placeholder="~/asteo/captures/" style="flex:1; min-width:0;">
             </div>
 
-            <div class="hw-section-title">Calibration (optionnel)</div>
+            <div class="hw-section-title" data-i18n="stk.calibration">Calibration (optionnel)</div>
             <div class="hw-row">
-                <span class="hw-label">Dark master</span>
+                <span class="hw-label" data-i18n="stk.dark">Dark master</span>
                 <input type="text" id="stk-dark-dir" class="cap-input" placeholder="répertoire FITS" style="flex:1; min-width:0;">
             </div>
             <div class="hw-row">
-                <span class="hw-label">Flat master</span>
+                <span class="hw-label" data-i18n="stk.flat">Flat master</span>
                 <input type="text" id="stk-flat-dir" class="cap-input" placeholder="répertoire FITS" style="flex:1; min-width:0;">
             </div>
 
             <div class="seq-actions" style="margin-top:8px;">
-                <button id="stk-start" class="btn-glass success" style="flex:1;">▶ DÉMARRER</button>
-                <button id="stk-stop" class="btn-glass danger" style="flex:1;" disabled>⏹ STOP</button>
-                <button id="stk-reset" class="btn-glass" style="flex:1;" disabled>⟲ Reset</button>
+                <button id="stk-start" class="btn-glass success" style="flex:1;" data-i18n="stk.start">▶ DÉMARRER</button>
+                <button id="stk-stop" class="btn-glass danger" style="flex:1;" disabled data-i18n="seq.stop">⏹ STOP</button>
+                <button id="stk-reset" class="btn-glass" style="flex:1;" disabled data-i18n="common.reset">⟲ Reset</button>
             </div>
             <div class="seq-actions" style="margin-top:4px;">
-                <button id="stk-save-master" class="btn-glass" style="flex:1;" disabled>💾 Sauver le master</button>
-                <button id="stk-save-png" class="btn-glass" style="flex:1;" disabled>🖼 Master PNG</button>
+                <button id="stk-save-master" class="btn-glass" style="flex:1;" disabled data-i18n="stk.save_master">💾 Sauver le master</button>
+                <button id="stk-save-png" class="btn-glass" style="flex:1;" disabled data-i18n="stk.save_png">🖼 Master PNG</button>
             </div>
 
             <div class="stk-status" id="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888;">Ready</div>
@@ -788,8 +800,8 @@
         </div>
 
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px; height:420px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
-            <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;">En attente d'image…</div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;" data-i18n="prev.waiting">En attente d'image…</div>
             <div id="cap-preview-wrap" style="display:none; position:absolute; top:10%; left:7%; right:7%; bottom:6%; flex-direction:column; min-height:0;">
                 <div id="cap-preview-viewport" style="flex:1; min-height:0; overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
                     <canvas id="cap-preview-canvas" style="width:100%; height:100%; display:block; border-radius:4px;"></canvas>
@@ -799,13 +811,13 @@
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
                 <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
-                    <button id="cap-zoom-reset" class="cap-zoom-btn" title="Zoom 100%">1:1</button>
-                    <button id="cap-zoom-fit" class="cap-zoom-btn" title="Adapter à la fenêtre">◻</button>
-                    <button id="cap-zoom-enlarge" class="cap-zoom-btn" title="Agrandir / réduire">⤢</button>
+                    <button id="cap-zoom-reset" class="cap-zoom-btn" title="Zoom 100%" data-i18n-title="prev.zoom100">1:1</button>
+                    <button id="cap-zoom-fit" class="cap-zoom-btn" title="Adapter à la fenêtre" data-i18n-title="prev.fit">◻</button>
+                    <button id="cap-zoom-enlarge" class="cap-zoom-btn" title="Agrandir / réduire" data-i18n-title="prev.enlarge">⤢</button>
                     <span id="cap-zoom-level" style="font-size:0.6rem; color:#888; min-width:36px;">100%</span>
                     <div style="flex:1;"></div>
-                    <button id="cap-histo-auto" class="cap-histo-auto-btn active" title="Extension auto/manuelle">AUTO</button>
-                    <span class="cap-histo-label">Noir</span>
+                    <button id="cap-histo-auto" class="cap-histo-auto-btn active" title="Extension auto/manuelle" data-i18n-title="prev.auto">AUTO</button>
+                    <span class="cap-histo-label" data-i18n="prev.black">Noir</span>
                     <input type="range" id="cap-histo-slider" class="cap-slider" min="0" max="100" value="0" style="flex:1;">
                     <span id="cap-histo-val" class="cap-histo-val">AUTO</span>
                 </div>
@@ -814,7 +826,7 @@
                 </div>
                 <canvas id="cap-histo-canvas" class="cap-histo-canvas"></canvas>
             </div>
-            <div id="cap-resize-handle" class="cap-resize-handle" title="Redimensionner">⣿</div>
+            <div id="cap-resize-handle" class="cap-resize-handle" title="Redimensionner" data-i18n-title="prev.resize_title">⣿</div>
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
@@ -822,11 +834,11 @@
         <!-- ══════════════════════════════════════════════════════ -->
 
         <div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:420px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ PLATE SOLVER — Seiza</span><button id="solver-test-btn" class="solver-test-btn" title="Images de test (dev)">🧪</button><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="solver.title">◎ PLATE SOLVER — Seiza</span><button id="solver-test-btn" class="solver-test-btn" title="Images de test (dev)" data-i18n-title="solver.test_images">🧪</button><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
             <!-- Test images dropdown -->
             <div id="solver-test-dropdown" class="solver-test-dropdown" style="display:none;">
-                <div class="solver-label">Images de test</div>
+                <div class="solver-label" data-i18n="solver.test_images">Images de test</div>
                 <div id="solver-test-list" class="solver-test-list"></div>
             </div>
 
@@ -838,16 +850,16 @@
 
             <!-- Mode selection -->
             <div class="solver-section">
-                <div class="solver-label">Mode</div>
+                <div class="solver-label" data-i18n="solver.mode">Mode</div>
                 <div class="solver-mode-row">
-                    <button class="btn-glass solver-mode-btn active" data-solver-mode="hinted" title="Utilise la position monture comme indice (rapide)">Indice</button>
-                    <button class="btn-glass solver-mode-btn" data-solver-mode="blind" title="Résolution sans indice (lent, 5-30s)">Blind</button>
+                    <button class="btn-glass solver-mode-btn active" data-solver-mode="hinted" title="Utilise la position monture comme indice (rapide)" data-i18n-title="solver.hinted.title" data-i18n="solver.hinted">Indice</button>
+                    <button class="btn-glass solver-mode-btn" data-solver-mode="blind" title="Résolution sans indice (lent, 5-30s)" data-i18n-title="solver.blind.title" data-i18n="solver.blind">Blind</button>
                 </div>
             </div>
 
             <!-- Hinted mode params -->
             <div id="solver-hinted-params" class="solver-section">
-                <div class="solver-label">Indice depuis monture</div>
+                <div class="solver-label" data-i18n="solver.hint_mount">Indice depuis monture</div>
                 <div class="solver-row">
                     <span class="solver-param-label">RA:</span>
                     <span class="solver-param-value" id="solver-ra-hint">--</span>
@@ -855,11 +867,11 @@
                     <span class="solver-param-value" id="solver-dec-hint">--</span>
                 </div>
                 <div class="solver-row">
-                    <span class="solver-param-label">Échelle:</span>
+                    <span class="solver-param-label" data-i18n="solver.scale">Échelle:</span>
                     <span class="solver-param-value" id="solver-scale-hint">-- arcsec/px</span>
                 </div>
                 <div class="solver-row" style="margin-top:4px;">
-                    <label class="solver-cb"><input type="checkbox" id="solver-auto-hint" checked> Auto (monture + caméra)</label>
+                    <label class="solver-cb"><input type="checkbox" id="solver-auto-hint" checked> <span data-i18n="solver.auto_hint">Auto (monture + caméra)</span></label>
                 </div>
                 <div id="solver-manual-hints" style="display:none;">
                     <div class="solver-row">
@@ -871,7 +883,7 @@
                         <input type="number" id="solver-dec-manual" class="solver-input" step="0.01" placeholder="35.2">
                     </div>
                     <div class="solver-row">
-                        <span class="solver-param-label">Scale:</span>
+                        <span class="solver-param-label" data-i18n="solver.scale">Scale:</span>
                         <input type="number" id="solver-scale-manual" class="solver-input" step="0.1" placeholder="2.5">
                         <span class="solver-unit">arcsec/px</span>
                     </div>
@@ -880,12 +892,12 @@
 
             <!-- Blind mode params -->
             <div id="solver-blind-params" class="solver-section" style="display:none;">
-                <div class="solver-label">Plage d'échelle</div>
+                <div class="solver-label" data-i18n="solver.scale_range">Plage d'échelle</div>
                 <div class="solver-row">
-                    <span class="solver-param-label">Min:</span>
+                    <span class="solver-param-label" data-i18n="solver.min">Min:</span>
                     <input type="number" id="solver-min-scale" class="solver-input" value="0.5" step="0.1" min="0.1">
                     <span class="solver-unit">arcsec/px</span>
-                    <span class="solver-param-label">Max:</span>
+                    <span class="solver-param-label" data-i18n="solver.max">Max:</span>
                     <input type="number" id="solver-max-scale" class="solver-input" value="15.0" step="0.5" min="0.5">
                     <span class="solver-unit">arcsec/px</span>
                 </div>
@@ -893,7 +905,7 @@
 
             <!-- Action buttons -->
             <div class="solver-actions">
-                <button id="solver-solve-btn" class="btn-glass success solver-action-btn">⭐ Résoudre (dernière image)</button>
+                <button id="solver-solve-btn" class="btn-glass success solver-action-btn" data-i18n="solver.solve_last">⭐ Résoudre (dernière image)</button>
             </div>
 
             <!-- Progress -->
@@ -906,7 +918,7 @@
 
             <!-- Results -->
             <div id="solver-results" class="solver-results" style="display:none;">
-                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;">Résultat</div>
+                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;" data-i18n="solver.result">Résultat</div>
                 <div class="solver-result-row">
                     <span class="solver-result-label">RA:</span>
                     <span class="solver-result-value" id="solver-res-ra">--</span>
@@ -916,15 +928,15 @@
                     <span class="solver-result-value" id="solver-res-dec">--</span>
                 </div>
                 <div class="solver-result-row">
-                    <span class="solver-result-label">Échelle:</span>
+                    <span class="solver-result-label" data-i18n="solver.scale">Échelle:</span>
                     <span class="solver-result-value" id="solver-res-scale">--</span>
                 </div>
                 <div class="solver-result-row">
-                    <span class="solver-result-label">Rotation:</span>
+                    <span class="solver-result-label" data-i18n="solver.rotation">Rotation:</span>
                     <span class="solver-result-value" id="solver-res-rotation">--</span>
                 </div>
                 <div class="solver-result-row">
-                    <span class="solver-result-label">Étoiles:</span>
+                    <span class="solver-result-label" data-i18n="solver.stars">Étoiles:</span>
                     <span class="solver-result-value" id="solver-res-matches">--</span>
                 </div>
                 <div class="solver-result-row">
@@ -936,14 +948,14 @@
                     <span class="solver-result-value" id="solver-res-fov">--</span>
                 </div>
                 <div class="solver-result-row" style="margin-top:4px;">
-                    <span class="solver-result-label">Mode:</span>
+                    <span class="solver-result-label" data-i18n="solver.mode_label">Mode:</span>
                     <span class="solver-result-value" id="solver-res-mode">--</span>
-                    <span class="solver-result-label">Temps:</span>
+                    <span class="solver-result-label" data-i18n="solver.time_label">Temps:</span>
                     <span class="solver-result-value" id="solver-res-time">--</span>
                 </div>
                 <div class="solver-actions" style="margin-top:6px;">
-                    <button id="solver-sync-btn" class="btn-glass warning solver-action-btn" title="Synchroniser la monture sur la position résolue">⟳ SYNC Monture</button>
-                    <button id="solver-center-btn" class="btn-glass solver-action-btn" title="Centrer la carte sur la position résolue">◎ Centrer carte</button>
+                    <button id="solver-sync-btn" class="btn-glass warning solver-action-btn" title="Synchroniser la monture sur la position résolue" data-i18n-title="solver.sync_mount.title" data-i18n="solver.sync_mount">⟳ SYNC Monture</button>
+                    <button id="solver-center-btn" class="btn-glass solver-action-btn" title="Centrer la carte sur la position résolue" data-i18n-title="solver.center_map.title" data-i18n="solver.center_map">◎ Centrer carte</button>
                 </div>
             </div>
 
@@ -952,11 +964,11 @@
         </div>
 
         <div id="applet-target" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:80px; right:16px; width:280px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ CIBLE — Centrage</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="tgt.title">◎ CIBLE — Centrage</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
             <!-- Coordonnées cible -->
             <div class="solver-section">
-                <div class="solver-label">Position cible</div>
+                <div class="solver-label" data-i18n="tgt.position">Position cible</div>
                 <div class="solver-row">
                     <span class="solver-param-label">RA:</span>
                     <input type="text" id="target-ra" class="solver-input" placeholder="HH:MM:SS" style="width:90px;">
@@ -966,14 +978,14 @@
                     <input type="text" id="target-dec" class="solver-input" placeholder="±DD:MM:SS" style="width:90px;">
                 </div>
                 <div class="solver-actions">
-                    <button id="target-set-btn" class="btn-glass solver-action-btn" title="Définir la cible (overlay)">◎ Définir</button>
-                    <button id="target-goto-btn" class="btn-glass success solver-action-btn" title="Envoyer la monture vers la cible">GOTO</button>
+                    <button id="target-set-btn" class="btn-glass solver-action-btn" title="Définir la cible (overlay)" data-i18n-title="tgt.set.title" data-i18n="tgt.set">◎ Définir</button>
+                    <button id="target-goto-btn" class="btn-glass success solver-action-btn" title="Envoyer la monture vers la cible" data-i18n-title="tgt.goto_btn.title" data-i18n="tgt.goto_btn">GOTO</button>
                 </div>
             </div>
 
             <!-- Offset display -->
             <div id="target-offset-section" class="solver-section" style="display:none;">
-                <div class="solver-label">Décalage résiduel</div>
+                <div class="solver-label" data-i18n="tgt.offset">Décalage résiduel</div>
                 <div class="solver-row">
                     <span class="solver-param-label">ΔRA:</span>
                     <span class="solver-param-value" id="target-dra">--</span>
@@ -981,16 +993,16 @@
                     <span class="solver-param-value" id="target-ddec">--</span>
                 </div>
                 <div class="solver-row">
-                    <span class="solver-param-label">Distance:</span>
+                    <span class="solver-param-label" data-i18n="tgt.distance">Distance:</span>
                     <span class="solver-param-value" id="target-dist">--</span>
-                    <span class="solver-param-label" style="margin-left:8px;">Direction:</span>
+                    <span class="solver-param-label" style="margin-left:8px;" data-i18n="tgt.direction">Direction:</span>
                     <span class="solver-param-value" id="target-dir">--</span>
                 </div>
             </div>
 
             <!-- Nudge controls -->
             <div class="solver-section">
-                <div class="solver-label">Nudge</div>
+                <div class="solver-label" data-i18n="tgt.nudge">Nudge</div>
                 <div class="solver-row" style="justify-content:center; gap:4px; margin-bottom:4px;">
                     <button class="nudge-amount-btn btn-glass active" data-nudge="1">1'</button>
                     <button class="nudge-amount-btn btn-glass" data-nudge="5">5'</button>
@@ -1007,8 +1019,8 @@
 
             <!-- Center button -->
             <div class="solver-actions">
-                <button id="target-center-btn" class="btn-glass warning solver-action-btn" title="Centrage itératif: solve → nudge → re-solve">⟳ Centrer</button>
-                <button id="target-stop-btn" class="btn-glass solver-action-btn" title="Arrêter le centrage" style="display:none;">⏹ Stop</button>
+                <button id="target-center-btn" class="btn-glass warning solver-action-btn" title="Centrage itératif: solve → nudge → re-solve" data-i18n-title="tgt.center.title" data-i18n="tgt.center">⟳ Centrer</button>
+                <button id="target-stop-btn" class="btn-glass solver-action-btn" title="Arrêter le centrage" data-i18n-title="tgt.stop_btn.title" style="display:none;" data-i18n="tgt.stop_btn">⏹ Stop</button>
             </div>
 
             <!-- Centering status -->
@@ -1021,33 +1033,33 @@
         </div>
 
         <div id="applet-polar" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:340px; right:16px; width:280px;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ MISE EN STATION — Polaire</span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="pol.title">◎ MISE EN STATION — Polaire</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
             <!-- Mode selection -->
             <div class="solver-section">
                 <div class="solver-row">
                     <button class="btn-glass solver-mode-btn active polar-mode-btn" data-polar-mode="auto">Auto</button>
-                    <button class="btn-glass solver-mode-btn polar-mode-btn" data-polar-mode="manual">Manuel</button>
+                    <button class="btn-glass solver-mode-btn polar-mode-btn" data-polar-mode="manual" data-i18n="pol.manual">Manuel</button>
                 </div>
             </div>
 
             <!-- Parameters -->
             <div class="solver-section">
-                <div class="solver-label">Paramètres</div>
+                <div class="solver-label" data-i18n="pol.params">Paramètres</div>
                 <div class="solver-row">
-                    <span class="solver-param-label">Angle:</span>
+                    <span class="solver-param-label" data-i18n="pol.angle">Angle:</span>
                     <input type="number" id="polar-angle" class="solver-input" value="30" min="5" max="120" step="5">
                     <span class="solver-unit">min (±)</span>
                 </div>
                 <div class="solver-row">
-                    <span class="solver-param-label">DEC pôle:</span>
+                    <span class="solver-param-label" data-i18n="pol.dec_pole">DEC pôle:</span>
                     <span class="solver-param-value" id="polar-dec-target">--</span>
                 </div>
             </div>
 
             <!-- Mount control -->
             <div class="solver-section">
-                <div class="solver-label">Contrôle monture</div>
+                <div class="solver-label" data-i18n="pol.mount_ctrl">Contrôle monture</div>
                 <div class="solver-row" style="gap:4px;">
                     <button id="polar-track-btn" class="btn-glass solver-action-btn" style="flex:1;">Tracking ON</button>
                     <button id="polar-unpark-btn" class="btn-glass solver-action-btn" style="flex:1;">Unpark</button>
@@ -1077,7 +1089,7 @@
                     <span class="solver-param-value" id="polar-s1-dec">--</span>
                 </div>
                 <div class="solver-actions">
-                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="0">Capturer + Résoudre</button>
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="0" data-i18n="pol.capture_solve">Capturer + Résoudre</button>
                 </div>
             </div>
 
@@ -1095,7 +1107,7 @@
                     <span class="solver-param-value" id="polar-s2-dec">--</span>
                 </div>
                 <div class="solver-actions">
-                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="1">Capturer + Résoudre</button>
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="1" data-i18n="pol.capture_solve">Capturer + Résoudre</button>
                 </div>
             </div>
 
@@ -1113,30 +1125,30 @@
                     <span class="solver-param-value" id="polar-s3-dec">--</span>
                 </div>
                 <div class="solver-actions">
-                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="2">Capturer + Résoudre</button>
+                    <button class="btn-glass success solver-action-btn polar-capture-btn polar-manual-only" data-step="2" data-i18n="pol.capture_solve">Capturer + Résoudre</button>
                 </div>
             </div>
 
             <!-- Results (hidden until 3 solves done) -->
             <div id="polar-results" class="solver-section" style="display:none;">
-                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;">Erreur polaire</div>
+                <div class="solver-label" style="border-bottom:1px solid rgba(0,255,204,0.12); padding-bottom:4px;" data-i18n="pol.polar_error">Erreur polaire</div>
 
                 <div class="polar-result-row">
-                    <span class="solver-param-label">Altitude:</span>
+                    <span class="solver-param-label" data-i18n="pol.altitude">Altitude:</span>
                     <span class="polar-result-value" id="polar-err-alt">--</span>
                     <span class="polar-arrow" id="polar-arrow-alt"></span>
                 </div>
                 <div class="polar-result-row">
-                    <span class="solver-param-label">Azimut:</span>
+                    <span class="solver-param-label" data-i18n="pol.azimuth">Azimut:</span>
                     <span class="polar-result-value" id="polar-err-az">--</span>
                     <span class="polar-arrow" id="polar-arrow-az"></span>
                 </div>
                 <div class="polar-result-row">
-                    <span class="solver-param-label">Totale:</span>
+                    <span class="solver-param-label" data-i18n="pol.total">Totale:</span>
                     <span class="polar-result-value" id="polar-err-total">--</span>
                 </div>
                 <div class="polar-result-row" style="margin-top:4px;">
-                    <span class="solver-param-label">Pôle trouvé:</span>
+                    <span class="solver-param-label" data-i18n="pol.pole_found">Pôle trouvé:</span>
                     <span class="solver-param-value" id="polar-pole-ra">--</span>
                     <span class="solver-param-value" id="polar-pole-dec">--</span>
                 </div>
@@ -1147,16 +1159,16 @@
 
             <!-- Actions -->
             <div class="solver-actions">
-                <button id="polar-start-btn" class="btn-glass success solver-action-btn" title="Lancer la séquence auto">▶ Démarrer</button>
-                <button id="polar-stop-btn" class="btn-glass warning solver-action-btn" title="Arrêter la séquence" style="display:none;">⏹ Stop</button>
-                <button id="polar-recalc-btn" class="btn-glass solver-action-btn" title="Relancer les 3 captures">⟳ Recalculer</button>
-                <button id="polar-reset-btn" class="btn-glass solver-action-btn" title="Réinitialiser">⟲ Reset</button>
+                <button id="polar-start-btn" class="btn-glass success solver-action-btn" title="Lancer la séquence auto" data-i18n-title="pol.start.title" data-i18n="pol.start">▶ Démarrer</button>
+                <button id="polar-stop-btn" class="btn-glass warning solver-action-btn" title="Arrêter la séquence" data-i18n-title="pol.stop_btn.title" style="display:none;" data-i18n="tgt.stop_btn">⏹ Stop</button>
+                <button id="polar-recalc-btn" class="btn-glass solver-action-btn" title="Relancer les 3 captures" data-i18n-title="pol.recalc.title" data-i18n="pol.recalc">⟳ Recalculer</button>
+                <button id="polar-reset-btn" class="btn-glass solver-action-btn" title="Réinitialiser" data-i18n-title="pol.reset.title" data-i18n="pol.reset">⟲ Reset</button>
             </div>
         </div>
 
         <!-- APPLET: Propriétés device (commun, mais positionné) -->
         <div id="applet-props" class="glass-panel applet" style="display:none;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title">PROPRIÉTÉS</span></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title" data-i18n="props.title">PROPRIÉTÉS</span></div>
         </div>
 
     </div><!-- /applets-layer -->
@@ -1168,16 +1180,16 @@
     <div id="obj-select-overlay" class="popup-overlay" style="display:none">
         <div class="popup-panel" style="width:480px; max-width:95vw;">
             <div class="popup-header">
-                <h2>Sélecteur d'objet</h2>
+                <h2 data-i18n="objsel.title">Sélecteur d'objet</h2>
                 <button id="obj-select-close" class="popup-close">&times;</button>
             </div>
             <div class="popup-body">
-                <input type="text" id="obj-select-search" class="prop-input" placeholder="Filtrer (M1, NGC 7000, Véga...)" autocomplete="off" style="width:100%; margin-bottom:6px;">
+                <input type="text" id="obj-select-search" class="prop-input" placeholder="Filtrer (M1, NGC 7000, Véga...)" data-i18n-placeholder="objsel.placeholder" autocomplete="off" style="width:100%; margin-bottom:6px;">
                 <div id="obj-select-results" class="obj-select-results"></div>
             </div>
             <div class="popup-footer">
-                <button id="obj-select-goto" class="btn-glass success" title="Pointer l'objet sélectionné">➤ GOTO</button>
-                <button id="obj-select-cancel" class="btn-glass">Fermer</button>
+                <button id="obj-select-goto" class="btn-glass success" title="Pointer l'objet sélectionné" data-i18n-title="objsel.goto" data-i18n="common.goto">➤ GOTO</button>
+                <button id="obj-select-cancel" class="btn-glass" data-i18n="objsel.close">Fermer</button>
             </div>
         </div>
     </div>
@@ -1186,38 +1198,38 @@
     <div id="site-popup-overlay" class="popup-overlay" style="display:none">
         <div class="popup-panel">
             <div class="popup-header">
-                <h2>Lieu d'observation</h2>
+                <h2 data-i18n="site.title">Lieu d'observation</h2>
                 <button id="site-popup-close" class="popup-close">&times;</button>
             </div>
             <div class="popup-body">
                 <div class="site-field">
-                    <label>Nom du site</label>
-                    <input type="text" id="site-name" class="prop-input" placeholder="Ex: Montdurausse" style="width:100%">
+                    <label data-i18n="site.name">Nom du site</label>
+                    <input type="text" id="site-name" class="prop-input" placeholder="Ex: Montdurausse" data-i18n-placeholder="site.name_hint" style="width:100%">
                 </div>
                 <div class="site-field">
-                    <label>Ville</label>
+                    <label data-i18n="site.city">Ville</label>
                     <div class="site-city-row">
-                        <input type="text" id="site-city-search" class="prop-input" placeholder="Rechercher une ville..." style="width:100%">
+                        <input type="text" id="site-city-search" class="prop-input" placeholder="Rechercher une ville..." data-i18n-placeholder="site.city_search" style="width:100%">
                         <div id="site-city-results" class="city-results" style="display:none"></div>
                     </div>
                 </div>
                 <div class="site-coords">
                     <div class="site-field">
-                        <label>Latitude (°N)</label>
+                        <label data-i18n="site.lat">Latitude (°N)</label>
                         <input type="number" id="site-lat" class="prop-input" step="0.0001" placeholder="48.8566">
                     </div>
                     <div class="site-field">
-                        <label>Longitude (°E)</label>
+                        <label data-i18n="site.lng">Longitude (°E)</label>
                         <input type="number" id="site-lng" class="prop-input" step="0.0001" placeholder="2.3522">
                     </div>
                 </div>
                 <div class="site-coords">
                     <div class="site-field">
-                        <label>Altitude (m)</label>
+                        <label data-i18n="site.elev">Altitude (m)</label>
                         <input type="number" id="site-elev" class="prop-input" step="1" placeholder="0">
                     </div>
                     <div class="site-field">
-                        <label>Timezone</label>
+                        <label data-i18n="site.tz">Timezone</label>
                         <select id="site-tz" class="prop-input" style="width:100%">
                             <option value="Europe/Paris" selected>Europe/Paris</option>
                             <option value="UTC">UTC</option>
@@ -1229,11 +1241,11 @@
                         </select>
                     </div>
                 </div>
-                <button id="site-gps-btn" class="set-btn" style="width:100%;margin-top:0.3rem">📍 Géolocaliser (GPS)</button>
+                <button id="site-gps-btn" class="set-btn" style="width:100%;margin-top:0.3rem" data-i18n="site.gps">📍 Géolocaliser (GPS)</button>
             </div>
             <div class="popup-footer">
-                <button id="site-save-btn" class="set-btn btn-save">Sauvegarder</button>
-                <button id="site-cancel-btn" class="set-btn">Annuler</button>
+                <button id="site-save-btn" class="set-btn btn-save" data-i18n="site.save">Sauvegarder</button>
+                <button id="site-cancel-btn" class="set-btn" data-i18n="site.cancel">Annuler</button>
             </div>
         </div>
     </div>

@@ -45,6 +45,31 @@
 - [x] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻ — **fix** : double-clic en mode guidage cliquait `#cap-zoom-enlarge` (panneau capture) au lieu de reset le zoom (`Viewer.initZoomPan`, app.js)
 - [x] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh). → **non reproductible** : `tests/repro_guide_preview.js` (canvas 640×480, détection 50 étoiles, status «✨ 50 étoiles»). Cosmétique : `console.log` ligne 968 affiche les `%s` non substitués (sans impact).
 
+## En chantier — Internationalisation FR/EN + mobile/tablette (session interrompue le 2026-08-12)
+
+État du travail non commité (`git status` : app.js, index.html, style.css, start.sh modifiés + fichiers non suivis).
+
+### Internationalisation (FR/EN) — fait
+- [x] `web/static/i18n.js` (nouveau, ~950 l) : dictionnaires fr/en complets, détection langue navigateur, persistance JSON localStorage, API `I18N.t()` / `I18N.tfmt()` / `apply()` / `setLang()`
+- [x] `index.html` : balisage `data-i18n` / `data-i18n-title` / `data-i18n-placeholder` sur l'ensemble de l'UI statique + chargement de `i18n.js` avant `app.js`
+- [x] `app.js` : shims locaux `i18n()`/`i18nFmt()`, sélecteur de langue `#i18n-lang` (initI18nSelector), ~31 messages `addLog` migrés vers des clés i18n
+- [x] Vérification croisée : les 311 clés référencées existent bien dans les 2 dictionnaires (fr + en) — script de contrôle OK
+
+### Internationalisation — restant
+- [ ] **~28 messages** `addLog` encore en français littéral (lignes repérées : 2818, 3023, 3026, 3193, 3822, 4200, 4654, 4708, 4722, 4732, 4761, 4888, 4895, 4903, 4998, 5345, 5591, 5787, 5993, 5995, 6165, 6710, 6734, 6900, 6906, 6916, 6943, 7238) — migrer vers `i18n('log.…')`/`i18nFmt`
+- [ ] Vérifier boutons/places restantes sans `data-i18n` (choix, textes interpolés JS autres que addLog)
+- [ ] Mettre à jour `docs/UTILISATION.md` (mention sélecteur de langue, fichiers i18n)
+
+### Mobile / tablette — fait
+- [x] Icônes PWA/favicons (favicon.svg/ico/png, icon-16/32/64/192/256, apple-touch-icon) + `index.html` head lié
+- [x] Vueport mobile : layout des panneaux clampé dans le viewport — `resolvePanelLayout()`/`sanitizePanelLayout()` + refacto `checkOverlap` (app.js), panneaux glissables cantonnés (margin + blocage overlap via `getBlockingRects`)
+- [x] Media query `@media (max-width: 768px)` existante (style.css) pour barre modes/connexion/panneaux
+- [x] Live stacking sorti des applets auto-visibles du mode capture → **bouton toggle** `#cap-stacking-toggle` + classe `.stacking-on` (style.css)
+
+### Mobile / tablette — restant
+- [ ] Vérifier que le toggle stacking se ré-affiche correctement après un changement de mode capture (affichage forcé par switchMode)
+- [ ] Optionnel : manifest.json PWA + thème couleur si souhaité (icônes déjà prêtes)
+
 ## Améliorations possibles
 - [ ] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s
 - [ ] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible

@@ -364,6 +364,7 @@ body {
 .btn-glass.warning:hover { background: rgba(255, 204, 0, 0.15); }
 .btn-glass.danger { color: #ff5577; border-color: rgba(255, 85, 119, 0.3); }
 .btn-glass.danger:hover { background: rgba(255, 85, 119, 0.15); }
+.btn-glass.stacking-on { background: rgba(0, 255, 204, 0.25); border-color: #00ffcc; }
 .cal-tab-active { background: rgba(0, 255, 204, 0.15) !important; border-color: #00ffcc !important; color: #00ffcc !important; }
 
 /* ── Inputs ─────────────────────────────────────────────────── */

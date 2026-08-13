@@ -98,6 +98,43 @@ async function uiClick(page, selector) {
   }, selector.replace(/^#/, ''));
 }
 
+async function uiWheel(page, viewportId, deltaY) {
+  // Same overlap caveat as uiClick: real mouse.wheel events are delivered to
+  // whatever element is under the pointer (the drift panel can cover the guide
+  // preview centre), so dispatch a synthetic wheel directly on the viewport.
+  await page.evaluate(({ id, dy }) => {
+    const vp = document.getElementById(id);
+    if (!vp) throw new Error(`missing #${id}`);
+    const rect = vp.getBoundingClientRect();
+    vp.dispatchEvent(new WheelEvent('wheel', {
+      bubbles: true, cancelable: true,
+      deltaY: dy,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    }));
+  }, { id: viewportId, dy: deltaY });
+}
+
+async function uiDrag(page, viewportId, dx, dy) {
+  // Synthetic drag: mousedown lands on the viewport (drift panel may cover it),
+  // then mousemove/mouseup on window (where initZoomPan registers them).
+  await page.evaluate(({ id, dx, dy }) => {
+    const vp = document.getElementById(id);
+    if (!vp) throw new Error(`missing #${id}`);
+    const rect = vp.getBoundingClientRect();
+    const x0 = rect.left + rect.width / 2, y0 = rect.top + rect.height / 2;
+    vp.dispatchEvent(new MouseEvent('mousedown', {
+      bubbles: true, cancelable: true, clientX: x0, clientY: y0,
+    }));
+    window.dispatchEvent(new MouseEvent('mousemove', {
+      bubbles: true, cancelable: true, clientX: x0 + dx, clientY: y0 + dy,
+    }));
+    window.dispatchEvent(new MouseEvent('mouseup', {
+      bubbles: true, cancelable: true, clientX: x0 + dx, clientY: y0 + dy,
+    }));
+  }, { id: viewportId, dx, dy });
+}
+
 async function enterGuiding(page) {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await sleep(2000);
@@ -251,7 +288,7 @@ test.describe.serial('Calibration + guidage validation (items 5-10)', () => {
 
     // Molette → zoom increases past 1 (guide pan requires zoom > 1)
     await page.mouse.move(cx, cy);
-    await page.mouse.wheel(0, -1500);
+    await uiWheel(page, 'guide-preview-viewport', -1500);
     if (process.env.CI) await sleep(100);
     const zoomAfterWheel = await page.evaluate(() => __viewer.guideViewer ? __viewer.guideViewer.zoom : 0);
     expect(zoomAfterWheel).toBeGreaterThan(zoomBefore);
@@ -261,10 +298,7 @@ test.describe.serial('Calibration + guidage validation (items 5-10)', () => {
 
     // Clic-glisser → pan changes
     const panBefore = await page.evaluate(() => __viewer.guideViewer ? __viewer.guideViewer.panX : 0);
-    await page.mouse.move(cx, cy);
-    await page.mouse.down();
-    await page.mouse.move(cx + 60, cy + 30, { steps: 8 });
-    await page.mouse.up();
+    await uiDrag(page, 'guide-preview-viewport', 60, 30);
     const panAfter = await page.evaluate(() => __viewer.guideViewer ? __viewer.guideViewer.panX : 0);
     expect(panAfter).not.toBe(panBefore);
 
@@ -281,8 +315,11 @@ test.describe.serial('Calibration + guidage validation (items 5-10)', () => {
     expect(zoomFit).toBeLessThan(1);
 
     // Double-clic → reset zoom (spec item: double-clic reset)
-    await page.mouse.move(cx, cy);
-    await page.dblclick('#guide-preview-viewport', { position: { x: box.width / 2, y: box.height / 2 } });
+    await page.evaluate(() => {
+      const vp = document.getElementById('guide-preview-viewport');
+      if (!vp) throw new Error('missing #guide-preview-viewport');
+      vp.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+    });
     if (process.env.CI) await sleep(100);
     const zoomDbl = await page.evaluate(() => __viewer.guideViewer ? __viewer.guideViewer.zoom : 0);
     expect(zoomDbl).toBe(1);

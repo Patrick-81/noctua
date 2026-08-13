@@ -4,6 +4,15 @@
 
 import { SkyEngine } from '/sky-engine.js';
 
+// ── Traduction ────────────────────────────────────────────────
+// Délègue à I18N (global défini par i18n.js). Repli sûr si absent.
+function i18n(key) {
+    return (typeof I18N !== 'undefined' && typeof I18N.t === 'function') ? I18N.t(key) : key;
+}
+function i18nFmt(key, vars) {
+    return (typeof I18N !== 'undefined' && typeof I18N.tfmt === 'function') ? I18N.tfmt(key, vars) : key;
+}
+
 // ── State ─────────────────────────────────────────────────────
 
 let ws = null;
@@ -809,7 +818,7 @@ const MODES = {
         driverType: 'ccd'
     },
     capture: {
-        applets: ['applet-capture-settings', 'applet-stacking', 'applet-capture-preview', 'applet-sequence'],
+        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence'],
         driverType: 'ccd'
     },
     astrometry: {
@@ -918,6 +927,17 @@ function initModeBar() {
     });
 }
 
+// ── Internationalisation ──────────────────────────────────────
+
+function initI18nSelector() {
+    const sel = document.getElementById('i18n-lang');
+    if (!sel || typeof I18N === 'undefined') return;
+    sel.value = I18N.current;
+    sel.addEventListener('change', () => {
+        I18N.setLang(sel.value);
+    });
+}
+
 // ── WebSocket ─────────────────────────────────────────────────
 
 function connectWS() {
@@ -925,12 +945,12 @@ function connectWS() {
     ws = new WebSocket(`${proto}//${location.host}/ws`);
 
     ws.onopen = () => {
-        addLog('info', 'ws', 'WebSocket connecté');
+        addLog('info', 'ws', i18n('log.ws.connected'));
         _refreshGuideCameraList();
     };
 
     ws.onclose = () => {
-        addLog('warning', 'ws', 'WebSocket déconnecté, reconnexion...');
+        addLog('warning', 'ws', i18n('log.ws.disconnected'));
         setTimeout(connectWS, 2000);
     };
 
@@ -1204,24 +1224,24 @@ function setTargetObject(obj) {
 
 function mountGoto() {
     if (!_targetObject) {
-        addLog('warning', 'mount', 'Aucune cible — choisissez un objet (clic carte, recherche, ou bouton OBJET)');
+        addLog('warning', 'mount', i18n('log.mount.no_target'));
         return;
     }
     const raH = (((_targetObject.ra % 360) + 360) % 360) / 15;
     apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: _targetObject.dec });
-    addLog('info', 'mount', `GOTO ${_targetObject.id} RA=${raH.toFixed(4)}h DEC=${_targetObject.dec.toFixed(4)}°`);
+    addLog('info', 'mount', i18nFmt('log.mount.goto_ok', { id: _targetObject.id, ra: raH.toFixed(4), dec: _targetObject.dec.toFixed(4) }));
 }
 
 function mountMove(dir) {
     const m = findMount();
     if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
     const speed = document.getElementById('slew-speed')?.value;
-    addLog('debug', 'mount', `move ${dir} rate=${speed}`);
+    addLog('debug', 'mount', i18nFmt('log.mount.move_rate', { dir, speed }));
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });
 }
 
 function mountHaltMove() {
-    addLog('debug', 'mount', 'halt move');
+    addLog('debug', 'mount', i18n('log.mount.halt_move'));
     apiPost('/api/mount/halt');
 }
 
@@ -1238,15 +1258,15 @@ function mountUnpark() { apiPost('/api/mount/unpark'); }
 function mountHome() { apiPost('/api/mount/home'); }
 
 function mountFlip() {
-    addLog('info', 'mount', 'Déclenchement du meridian flip...');
+    addLog('info', 'mount', i18n('log.mount.flip_trigger'));
     fetch('/api/mount/flip', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
         .then(r => r.json())
         .then(res => {
-            if (res.error) { addLog('error', 'mount', `Flip échoué: ${res.error}`); return; }
+            if (res.error) { addLog('error', 'mount', i18nFmt('log.mount.flip_failed', { err: res.error })); return; }
             const phases = (res.phases || []).join(' → ');
-            addLog('info', 'mount', `Flip OK: ${phases}`);
+            addLog('info', 'mount', i18nFmt('log.mount.flip_ok', { phases }));
         })
-        .catch(e => addLog('error', 'mount', `Flip erreur réseau: ${e}`));
+        .catch(e => addLog('error', 'mount', i18nFmt('log.mount.flip_net', { err: e })));
 }
 
 function saveFlipConfig() {
@@ -1261,7 +1281,7 @@ function saveFlipConfig() {
             hour_angle_margin: margin,
             min_altitude: minAlt,
         } }),
-    }).catch(e => addLog('warning', 'mount', `Config flip non sauvegardée: ${e}`));
+    }).catch(e => addLog('warning', 'mount', i18nFmt('log.mount.flip_cfg', { err: e })));
 }
 
 // ── Property panel (generic) ──────────────────────────────────
@@ -1323,11 +1343,22 @@ function renderProps(deviceName) {
             container.style.zIndex = 50;
             container.style.transition = 'none';
             newHandle.style.cursor = 'grabbing';
+
+            const margin = 8;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            const w = container.offsetWidth, h = container.offsetHeight;
+            const blockers = getBlockingRects(container);
+
             function onMove(ev) {
                 let left = ev.clientX - offsetX;
                 let top = ev.clientY - offsetY;
-                left = Math.max(0, Math.min(window.innerWidth - 60, left));
-                top = Math.max(0, Math.min(window.innerHeight - 40, top));
+                left = Math.max(margin, Math.min(left, vw - w - margin));
+                top = Math.max(margin, Math.min(top, vh - h - margin));
+                const cand = { left, top, right: left + w, bottom: top + h };
+                for (const b of blockers) {
+                    if (!(cand.right <= b.left || b.right <= cand.left ||
+                          cand.bottom <= b.top || b.bottom <= cand.top)) return;
+                }
                 container.style.left = left + 'px';
                 container.style.top = top + 'px';
                 container.style.right = '';
@@ -1340,7 +1371,7 @@ function renderProps(deviceName) {
                 container.style.zIndex = '';
                 container.style.transition = '';
                 saveAppletPositions();
-                checkOverlap();
+                resolvePanelLayout();
             }
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);
@@ -1410,8 +1441,8 @@ function apiPost(url, body) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     }).then(r => r.json()).then(data => {
-        if (data.error) addLog('error', 'api', data.error);
-    }).catch(e => addLog('error', 'api', e.message));
+        if (data.error) addLog('error', 'api', i18nFmt('log.ws.error', { err: data.error }));
+    }).catch(e => addLog('error', 'api', i18nFmt('log.ws.error', { err: e.message })));
 }
 
 // ── Utilities ─────────────────────────────────────────────────
@@ -1489,7 +1520,7 @@ function copyLog() {
     const text = logEntries.map(e => `[${e.dataset.level}] [${e.dataset.logger}] ${e.dataset.msg}`).join('\n');
     if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(text).then(
-            () => addLog('info', 'log', 'Log copié'),
+            () => addLog('info', 'log', i18n('log.log.copied')),
             () => copyLogFallback(text)
         );
     } else {
@@ -1506,9 +1537,9 @@ function copyLogFallback(text) {
     ta.select();
     try {
         document.execCommand('copy');
-        addLog('info', 'log', 'Log copié');
+        addLog('info', 'log', i18n('log.log.copied'));
     } catch (e) {
-        addLog('error', 'log', 'Échec copie');
+        addLog('error', 'log', i18n('log.log.copy_failed'));
     }
     document.body.removeChild(ta);
 }
@@ -1589,7 +1620,7 @@ function initButtons() {
     bind('btn-emergency', () => {
         mountAbort();
         mountToggleTracking();
-        addLog('warning', 'mount', 'ARRÊT D\'URGENCE activé');
+        addLog('warning', 'mount', i18n('log.mount.emergency'));
     });
     bind('btn-sync', () => {
         if (!skyEngine) return;
@@ -1694,7 +1725,7 @@ function initObjectSearch() {
         setTargetObject(r);
         if (skyEngine) {
             skyEngine.centerOnObject(r.ra, r.dec);
-            addLog('info', 'search', `Objet: ${r.id} (${r.catalog})`);
+            addLog('info', 'search', i18nFmt('log.search.object', { id: r.id, catalog: r.catalog }));
         }
     }
 
@@ -1787,7 +1818,7 @@ function initObjectSelector() {
         setTargetObject(o);
         if (skyEngine) {
             skyEngine.centerOnObject(o.ra, o.dec);
-            addLog('info', 'mount', `Cible définie : ${o.id} (${o.catalog || ''})`);
+            addLog('info', 'mount', i18nFmt('log.mount.target_set', { id: o.id, cat: o.catalog || '' }));
         }
     }
 
@@ -1821,7 +1852,7 @@ function initObjectSelector() {
     });
     if (gotoBtn) gotoBtn.addEventListener('click', () => {
         const o = activeObj || filtered.slice(0, 300)[0];
-        if (!o) { addLog('warning', 'mount', 'Aucun objet sélectionné'); return; }
+        if (!o) { addLog('warning', 'mount', i18n('log.mount.no_object')); return; }
         selectObject(o);
         mountGoto();
     });
@@ -1852,9 +1883,9 @@ async function loadObjectCatalogs() {
             objects.push({ id: o.id, name: o.names?.[0] || null, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'BSC', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
         }
         if (skyEngine) skyEngine._objects = objects;
-        addLog('info', 'sky', `${objects.length} objets chargés pour hit-test`);
+        addLog('info', 'sky', i18nFmt('log.sky.hit_test', { n: objects.length }));
     } catch (e) {
-        addLog('warning', 'sky', 'Catalogues objets non disponibles: ' + e.message);
+        addLog('warning', 'sky', i18nFmt('log.sky.catalog_error', { err: e.message }));
     }
 }
 
@@ -1934,7 +1965,7 @@ function initSitePopup() {
 
     if (gpsBtn) {
         gpsBtn.addEventListener('click', () => {
-            if (!navigator.geolocation) { addLog('warning', 'site', 'Géolocalisation non supportée'); return; }
+            if (!navigator.geolocation) { addLog('warning', 'site', i18n('log.site.unsupported')); return; }
             gpsBtn.textContent = '⏳ Localisation...';
             gpsBtn.disabled = true;
             navigator.geolocation.getCurrentPosition(
@@ -1946,7 +1977,7 @@ function initSitePopup() {
                     gpsBtn.disabled = false;
                 },
                 err => {
-                    addLog('warning', 'site', `GPS échoué: ${err.message}`);
+                    addLog('warning', 'site', i18nFmt('log.site.gps_failed', { err: err.message }));
                     gpsBtn.textContent = '📍 Géolocaliser (GPS)';
                     gpsBtn.disabled = false;
                 },
@@ -1970,11 +2001,11 @@ function initSitePopup() {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(body),
                 });
-                addLog('info', 'site', `Lieu sauvegardé: ${body.latitude.toFixed(4)}°N ${body.longitude.toFixed(4)}°E`);
+                addLog('info', 'site', i18nFmt('log.site.saved', { lat: body.latitude.toFixed(4), lng: body.longitude.toFixed(4) }));
                 if (skyEngine) skyEngine.updateSite(body.latitude, body.longitude, body.elevation);
                 closePopup();
             } catch (e) {
-                addLog('error', 'site', `Erreur: ${e.message}`);
+                addLog('error', 'site', i18nFmt('log.site.error', { err: e.message }));
             }
         });
     }
@@ -2097,7 +2128,7 @@ function initConnectionBar() {
             const protocol = protoSelect?.value || 'connect';
             const host = ipInput?.value || '192.168.1.25';
             const port = parseInt(portInput?.value || '7624', 10);
-            addLog('info', 'ws', `Connexion ${protocol} → ${host}:${port}...`);
+            addLog('info', 'ws', i18nFmt('log.ws.connecting', { proto: protocol, host, port }));
             try {
                 const res = await fetch('/api/connection', {
                     method: 'POST',
@@ -2105,10 +2136,10 @@ function initConnectionBar() {
                     body: JSON.stringify({ protocol, host, port }),
                 });
                 const data = await res.json();
-                if (data.ok) addLog('info', 'ws', `Paramètres mis à jour: ${protocol} ${host}:${port}`);
-                else addLog('error', 'ws', `Erreur: ${JSON.stringify(data)}`);
+                if (data.ok) addLog('info', 'ws', i18nFmt('log.ws.params_updated', { proto: protocol, host, port }));
+                else addLog('error', 'ws', i18nFmt('log.ws.error', { err: JSON.stringify(data) }));
             } catch (e) {
-                addLog('error', 'ws', `Erreur connexion: ${e.message}`);
+                addLog('error', 'ws', i18nFmt('log.ws.error_conn', { err: e.message }));
             }
         });
     }
@@ -2117,8 +2148,8 @@ function initConnectionBar() {
     if (attachBtn && driverSelect) {
         attachBtn.addEventListener('click', async () => {
             const driver = driverSelect.value;
-            if (!driver) { addLog('warning', 'ws', 'Aucun driver sélectionné'); return; }
-            addLog('info', 'ws', `Attachement du driver: ${driver}...`);
+            if (!driver) { addLog('warning', 'ws', i18n('log.ws.no_driver')); return; }
+            addLog('info', 'ws', i18nFmt('log.ws.attaching', { driver }));
             try {
                 const res = await fetch('/api/drivers/attach', {
                     method: 'POST',
@@ -2126,10 +2157,10 @@ function initConnectionBar() {
                     body: JSON.stringify({ driver }),
                 });
                 const data = await res.json();
-                if (data.ok) addLog('info', 'ws', `Driver "${driver}" attaché`);
-                else addLog('error', 'ws', `Erreur attach: ${JSON.stringify(data)}`);
+                if (data.ok) addLog('info', 'ws', i18nFmt('log.ws.driver_attached', { driver }));
+                else addLog('error', 'ws', i18nFmt('log.ws.attach_error', { err: JSON.stringify(data) }));
             } catch (e) {
-                addLog('error', 'ws', `Erreur attach: ${e.message}`);
+                addLog('error', 'ws', i18nFmt('log.ws.attach_error', { err: e.message }));
             }
         });
     }
@@ -2139,8 +2170,8 @@ function initConnectionBar() {
         applyPortBtn.addEventListener('click', async () => {
             const device = driverSelect?.value;
             const port = serialInput.value.trim();
-            if (!device || !port) { addLog('warning', 'ws', 'Driver ou port manquant'); return; }
-            addLog('info', 'ws', `Configuration port série: ${device} → ${port}`);
+            if (!device || !port) { addLog('warning', 'ws', i18n('log.ws.serial_configured')); return; }
+            addLog('info', 'ws', i18nFmt('log.ws.serial_config', { device, port }));
             try {
                 const res = await fetch('/api/property', {
                     method: 'POST',
@@ -2152,10 +2183,10 @@ function initConnectionBar() {
                     }),
                 });
                 const data = await res.json();
-                if (data.ok) addLog('info', 'ws', `Port série configuré: ${port}`);
-                else addLog('error', 'ws', `Erreur port: ${JSON.stringify(data)}`);
+                if (data.ok) addLog('info', 'ws', i18nFmt('log.ws.serial_configured', { port }));
+                else addLog('error', 'ws', i18nFmt('log.ws.port_error', { err: JSON.stringify(data) }));
             } catch (e) {
-                addLog('error', 'ws', `Erreur port: ${e.message}`);
+                addLog('error', 'ws', i18nFmt('log.ws.port_error', { err: e.message }));
             }
         });
     }
@@ -2419,12 +2450,12 @@ function initHardwarePanel() {
         });
         await hwLoad();
         renderHardwarePanel();
-        addLog('info', 'hw', `Profil "${name}" créé`);
+        addLog('info', 'hw', i18nFmt('log.hw.profile_created', { name }));
     });
 
     if (saveBtn) saveBtn.addEventListener('click', async () => {
         const ap = hwActiveProfile();
-        if (!ap) { addLog('warning', 'hw', 'Aucun profil actif à enregistrer'); return; }
+        if (!ap) { addLog('warning', 'hw', i18n('log.hw.no_active_save')); return; }
         const body = { name: ap.name };
         for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
         body.optics = ap.optics || '';
@@ -2434,7 +2465,7 @@ function initHardwarePanel() {
         });
         await hwLoad();
         renderHardwarePanel();
-        addLog('info', 'hw', `Profil "${ap.name}" enregistré`);
+        addLog('info', 'hw', i18nFmt('log.hw.profile_saved', { name: ap.name }));
     });
 
     if (delBtn) delBtn.addEventListener('click', async () => {
@@ -2447,21 +2478,21 @@ function initHardwarePanel() {
         });
         await hwLoad();
         renderHardwarePanel();
-        addLog('info', 'hw', `Profil "${ap.name}" supprimé`);
+        addLog('info', 'hw', i18nFmt('log.hw.profile_deleted', { name: ap.name }));
     });
 
     if (applyBtn) applyBtn.addEventListener('click', async () => {
         const ap = hwActiveProfile();
-        if (!ap) { addLog('warning', 'hw', 'Aucun profil à appliquer'); return; }
-        addLog('info', 'hw', `Application du profil "${ap.name}"...`);
+        if (!ap) { addLog('warning', 'hw', i18n('log.hw.no_profile_apply')); return; }
+        addLog('info', 'hw', i18nFmt('log.hw.profile_applying', { name: ap.name }));
         const res = await fetch('/api/profiles/apply', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: ap.name }),
         }).then(r => r.json()).catch(() => null);
         await hwLoad();
         renderHardwarePanel();
-        if (res?.ok) addLog('info', 'hw', `Profil "${ap.name}" appliqué`);
-        else if (res?.error) addLog('error', 'hw', res.error);
+        if (res?.ok) addLog('info', 'hw', i18nFmt('log.hw.profile_applied', { name: ap.name }));
+        else if (res?.error) addLog('error', 'hw', i18nFmt('log.ws.error', { err: res.error }));
     });
 
     if (list) list.addEventListener('click', async (e) => {
@@ -2473,7 +2504,7 @@ function initHardwarePanel() {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device }),
         }).then(r => r.json()).catch(() => null);
-        if (res?.error) addLog('error', 'hw', `${device}: ${res.error}`);
+        if (res?.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
         await hwLoad();
         renderHardwarePanel();
     });
@@ -2503,7 +2534,7 @@ function initHardwarePanel() {
             .then(r => r.json()).catch(() => null);
         await hwLoad();
         renderHardwarePanel();
-        if (res?.ok) addLog('info', 'hw', 'Connexion de tous les devices demandée');
+        if (res?.ok) addLog('info', 'hw', i18n('log.hw.connect_all'));
     });
 
     if (disconnectAll) disconnectAll.addEventListener('click', async () => {
@@ -2511,7 +2542,7 @@ function initHardwarePanel() {
             .then(r => r.json()).catch(() => null);
         await hwLoad();
         renderHardwarePanel();
-        if (res?.ok) addLog('info', 'hw', 'Déconnexion de tous les devices demandée');
+        if (res?.ok) addLog('info', 'hw', i18n('log.hw.disconnect_all'));
     });
 
     if (refreshBtn) refreshBtn.addEventListener('click', async () => {
@@ -2738,7 +2769,7 @@ function sendCapNumber(prop, item, value) {
 
 async function startSequence(count, delay) {
     const cam = findCamera();
-    if (!cam) { addLog('error', 'capture', 'Pas de caméra connectée'); return; }
+    if (!cam) { addLog('error', 'capture', i18n('log.capture.no_camera')); return; }
     _captureTotal = count;
     _captureQueue = count;
     _captureRunning = true;
@@ -2762,12 +2793,12 @@ async function startSequence(count, delay) {
             if (fw && fw.dev.connected) {
                 await setCaptureFilter(filter);
                 const label = _captureFilterSeq.length ? `${_captureFilterSeq[i % _captureFilterSeq.length]}` : filter;
-                addLog('info', 'capture', `Filtre → ${label}`);
+                addLog('info', 'capture', i18nFmt('log.capture.filter_set', { label }));
             } else {
-                addLog('warning', 'capture', `Roue à filtres indisponible — filtre "${filter}" ignoré`);
+                addLog('info', 'capture', i18nFmt('log.capture.filter_ignored', { filter }));
             }
         }
-        addLog('info', 'capture', `Pose ${i + 1}/${count} — ${exposure}s ${_captureFrameType}${filter ? ` [${filter}]` : ''}`);
+        addLog('info', 'capture', i18nFmt('log.capture.pose', { i: i + 1, count, exposure, type: _captureFrameType, filter: filter ? ` [${filter}]` : '' }));
         apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType });
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
@@ -2784,7 +2815,7 @@ async function startSequence(count, delay) {
     _captureRunning = false;
     _captureQueue = 0;
     updateCaptureProgress();
-    addLog('info', 'capture', 'Séquence terminée');
+    addLog('info', 'capture', i18n('log.capture.seq_done'));
 }
 
 function parseFilterSeq(text) {
@@ -2796,7 +2827,7 @@ async function setCaptureFilter(slot) {
     const fw = findFilterWheel();
     if (!fw) return;
     const res = await apiPost('/api/filterwheel/slot', { slot }).catch(() => null);
-    if (res?.error) addLog('error', 'capture', `Filtre: ${res.error}`);
+    if (res?.error) addLog('error', 'capture', i18nFmt('log.capture.filter_error', { err: res.error }));
     else _captureFilter = slot;
 }
 
@@ -2853,6 +2884,14 @@ function initSequencePanel() {
     if (addBtn) addBtn.addEventListener('click', () => {
         if (_seqStatus.running) return;
         _seqFrames.push(SEQ_DEFAULT_FRAME());
+        renderSequenceTable();
+    });
+
+    const delLastBtn = document.getElementById('seq-del-last');
+    if (delLastBtn) delLastBtn.addEventListener('click', () => {
+        if (_seqStatus.running) return;
+        if (!_seqFrames.length) return;
+        _seqFrames.pop();
         renderSequenceTable();
     });
 
@@ -2969,7 +3008,7 @@ async function seqStart() {
     if (!total) { addLog('warning', 'sequence', 'Plan vide — ajoutez au moins une pose'); return; }
     const saveDir = document.getElementById('seq-save-dir')?.value.trim() || '';
     const dith = document.getElementById('seq-dith-enabled')?.checked;
-    addLog('info', 'sequence', `Démarrage — ${total} pose(s), dither ${dith ? 'ON' : 'OFF'}`);
+    addLog('info', 'sequence', i18nFmt('log.capture.start', { n: total, dither: dith ? 'ON' : 'OFF' }));
     let res = null;
     try {
         res = await fetch('/api/sequence/start', {
@@ -2981,12 +3020,12 @@ async function seqStart() {
             }),
         }).then(r => r.json());
     } catch (e) {
-        addLog('error', 'sequence', 'Impossible de démarrer la séquence');
+        addLog('error', 'sequence', i18n('log.capture.start_failed'));
         return;
     }
-    if (!res) { addLog('error', 'sequence', 'Impossible de démarrer la séquence'); return; }
+    if (!res) { addLog('error', 'sequence', i18n('log.capture.start_failed')); return; }
     if (res.ok === false && res.error) {
-        addLog('error', 'sequence', `Démarrage refusé : ${res.error}`);
+        addLog('error', 'sequence', i18nFmt('log.capture.start_refused', { err: res.error }));
         return;
     }
     renderSequenceTable();
@@ -3021,7 +3060,7 @@ function seqApplyStatus(st) {
 
     if ((finished || doneRun) && !_seqLoggedFinish) {
         _seqLoggedFinish = true;
-        addLog('info', 'sequence', `Séquence terminée — ${st.done}/${st.total} poses`);
+        addLog('info', 'sequence', i18nFmt('log.capture.seq_finished', { done: st.done, total: st.total }));
     }
     if (started) _seqLoggedFinish = false;
 
@@ -3095,6 +3134,26 @@ function initStackingPanel() {
         }).catch(() => {});
     }
 
+    const toggleBtn = document.getElementById('cap-stacking-toggle');
+    const stackingPanel = document.getElementById('applet-stacking');
+    if (toggleBtn && stackingPanel) {
+        const refreshToggle = () => {
+            const visible = stackingPanel.style.display !== 'none' && stackingPanel.offsetParent !== null;
+            toggleBtn.classList.toggle('stacking-on', visible);
+        };
+        toggleBtn.addEventListener('click', () => {
+            const visible = stackingPanel.style.display !== 'none' && stackingPanel.offsetParent !== null;
+            if (visible) {
+                stackingPanel.style.display = 'none';
+            } else {
+                stackingPanel.style.display = '';
+                requestAnimationFrame(() => resolvePanelLayout());
+            }
+            refreshToggle();
+        });
+        refreshToggle();
+    }
+
     const startBtn = document.getElementById('stk-start');
     if (startBtn) startBtn.addEventListener('click', stkStart);
     const stopBtn = document.getElementById('stk-stop');
@@ -3115,7 +3174,7 @@ function stkGetVal(id) { return document.getElementById(id)?.value?.trim() || ''
 async function stkStart() {
     const duration = parseFloat(stkGetVal('stk-duration') || '5');
     const max_frames = parseInt(stkGetVal('stk-max-frames') || '0');
-    addLog('info', 'stacking', `Live stacking — poses ${duration}s, max_frames=${max_frames || '∞'}`);
+    addLog('info', 'stacking', i18nFmt('log.stacking.start', { duration, max_frames: max_frames || '∞' }));
     let res = null;
     try {
         res = await fetch('/api/stacking/start', {
@@ -3131,11 +3190,11 @@ async function stkStart() {
             }),
         }).then(r => r.json());
     } catch (e) {
-        addLog('error', 'stacking', 'Impossible de démarrer le live stacking');
+        addLog('error', 'stacking', i18n('log.stacking.start_failed'));
         return;
     }
     if (res.ok === false && res.error) {
-        addLog('error', 'stacking', `Démarrage refusé : ${res.error}`);
+        addLog('error', 'stacking', i18nFmt('log.stacking.start_refused', { err: res.error }));
         stkShowError(res.error);
         return;
     }
@@ -3164,8 +3223,8 @@ async function stkSaveMaster(fmt) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ dir: stkGetVal('stk-save-dir'), format: fmt, name: 'master' }),
     }).then(r => r.json()).catch(() => null);
-    if (res && res.ok) addLog('info', 'stacking', `Master sauvegardé → ${res.path}`);
-    else addLog('error', 'stacking', `Échec sauvegarde master : ${res?.error || '?'}`);
+    if (res && res.ok) addLog('info', 'stacking', i18nFmt('log.stacking.master_saved', { path: res.path }));
+    else addLog('error', 'stacking', i18nFmt('log.stacking.master_failed', { err: res?.error || '?' }));
 }
 
 async function stkPollStatus() {
@@ -3186,7 +3245,7 @@ function stkApplyStatus(st) {
     const prevRunning = _stkRunning;
     _stkRunning = !!running;
     if (prevRunning && !_stkRunning && st.complete) {
-        addLog('info', 'stacking', `Live stacking terminé — ${st.accepted} LIGHT empilées`);
+        addLog('info', 'stacking', i18nFmt('log.stacking.done', { n: st.accepted }));
     }
 
     const startBtn = document.getElementById('stk-start');
@@ -3303,7 +3362,7 @@ function renderCapturePanel() {
         btnCamConnect.style.display = showConnect ? '' : 'none';
         btnCamConnect.onclick = async () => {
             if (!cam) return;
-            addLog('info', 'ws', `Connexion manuelle: ${cam.name}...`);
+            addLog('info', 'ws', i18nFmt('log.ws.conn_manual', { name: cam.name }));
             try {
                 const res = await fetch('/api/device/connect', {
                     method: 'POST',
@@ -3311,10 +3370,10 @@ function renderCapturePanel() {
                     body: JSON.stringify({ device: cam.name }),
                 });
                 const data = await res.json();
-                if (data.ok) addLog('info', 'ws', `Connexion envoyée pour ${cam.name}`);
-                else addLog('error', 'ws', `Erreur: ${JSON.stringify(data)}`);
+                if (data.ok) addLog('info', 'ws', i18nFmt('log.ws.conn_sent', { name: cam.name }));
+                else addLog('error', 'ws', i18nFmt('log.ws.error', { err: JSON.stringify(data) }));
             } catch (e) {
-                addLog('error', 'ws', `Erreur: ${e.message}`);
+                addLog('error', 'ws', i18nFmt('log.ws.error', { err: e.message }));
             }
         };
     }
@@ -3622,11 +3681,11 @@ function _guideSetStar(star) {
 function _guideAutoSelect() {
     // Dedicated button handler: re-fetch via API and pick best gaussian_quality star
     const cam = _guideCameraSelect?.value || '';
-    if (!cam) { addLog('warn', 'guide', 'Aucune caméra guide sélectionnée'); return; }
+    if (!cam) { addLog('warn', 'guide', i18n('log.guide.no_camera')); return; }
     const metricUrl = '/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : '');
     fetch(metricUrl).then(r => r.json()).then(metric => {
         if (!metric?.ok || !metric.stars?.length) {
-            addLog('warn', 'guide', 'Aucune étoile détectée');
+            addLog('warn', 'guide', i18n('log.guide.no_star'));
             return;
         }
         // Pick best by gaussian_quality (already sorted server-side)
@@ -3640,9 +3699,9 @@ function _guideAutoSelect() {
             statusEl.style.color = '#00ffcc';
         }
         if (_guideCap()) _guideDetectStars(_guideCap().width, _guideCap().height);
-        addLog('info', 'guide', `Étoile sélectionnée auto: (${best.x}, ${best.y}) qualité=${best.gaussian_quality}`);
+        addLog('info', 'guide', i18nFmt('log.guide.star_selected', { x: best.x, y: best.y, q: best.gaussian_quality }));
     }).catch(e => {
-        addLog('error', 'guide', `Erreur sélection auto: ${e.message}`);
+        addLog('error', 'guide', i18nFmt('log.guide.auto_error', { err: e.message }));
     });
 }
 
@@ -3758,9 +3817,9 @@ function initSaveImage() {
     }
     if (saveBtn) {
         saveBtn.addEventListener('click', async () => {
-            if (!_histPixels) { addLog('warning', 'capture', 'Pas d\'image à sauvegarder'); return; }
+            if (!_histPixels) { addLog('warning', 'capture', i18n('log.capture.no_image')); return; }
             const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
-            if (!dir) { addLog('warning', 'capture', 'Choisissez un répertoire de sauvegarde'); return; }
+            if (!dir) { addLog('warning', 'capture', i18n('log.capture.choose_dir')); return; }
             try {
                 const res = await fetch('/api/camera/save', {
                     method: 'POST',
@@ -3768,10 +3827,10 @@ function initSaveImage() {
                     body: JSON.stringify({ dir, filter: _captureFilter }),
                 });
                 const data = await res.json();
-                if (data.ok) addLog('info', 'capture', `Image sauvegardée: ${data.path}`);
-                else addLog('error', 'capture', `Erreur: ${data.error}`);
+                if (data.ok) addLog('info', 'capture', i18nFmt('log.capture.image_saved', { path: data.path }));
+                else addLog('error', 'capture', i18nFmt('log.ws.error', { err: data.error }));
             } catch (e) {
-                addLog('error', 'capture', `Erreur: ${e.message}`);
+                addLog('error', 'capture', i18nFmt('log.ws.error', { err: e.message }));
             }
         });
     }
@@ -4098,10 +4157,10 @@ async function loadTestFITS(filename) {
             body: JSON.stringify({ data: data.data, format: 'image/fits' }),
         });
 
-        addLog('info', 'test', `Image test chargée: ${filename} (${data.size} bytes)`);
+        addLog('info', 'test', i18nFmt('log.test.image_loaded', { name: filename, size: data.size }));
         return true;
     } catch (e) {
-        addLog('error', 'test', `Échec chargement test: ${e.message}`);
+        addLog('error', 'test', i18nFmt('log.test.load_failed', { err: e.message }));
         return false;
     }
 }
@@ -4125,20 +4184,20 @@ function mockSolveResult(ra, dec, scale, rotation, opts = {}) {
     _lastSolverResult = result;
     renderSolverResult(result);
     setOffsetSolved(ra, dec, scale, rotation);
-    addLog('info', 'test', `Mock solve: RA=${ra.toFixed(4)}° DEC=${dec.toFixed(4)}° scale=${scale}" rot=${rotation}°`);
+    addLog('info', 'test', i18nFmt('log.test.mock_solve', { ra: ra.toFixed(4), dec: dec.toFixed(4), scale: scale, rot: rotation }));
     return result;
 }
 
 function mockSetTarget(ra, dec) {
     setOffsetTarget(ra, dec);
-    addLog('info', 'test', `Cible définie: RA=${ra.toFixed(4)}° DEC=${dec.toFixed(4)}°`);
+    addLog('info', 'test', i18nFmt('log.test.target_set', { ra: ra.toFixed(4), dec: dec.toFixed(4) }));
 }
 
 function mockClearTarget() {
     _offsetTargetRA = null;
     _offsetTargetDEC = null;
     clearOffsetOverlay();
-    addLog('info', 'test', 'Cible et overlay effacés');
+    addLog('info', 'test', i18n('log.test.target_cleared'));
 }
 
 function testOverlayScenario(scenario) {
@@ -4178,7 +4237,7 @@ function testOverlayScenario(scenario) {
     const s = scenarios[scenario] || scenarios['north'];
     mockSolveResult(s.solved.ra, s.solved.dec, s.solved.scale, s.solved.rot);
     mockSetTarget(s.target.ra, s.target.dec);
-    addLog('info', 'test', `Scénario "${scenario}": ${s.desc}`);
+    addLog('info', 'test', i18nFmt('log.test.scenario', { scenario, desc: s.desc }));
     return s;
 }
 
@@ -4251,7 +4310,7 @@ function initSolverPanel() {
             const res = _lastSolverResult;
             if (res && res.ok) {
                 apiPost('/api/mount/slew', { ra_hours: res.ra / 15, dec_deg: res.dec });
-                addLog('info', 'solver', `SYNC monture vers RA=${res.ra.toFixed(4)}° DEC=${res.dec.toFixed(4)}°`);
+                addLog('info', 'solver', i18nFmt('log.solver.sync', { ra: res.ra.toFixed(4), dec: res.dec.toFixed(4) }));
             }
         });
     }
@@ -4263,7 +4322,7 @@ function initSolverPanel() {
             const res = _lastSolverResult;
             if (res && res.ok && skyEngine) {
                 skyEngine.centerOnObject(res.ra, res.dec);
-                addLog('info', 'solver', `Carte centrée sur RA=${res.ra.toFixed(2)}° DEC=${res.dec.toFixed(2)}°`);
+                addLog('info', 'solver', i18nFmt('log.solver.centered', { ra: res.ra.toFixed(2), dec: res.dec.toFixed(2) }));
             }
         });
     }
@@ -4433,7 +4492,7 @@ async function solverSolve(mode) {
                 errorEl.style.display = '';
                 errorEl.textContent = result.error || 'Échec de la résolution';
             }
-            addLog('error', 'solver', result.error || 'Échec');
+            addLog('error', 'solver', result.error || i18n('log.solver.failed'));
         }
     } catch (e) {
         clearInterval(progressInterval);
@@ -4441,7 +4500,7 @@ async function solverSolve(mode) {
             errorEl.style.display = '';
             errorEl.textContent = e.message;
         }
-        addLog('error', 'solver', e.message);
+        addLog('error', 'solver', i18nFmt('log.ws.error', { err: e.message }));
     } finally {
         if (progress) progress.style.display = 'none';
         if (solveBtn) solveBtn.disabled = false;
@@ -4480,7 +4539,7 @@ function renderSolverResult(result) {
     el('solver-res-mode', result.mode === 'hinted' ? 'Indice' : 'Blind');
     el('solver-res-time', result.elapsed_ms < 1000 ? result.elapsed_ms.toFixed(0) + 'ms' : (result.elapsed_ms / 1000).toFixed(1) + 's');
 
-    addLog('info', 'solver', `Résolu: RA=${raDeg.toFixed(4)}° DEC=${decDeg.toFixed(4)}° — ${result.matches} étoiles, RMS=${result.rms.toFixed(2)}"`);
+    addLog('info', 'solver', i18nFmt('log.solver.solved', { ra: raDeg.toFixed(4), dec: decDeg.toFixed(4), n: result.matches, rms: result.rms.toFixed(2) }));
 }
 
 function handleSolverWsResult(result) {
@@ -4559,13 +4618,13 @@ function targetSetFromInputs() {
     const raH = sexaToDec(raStr, true);
     const decD = sexaToDec(decStr, false);
     if (raH === null || decD === null) {
-        addLog('error', 'target', 'Format invalide. Utilisez HH:MM:SS / ±DD:MM:SS');
+        addLog('error', 'target', i18n('log.target.format_invalid'));
         return;
     }
 
     const raDeg = raH * 15;
     setOffsetTarget(raDeg, decD);
-    addLog('info', 'target', `Cible définie: RA=${raDeg.toFixed(4)}° DEC=${decD.toFixed(4)}°`);
+    addLog('info', 'target', i18nFmt('log.target.defined', { ra: raDeg.toFixed(4), dec: decD.toFixed(4) }));
 
     // Update offset display if we already have a solve
     updateTargetOffset();
@@ -4579,12 +4638,12 @@ function targetGoto() {
     const raH = sexaToDec(raStr, true);
     const decD = sexaToDec(decStr, false);
     if (raH === null || decD === null) {
-        addLog('error', 'target', 'Format invalide');
+        addLog('error', 'target', i18n('log.target.format_invalid_short'));
         return;
     }
 
     apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: decD });
-    addLog('info', 'target', `GOTO RA=${raH.toFixed(4)}h DEC=${decD.toFixed(4)}°`);
+    addLog('info', 'target', i18nFmt('log.target.goto', { ra: raH.toFixed(4), dec: decD.toFixed(4) }));
 
     // Also set as offset target
     setOffsetTarget(raH * 15, decD);
@@ -4592,7 +4651,7 @@ function targetGoto() {
 
 function targetNudge(draArcmin, ddecArcmin) {
     if (_offsetSolvedRA == null || _offsetSolvedDEC == null) {
-        addLog('warning', 'target', 'Pas de résolution — résolvez d\'abord une image');
+        addLog('warning', 'target', i18n('log.target.no_solve'));
         return;
     }
 
@@ -4600,8 +4659,10 @@ function targetNudge(draArcmin, ddecArcmin) {
     const newRA = _offsetSolvedRA + draArcmin / 60.0;
     const newDEC = _offsetSolvedDEC + ddecArcmin / 60.0;
 
+    const draStr = (draArcmin > 0 ? '+' : '') + draArcmin;
+    const ddecStr = (ddecArcmin > 0 ? '+' : '') + ddecArcmin;
     apiPost('/api/mount/slew', { ra_hours: newRA / 15, dec_deg: newDEC });
-    addLog('info', 'target', `Nudge: ΔRA=${draArcmin > 0 ? '+' : ''}${draArcmin}' ΔDEC=${ddecArcmin > 0 ? '+' : ''}${ddecArcmin}'`);
+    addLog('info', 'target', i18nFmt('log.target.nudge', { dra: draStr, ddec: ddecStr }));
 }
 
 function updateTargetOffset() {
@@ -4646,7 +4707,7 @@ function targetCenterStart() {
     if (_centeringActive) return;
 
     if (_offsetTargetRA == null) {
-        addLog('error', 'target', 'Définissez d\'abord une cible');
+        addLog('error', 'target', i18n('log.target.define_first'));
         return;
     }
 
@@ -4660,7 +4721,7 @@ function targetCenterStart() {
     if (stopBtn) stopBtn.style.display = '';
     if (statusSection) statusSection.style.display = '';
 
-    addLog('info', 'target', 'Centrage itératif démarré');
+    addLog('info', 'target', i18n('log.target.center_start'));
     _centeringNextStep();
 }
 
@@ -4670,7 +4731,7 @@ function targetCenterStop() {
     const stopBtn = document.getElementById('target-stop-btn');
     if (centerBtn) centerBtn.style.display = '';
     if (stopBtn) stopBtn.style.display = 'none';
-    addLog('info', 'target', 'Centrage arrêté');
+    addLog('info', 'target', i18n('log.target.center_stop'));
 }
 
 let _centeringStepNum = 0;
@@ -4680,7 +4741,7 @@ function _centeringNextStep() {
 
     _centeringStepNum++;
     if (_centeringStepNum > _centeringMaxSteps) {
-        addLog('warning', 'target', `Centrage: max ${_centeringMaxSteps} étapes atteint`);
+        addLog('warning', 'target', i18nFmt('log.target.center_max', { n: _centeringMaxSteps }));
         targetCenterStop();
         return;
     }
@@ -4699,7 +4760,7 @@ function _centeringStep(result) {
     if (!_centeringActive) return;
 
     if (!result || !result.ok) {
-        addLog('error', 'target', 'Centrage: échec résolution');
+        addLog('error', 'target', i18n('log.target.center_fail'));
         targetCenterStop();
         return;
     }
@@ -4716,7 +4777,7 @@ function _centeringStep(result) {
         if (text) text.textContent = `Étape ${_centeringStepNum} — offset ${dist.toFixed(1)}'`;
 
         if (dist < _centeringThresholdArcmin) {
-            addLog('info', 'target', `Centrage terminé: offset ${dist.toFixed(2)}' (< ${_centeringThresholdArcmin}')`);
+            addLog('info', 'target', i18nFmt('log.target.center_done', { dist: dist.toFixed(2), thr: _centeringThresholdArcmin }));
             targetCenterStop();
             return;
         }
@@ -4826,23 +4887,23 @@ function initPolarPanel() {
     if (trackBtn) trackBtn.addEventListener('click', async () => {
         try {
             await fetch('/api/mount/tracking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) });
-            addLog('info', 'polar', 'Tracking activé');
-        } catch (e) { addLog('error', 'polar', `Tracking: ${e.message}`); }
+            addLog('info', 'polar', i18n('log.polar.tracking_on'));
+        } catch (e) { addLog('error', 'polar', i18nFmt('log.polar.auto_error', { err: `Tracking: ${e.message}` })); }
     });
     const unparkBtn = document.getElementById('polar-unpark-btn');
     if (unparkBtn) unparkBtn.addEventListener('click', async () => {
         try {
             await fetch('/api/mount/unpark', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-            addLog('info', 'polar', 'Monture déparquée');
-        } catch (e) { addLog('error', 'polar', `Unpark: ${e.message}`); }
+            addLog('info', 'polar', i18n('log.polar.unparked'));
+        } catch (e) { addLog('error', 'polar', i18nFmt('log.polar.auto_error', { err: `Unpark: ${e.message}` })); }
     });
     const abortBtn = document.getElementById('polar-abort-btn');
     if (abortBtn) abortBtn.addEventListener('click', async () => {
         _polarAbortFlag = true;
         try {
             await fetch('/api/mount/abort', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-            addLog('warning', 'polar', 'Arrêt demandé');
-        } catch (e) { addLog('error', 'polar', `Abort: ${e.message}`); }
+            addLog('warning', 'polar', i18n('log.polar.stop_req'));
+        } catch (e) { addLog('error', 'polar', i18nFmt('log.polar.auto_error', { err: `Abort: ${e.message}` })); }
     });
 
     // Start / Stop auto sequence
@@ -4936,7 +4997,7 @@ async function _polarAutoSequence() {
 
     try {
         // Ensure tracking is on
-        addLog('info', 'polar', 'Séquence auto: activation tracking...');
+        addLog('info', 'polar', i18n('log.polar.auto_tracking'));
         await fetch('/api/mount/tracking', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ on: true }) });
 
         for (let i = 0; i < 3; i++) {
@@ -4970,7 +5031,7 @@ async function _polarAutoSequence() {
             if (progressText) progressText.textContent = 'Arrêté par l\'utilisateur';
         }
     } catch (e) {
-        addLog('error', 'polar', `Séquence auto: ${e.message}`);
+        addLog('error', 'polar', i18nFmt('log.polar.auto_error', { err: e.message }));
         if (progressText) progressText.textContent = `Erreur: ${e.message}`;
     }
 
@@ -4990,7 +5051,7 @@ async function polarCapture(step) {
     if (stepEl) { stepEl.classList.add('polar-step-active'); stepEl.classList.remove('polar-step-done'); }
 
     // Slew to target
-    addLog('info', 'polar', `Étape ${step+1}/3: GOTO RA=${target.ra_hours.toFixed(4)}h DEC=${target.dec_deg.toFixed(4)}°`);
+    addLog('info', 'polar', i18nFmt('log.polar.step_goto', { step: step + 1, ra: target.ra_hours.toFixed(4), dec: target.dec_deg.toFixed(4) }));
     apiPost('/api/mount/slew', { ra_hours: target.ra_hours, dec_deg: target.dec_deg });
 
     // Wait for mount to settle (poll position)
@@ -4998,12 +5059,12 @@ async function polarCapture(step) {
     if (!settled) {
         if (statusEl) statusEl.textContent = '✕';
         if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
-        addLog('error', 'polar', `Étape ${step+1}: monture n'a pas atteint la position`);
+        addLog('error', 'polar', i18nFmt('log.polar.step_not_reached', { step: step + 1 }));
         return;
     }
 
     // Solve
-    addLog('info', 'polar', `Étape ${step+1}/3: résolution en cours...`);
+    addLog('info', 'polar', i18nFmt('log.polar.step_solving', { step: step + 1 }));
     try {
         const result = await fetch('/api/solver/solve', {
             method: 'POST',
@@ -5017,7 +5078,7 @@ async function polarCapture(step) {
             _polarSolves[step] = { ra: result.ra, dec: result.dec, ha: haDeg };
             if (statusEl) statusEl.textContent = '✓';
             if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-done'); }
-            addLog('info', 'polar', `Étape ${step+1}/3: RA=${result.ra.toFixed(4)}° DEC=${result.dec.toFixed(4)}° (${result.matches} étoiles)`);
+            addLog('info', 'polar', i18nFmt('log.polar.step_solved', { step: step + 1, ra: result.ra.toFixed(4), dec: result.dec.toFixed(4), n: result.matches }));
 
             // Check if all 3 done
             if (_polarSolves.every(s => s !== null)) {
@@ -5026,12 +5087,12 @@ async function polarCapture(step) {
         } else {
             if (statusEl) statusEl.textContent = '✕';
             if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
-            addLog('error', 'polar', `Étape ${step+1}: ${result.error || 'échec résolution'}`);
+            addLog('error', 'polar', i18nFmt('log.polar.step_failed', { step: step + 1, err: result.error || i18n('log.solver.failed') }));
         }
     } catch (e) {
         if (statusEl) statusEl.textContent = '✕';
         if (stepEl) { stepEl.classList.remove('polar-step-active'); stepEl.classList.add('polar-step-fail'); }
-        addLog('error', 'polar', `Étape ${step+1}: ${e.message}`);
+        addLog('error', 'polar', i18nFmt('log.polar.step_failed', { step: step + 1, err: e.message }));
     }
 }
 
@@ -5147,7 +5208,7 @@ function polarCompute() {
     // Draw correction diagram
     _polarDrawDiagram(errDec * 60, errAz * 60);
 
-    addLog('info', 'polar', `Pôle trouvé: RA=${poleRA.toFixed(4)}° DEC=${poleDEC.toFixed(4)}° — erreur totale: ${errTotal.toFixed(1)}'`);
+    addLog('info', 'polar', i18nFmt('log.polar.pole_found', { ra: poleRA.toFixed(4), dec: poleDEC.toFixed(4), total: errTotal.toFixed(1) }));
 }
 
 function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
@@ -5283,7 +5344,7 @@ function polarReset() {
     if (progressText) progressText.textContent = 'Prêt';
     _polarComputeTargets();
     _polarUpdateTargetDisplay();
-    addLog('info', 'polar', 'Reset — prêt pour une nouvelle séquence');
+    addLog('info', 'polar', i18n('log.polar.reset'));
 }
 
 // ── Focuser panel ─────────────────────────────────────────────
@@ -5529,7 +5590,7 @@ function _getSelectedCamera() {
 async function _autofocusStart() {
     if (_afRunning) return;
     const f = findFocuser();
-    if (!f) { addLog('error', 'autofocus', 'Aucun focuser trouvé'); return; }
+    if (!f) { addLog('error', 'autofocus', i18n('log.autofocus.no_focuser')); return; }
 
     const range = parseInt(document.getElementById('af-range')?.value || '2000');
     const points = parseInt(document.getElementById('af-points')?.value || '25');
@@ -5556,13 +5617,13 @@ async function _autofocusStart() {
     }).then(r => r.json()).catch(() => null);
 
     if (!res?.ok) {
-        addLog('error', 'autofocus', res?.error || 'Échec démarrage');
+        addLog('error', 'autofocus', res?.error || i18n('log.autofocus.start_failed'));
         _autofocusCleanup();
         return;
     }
     _afPositions = res.positions || [];
     _afExposureSec = 1.0;
-    addLog('info', 'autofocus', `V-curve: ${_afPositions.length} points, centre=${center}, plage=±${range}`);
+    addLog('info', 'autofocus', i18nFmt('log.autofocus.vcurve', { n: _afPositions.length, center, range }));
     _autofocusStep();
 }
 
@@ -5685,7 +5746,7 @@ async function _autofocusFinish() {
         if (_afBestHfr) _afBestHfr.textContent = res.best_hfr ? res.best_hfr.toFixed(2) : '—';
         if (_afResult) _afResult.style.display = '';
         if (_afProgressBar) _afProgressBar.style.width = '100%';
-        addLog('info', 'autofocus', `Meilleur point: pos=${res.best_position}, HFR=${res.best_hfr ? res.best_hfr.toFixed(2) : '—'}`);
+        addLog('info', 'autofocus', i18nFmt('log.autofocus.best', { pos: res.best_position, hfr: res.best_hfr ? res.best_hfr.toFixed(2) : '—' }));
 
         // Move focuser to best position
         if (res.best_position != null) {
@@ -5707,7 +5768,7 @@ async function _autofocusFinish() {
             await _autofocusWaitImage(30000);
         }
     } else {
-        addLog('error', 'autofocus', res?.error || 'Analyse V-curve échouée');
+        addLog('error', 'autofocus', res?.error || i18n('log.autofocus.analysis_failed'));
     }
     _autofocusDrawVcurve();
     if (_afStatusText) _afStatusText.textContent = '✅ Terminé';
@@ -5725,7 +5786,7 @@ async function _autofocusStop() {
     _afRunning = false;
     if (_afTimer) { clearTimeout(_afTimer); _afTimer = null; }
     await fetch('/api/focuser/autofocus/stop', { method: 'POST' }).catch(() => {});
-    addLog('warning', 'autofocus', 'Arrêté par l\'utilisateur');
+    addLog('warning', 'autofocus', i18n('log.autofocus.stopped'));
     _autofocusCleanup();
 }
 
@@ -5883,7 +5944,7 @@ function initFocuserPanel() {
         _refreshCameraList();
         _focCameraSelect.addEventListener('change', () => {
             _selectedFocCamera = _focCameraSelect.value;
-            addLog('info', 'focuser', `Caméra: ${_selectedFocCamera || 'aucune'}`);
+            addLog('info', 'focuser', i18nFmt('log.focuser.camera', { name: _selectedFocCamera || '—' }));
         });
     }
 
@@ -5922,7 +5983,7 @@ async function initSkyEngine() {
             siteElev = cfg.site.elevation ?? siteElev;
         }
     } catch (e) {
-        addLog('warning', 'sky', 'Config site non disponible');
+        addLog('warning', 'sky', i18n('log.sky.no_site_config'));
     }
 
     skyEngine = new SkyEngine(container, { siteLat, siteLng, siteElev });
@@ -5931,15 +5992,15 @@ async function initSkyEngine() {
 
     try {
         await skyEngine.loadCatalogs();
-        addLog('info', 'sky', 'Carte céleste initialisée');
+        addLog('info', 'sky', i18n('log.sky.init'));
     } catch (e) {
-        addLog('error', 'sky', 'Erreur chargement données: ' + e.message);
+        addLog('error', 'sky', i18nFmt('log.sky.error', { err: e.message }));
     }
 
     try {
         await loadObjectCatalogs();
     } catch (e) {
-        addLog('warning', 'sky', 'Erreur catalogues: ' + e.message);
+        addLog('warning', 'sky', i18nFmt('log.sky.catalog_error', { err: e.message }));
     }
 
     // Magnitude slider
@@ -6048,13 +6109,13 @@ function initGuidePanel() {
             if (!mount && devices) {
                 const firstMount = Object.entries(devices).find(([n, d]) => d.type === 'mount');
                 if (firstMount) selectDevice(firstMount[0]);
-                else addLog('warn', 'guide', 'Aucune monture disponible — connectez-en une');
+                else addLog('warn', 'guide', i18n('log.guide.no_mount'));
             }
         }},
         { label: '3. Calibration faite', check: () => _calibrated, action: () => {
             const calBtn = document.getElementById('cal-start-btn');
             if (calBtn) { calBtn.click(); calBtn.scrollIntoView({ behavior: 'smooth' }); }
-            else addLog('warn', 'guide', 'Ouvrez le panneau de calibration');
+            else addLog('warn', 'guide', i18n('log.guide.open_calibration'));
         }}
     ]);
 }
@@ -6083,11 +6144,11 @@ function _initGuidePreviewZoom() { guideViewer?.initZoomPan(); }
 
 async function _guideCapHandler() {
     const cam = _guideCameraSelect?.value;
-    if (!cam) { addLog('warn', 'guide', 'Sélectionnez une caméra guide'); return; }
+    if (!cam) { addLog('warn', 'guide', i18n('log.guide.select_camera')); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
     const statusEl = document.getElementById('guide-preview-status');
     if (statusEl) { statusEl.textContent = '📷 Capture en cours...'; statusEl.style.color = '#ffaa00'; }
-    addLog('info', 'guide', `Capture guide (${exposure}s)...`);
+    addLog('info', 'guide', i18nFmt('log.guide.capture_preview', { exposure }));
     const res = await fetch('/api/camera/expose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -6103,7 +6164,7 @@ async function _guideCapHandler() {
 async function _guideStart() {
     if (_guideRunning) return;
     const cam = _guideCameraSelect?.value;
-    if (!cam) { addLog('error', 'guide', 'Sélectionnez une caméra guide'); return; }
+    if (!cam) { addLog('error', 'guide', i18n('log.guide.select_camera')); return; }
 
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
     const aggr = parseFloat(document.getElementById('guide-aggressiveness')?.value || '0.8');
@@ -6128,11 +6189,11 @@ async function _guideStart() {
     }).then(r => r.json()).catch(() => null);
 
     if (!res?.ok) {
-        addLog('error', 'guide', res?.error || 'Échec démarrage');
+        addLog('error', 'guide', res?.error || i18n('log.guide.start_failed'));
         _guideCleanup();
         return;
     }
-    addLog('info', 'guide', `Guidage démarré: expo=${exposure}s aggr=${aggr}`);
+    addLog('info', 'guide', i18nFmt('log.guide.started', { expo: exposure, aggr }));
     _guideLoop();
 }
 
@@ -6648,7 +6709,7 @@ async function _guideStop() {
     _guideRefSet = false;
     if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/stop', { method: 'POST' }).catch(() => {});
-    addLog('warning', 'guide', 'Guidage arrêté');
+    addLog('warning', 'guide', i18n('log.guide.stopped'));
     _guideCleanup();
 }
 
@@ -6657,7 +6718,7 @@ async function _guidePause() {
     _guideRunning = false;
     if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/pause', { method: 'POST' }).catch(() => {});
-    addLog('info', 'guide', 'Guidage en pause');
+    addLog('info', 'guide', i18n('log.guide.paused'));
     if (_guideStartBtn) _guideStartBtn.disabled = false;
     if (_guideStopBtn) _guideStopBtn.disabled = true;
     if (_guidePauseBtn) _guidePauseBtn.disabled = true;
@@ -6672,7 +6733,7 @@ async function _guideReset() {
     _guideUpdateRms();
     _guideDrawDrift();
     _guideCleanup();
-    addLog('info', 'guide', 'Guidage réinitialisé');
+    addLog('info', 'guide', i18n('log.guide.reset'));
 }
 
 function _guideCleanup() {
@@ -6838,13 +6899,13 @@ function _calDrawCalCrosshair() {
 async function _calibrateStart() {
     if (_calRunning) return;
     const cam = _guideCameraSelect?.value;
-    if (!cam) { addLog('error', 'calibration', 'Sélectionnez une caméra guide'); return; }
+    if (!cam) { addLog('error', 'calibration', i18n('log.calibration.select_camera')); return; }
 
     // Reset calibration state machine
     await fetch('/api/guide/calibrate/reset', { method: 'POST' }).catch(() => {});
 
     // Need a guide star — take a quick exposure to get centroid
-    addLog('info', 'calibration', 'Prévisualisation étoile guide...');
+    addLog('info', 'calibration', i18n('log.calibration.preview'));
     await fetch('/api/camera/expose', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({device: cam, duration: 1.0})
@@ -6854,7 +6915,7 @@ async function _calibrateStart() {
     const metric = await fetch('/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : ''))
         .then(r => r.json()).catch(() => null);
     if (!metric?.ok || !metric.stars?.length) {
-        addLog('error', 'calibration', 'Aucune étoile détectée');
+        addLog('error', 'calibration', i18n('log.calibration.no_star'));
         return;
     }
 
@@ -6865,7 +6926,7 @@ async function _calibrateStart() {
     }).then(r => r.json()).catch(() => null);
 
     if (!res?.ok) {
-        addLog('error', 'calibration', res?.error || 'Échec démarrage');
+        addLog('error', 'calibration', res?.error || i18n('log.calibration.start_failed'));
         return;
     }
 
@@ -6881,7 +6942,7 @@ async function _calibrateStart() {
     if (_calResultsEl) _calResultsEl.style.display = 'none';
     const wrap = document.getElementById('cal-status-wrap');
     if (wrap) wrap.style.display = '';
-    addLog('info', 'calibration', 'Calibration démarrée');
+    addLog('info', 'calibration', i18n('log.calibration.start'));
     _calibrateLoop();
 }
 
@@ -6927,12 +6988,12 @@ async function _calibrateLoop() {
             .then(r => r.json()).catch(() => null);
         if (metric?.ok && metric.stars?.length) break;
         addLog('warning', 'calibration',
-            `Métrique étoile indisponible (tentative ${attempt + 1}/3)`);
+            i18nFmt('log.calibration.started_retry', { attempt: attempt + 1, max: 3 }));
         await sleep(800);
     }
 
     if (!metric?.ok || !metric.stars?.length) {
-        _calibrateAbort('Étoile perdue');
+        _calibrateAbort(i18n('log.calibration.star_lost'));
         return;
     }
     const star = metric.stars[0];
@@ -7136,7 +7197,7 @@ function _calibrateDone(status) {
     }
 
     _calibrateDrawGraph(status);
-    addLog('info', 'calibration', `Calibration terminée: qualité=${status.quality}`);
+    addLog('info', 'calibration', i18nFmt('log.calibration.done', { q: status.quality }));
 
     // Confirmation popup (toast) + one-click auto-start of guiding
     const quality = status.quality || '';
@@ -7176,7 +7237,7 @@ async function _calibrateStop() {
     if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ⏹ Arrêté';
     if (_calStartBtn) _calStartBtn.disabled = false;
     if (_calStopBtn) _calStopBtn.disabled = true;
-    addLog('warning', 'calibration', 'Arrêté par l\'utilisateur');
+    addLog('warning', 'calibration', i18n('log.calibration.stopped'));
 }
 
 // ── Layer toggles ─────────────────────────────────────────────
@@ -7298,7 +7359,8 @@ function checkOverlap() {
             if (overlap) {
                 const el = panels[j].el;
                 // Push the second panel below the first; if it would fall off
-                // the bottom, slide it to the right instead.
+                // the bottom, slide it to the right instead. Either way, clamp
+                // it back into the viewport so it never ends up off-screen.
                 const vw = window.innerWidth, vh = window.innerHeight;
                 const margin = 8;
                 let left = el.getBoundingClientRect().left;
@@ -7307,6 +7369,8 @@ function checkOverlap() {
                     top = Math.min(b.top, a.top);
                     left = a.right + margin;
                 }
+                left = Math.max(margin, Math.min(left, vw - b.width - margin));
+                top = Math.max(margin, Math.min(top, vh - b.height - margin));
                 el.style.left = left + 'px';
                 el.style.top = top + 'px';
                 el.style.right = 'auto';
@@ -7316,6 +7380,18 @@ function checkOverlap() {
             }
         }
     }
+}
+
+function getBlockingRects(excludeEl) {
+    const rects = [];
+    document.querySelectorAll('.glass-panel.applet').forEach(el => {
+        if (el === excludeEl) return;
+        if (el.offsetParent === null) return;
+        const r = el.getBoundingClientRect();
+        if (r.width === 0 || r.height === 0) return;
+        rects.push(r);
+    });
+    return rects;
 }
 
 function loadAppletPositions() {
@@ -7486,11 +7562,21 @@ function initDraggableApplets() {
             const offsetX = e.clientX - rect.left;
             const offsetY = e.clientY - rect.top;
 
+            const margin = 8;
+            const vw = window.innerWidth, vh = window.innerHeight;
+            const w = panel.offsetWidth, h = panel.offsetHeight;
+            const blockers = getBlockingRects(panel);
+
             function onMove(ev) {
                 let left = ev.clientX - offsetX;
                 let top = ev.clientY - offsetY;
-                left = Math.max(0, Math.min(window.innerWidth - 60, left));
-                top = Math.max(0, Math.min(window.innerHeight - 40, top));
+                left = Math.max(margin, Math.min(left, vw - w - margin));
+                top = Math.max(margin, Math.min(top, vh - h - margin));
+                const cand = { left, top, right: left + w, bottom: top + h };
+                for (const b of blockers) {
+                    if (!(cand.right <= b.left || b.right <= cand.left ||
+                          cand.bottom <= b.top || b.bottom <= cand.top)) return;
+                }
                 panel.style.left = left + 'px';
                 panel.style.top = top + 'px';
             }
@@ -7502,7 +7588,7 @@ function initDraggableApplets() {
                 panel.style.zIndex = '';
                 panel.style.transition = '';
                 saveAppletPositions();
-                checkOverlap();
+                resolvePanelLayout();
             }
 
             document.addEventListener('mousemove', onMove);
@@ -7516,6 +7602,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadUiConfig();
 
     initModeBar();
+    initI18nSelector();
     initConnectionBar();
     initHardwarePanel();
     initHardwareMode();
