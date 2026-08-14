@@ -75,7 +75,9 @@
 - [ ] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible
 - [ ] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`)
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
-- [ ] Découper `app.js` en modules séparés
+- [x] **Découpage `app.js` (en cours)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + minimize), `utils.js` (i18n + helpers purs), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick) — **app.js 7720 → 6273 lignes**, scripts classiques globals chargés avant app.js, Playwright **36/36 ✓**
+- [ ] Découpage `app.js` (suite) : extraire websocket, guide, calibration, capture/sequence, focuser/autofocus, solver/polar… (objectif ≤ 1000 lignes/module)
+- [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
 
 ## Planifiés (décision 2026-08-04, cf. COMPARISON_NINA.md)
 

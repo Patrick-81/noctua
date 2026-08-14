@@ -10,3 +10,4 @@ venv/
 duckdb-extensions/
 node_modules/
 test-results/
+backups/

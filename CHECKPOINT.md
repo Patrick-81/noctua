@@ -7,6 +7,43 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-15 — Découpage `app.js` en modules (maintenance)
+
+### Contexte
+`app.js` (7720 lignes) monolithique : difficile à maintenir. Objectif : dépouiller `app.js` par extraction incrémentale vers des modules classiques ≤ 1000 lignes chacun, en scripts classiques + globals partagés (cohérent avec `i18n.js`/`layout.js` déjà chargés ainsi), sans build step.
+
+### Stratégie
+- Scripts **classiques** chargés dans l'ordre dans `index.html` **avant** `app.js` (qui reste un module ES — `import { SkyEngine }`).
+- Les variables d'état et helpers sont des **bindings lexicaux globaux** (script classique) : accessibles depuis les modules suivants et depuis `app.js` sans renommage.
+- Pour chaque extraction : repérer les dépendances de la classe/fonctions, déplacer l'état associé dans `state.js`, publier le reste via globals.
+
+### Modules créés / adoptés
+| Module | Lignes | Contenu |
+|---|---|---|
+| `state.js` *(nouveau)* | 65 | État global (`ws`, `devices`, `uiConfig`, `currentMode`…), helpers config (`loadUiConfig`/`saveUiConfig`/`currentModeConfig`), vars preview/histogramme/guide |
+| `viewer.js` *(nouveau)* | 699 | Classe `Viewer` complète (FITS parsing/rendu asinh, zoom/pan, histogramme, `renderGuide`) |
+| `layout.js` *(adopté)* | 175 | Layout panneaux (overlap, clamp, positions) + `toggleMinimize`/`applyCollapsedState` ajoutés |
+| `utils.js` *(réparé)* | 41 | Helpers purs + `i18n`/`i18nFmt` (les `export` d'origine cassaient le script classique) |
+| `api.js` *(nouveau)* | 127 | `apiPost`, `setSwitch/Number/TextItem`, `addLog`, `showToast`, log copy/filters, `escapeAttr/HTML` |
+| `mount.js` *(nouveau)* | 228 | `findMount`, `renderMountPanel/FlipPanel`, `updateCameraFov`, `setTargetObject`, commandes monture |
+| `controls.js` *(nouveau)* | 140 | `initDpad`, `initButtons`, `initJoystick` |
+
+### Résultats
+- **`app.js` : 7720 → 6273 lignes** (retrait ~1450 lignes).
+- Vars mortes supprimées : `_histAuto`, `_histBlackPct`, `_guidePreviewZoom/PanX/PanY` (déclarées, jamais lues).
+- `window._guideClick = _guideClick` publié (classe Viewer en script classique) ; les helpers `hexToRgb`/`decToSexa`/`sexaToDec` dédupliqués (implémentations canoniques d'app.js → `utils.js`).
+- `.gitignore` : `backups/` ajouté ; `web/static/app.js.refactored` (brouillon refonte totale) supprimé.
+- **Ordre de chargement** : `i18n.js → utils.js → state.js → layout.js → viewer.js → api.js → mount.js → controls.js → app.js`.
+
+### Validation
+- `node --check` OK sur tous les fichiers.
+- **Playwright : 36/36** ✓ (viewer, polar, hardware, sequence, guide-validation).
+
+### Fichiers
+- Nouveaux : `state.js`, `viewer.js`, `api.js`, `mount.js`, `controls.js` (dans `web/static/`).
+- Modifiés : `app.js` (dépouillé), `index.html` (ordre scripts), `utils.js`, `layout.js`, `TODO_LIST.md`, `CHECKPOINT.md`, `.gitignore`.
+- Supprimé : `web/static/app.js.refactored`.
+
 ## Session 2026-08-11 — Validation UI section « À tester » (items 1–11) + infra Playwright guidage
 
 ### Contexte
