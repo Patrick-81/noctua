@@ -623,3 +623,10 @@ function initFocuserPanel() {
     }
 }
 
+// ── Bus : consommateur ws:state ───────────────────────────────
+
+Bus.on('ws:state', () => {
+    renderFocuserPanel();
+    _refreshCameraList();
+});
+

@@ -210,6 +210,23 @@ function mountFlip() {
         .catch(e => addLog('error', 'mount', i18nFmt('log.mount.flip_net', { err: e })));
 }
 
+// ── Bus : consommateur ws:state ───────────────────────────────
+// Met à jour le FoV caméra sur le ciel + panneau monture
+// (auto-sélection quand une monture apparaît, sinon si déjà choisie).
+
+let _lastMountSeen = false;
+Bus.on('ws:state', (env) => {
+    updateCameraFov();
+    const m = findMount();
+    if (m && !_lastMountSeen) {
+        selectedDevice = m.name;
+        renderMountPanel();
+    } else if (selectedDevice && devices[selectedDevice] && devices[selectedDevice].type === 'mount') {
+        renderMountPanel();
+    }
+    _lastMountSeen = !!m;
+});
+
 function saveFlipConfig() {
     const enabled = !!document.getElementById('flip-enabled')?.checked;
     const margin = parseFloat(document.getElementById('flip-margin')?.value) || 0;

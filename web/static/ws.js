@@ -26,7 +26,6 @@ function connectWS() {
 
     ws.onopen = () => {
         addLog('info', 'ws', i18n('log.ws.connected'));
-        _refreshGuideCameraList();
     };
 
     ws.onclose = () => {
@@ -37,42 +36,16 @@ function connectWS() {
     ws.onmessage = (event) => {
         const msg = JSON.parse(event.data);
         if (msg.type === 'state') {
-            const hadMount = !!findMount();
             devices = msg.devices;
+            // Traducteur : publie l'état sur le bus, chaque module met à jour son panneau.
+            Bus.emit('ws:state', { devices }, { source: 'ws' });
             renderDevices();
-            updateCameraFov();
-            const m = findMount();
-            if (m && !hadMount) {
-                selectedDevice = m.name;
-                renderMountPanel();
-            } else if (selectedDevice && devices[selectedDevice] && devices[selectedDevice].type === 'mount') {
-                renderMountPanel();
-            } else if (selectedDevice) {
-                try { renderProps(selectedDevice); } catch (e) { console.error('renderProps:', e); }
-            }
-            renderCapturePanel();
-            renderFocuserPanel();
-            updateSolverHints();
-            _refreshGuideCameraList();
-            _refreshCameraList();
-            _hwDevices = {};
-            for (const [n, d] of Object.entries(msg.devices)) {
-                _hwDevices[n] = { name: n, type: d.type, connected: !!d.connected };
-            }
-            if (typeof renderHardwarePanel === 'function') renderHardwarePanel();
-            if (typeof renderHardwareMode === 'function') renderHardwareMode();
         } else if (msg.type === 'log') {
-            addLog(msg.level, msg.logger, msg.msg);
+            Bus.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
         } else if (msg.type === 'image') {
-            const guideCam = _guideCameraSelect?.value || '';
-            console.log('WS image: device=%s format=%s guideCam=%s match=%s', msg.device, msg.format, guideCam, msg.device === guideCam);
-            if (guideCam && msg.device === guideCam) {
-                handleGuideImage(msg.data, msg.format);
-            } else {
-                handleCameraImage(msg.data, msg.format);
-            }
+            Bus.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
-            handleSolverWsResult(msg.result);
+            Bus.emit('solver:result', { result: msg.result }, { source: 'solver' });
         }
     };
 }

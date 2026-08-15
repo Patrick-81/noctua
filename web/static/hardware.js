@@ -348,3 +348,20 @@ function initHardwareMode() {
         renderHardwareModeProps();
     });
 }
+
+// ── Bus ───────────────────────────────────────────────────────
+
+// Consommateur ws:state : reconstruit _hwDevices et rend les panneaux.
+Bus.on('ws:state', (env) => {
+    _hwDevices = {};
+    for (const [n, d] of Object.entries(env.payload.devices)) {
+        _hwDevices[n] = { name: n, type: d.type, connected: !!d.connected };
+    }
+    renderHardwarePanel();
+    renderHardwareMode();
+});
+
+// Consommateur mode:changed : rafraîchit le mode matériel à l'entrée.
+Bus.on('mode:changed', (env) => {
+    if (env.payload.mode === 'hardware') renderHardwareMode();
+});

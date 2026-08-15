@@ -1,6 +1,8 @@
 # TODO List — Prochaines étapes
 
 ## Faits
+- [x] Bus de messages pub/sub `events.js` (9 topics, registre + validation dev) : ws.js = traducteur, abonnements posés dans api/preview/mount/capture/focuser/solver/target/guide/hardware/app/calibration, gardes `typeof` supprimées — **Playwright 36/36 ✓, pytest 105/105 ✓** (cf. section « Bus de messages events.js » de CHECKPOINT.md)
+- [ ] Topiques enregistrés mais non encore câblés : `capture:progress` (sequence/stacking en poll 1 s), `mount:slewed` (target.js), abonné `guide:starSelected` dans guide.js
 - [x] Live stacking automatisé : panneau LIVE STACKING dédié (poses courtes, compteur `max_frames` 0=continu, dark/flat optionnels)
 - [x] Séparation claire capture / stacking : SÉQUENCE = poses unitaires dans `<root>/capture_TS/`, LIVE STACKING = `<root>/livestack_TS/`
 - [x] Répertoire racine unique partagé (`sequence.save_dir`) + sous-dossiers horodatés typés par processus

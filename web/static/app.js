@@ -55,15 +55,9 @@ function switchMode(mode) {
     }
     if (mode !== 'focuser') clearFocusOverlay();
 
-    // Refresh solver status when switching to astrometry
-    if (mode === 'astrometry') {
-        refreshSolverStatus(1);
-    }
-
-    // Refresh hardware mode panel on entry
-    if (mode === 'hardware' && typeof renderHardwareMode === 'function') {
-        renderHardwareMode();
-    }
+    // Annonce le changement de mode sur le bus (solver rafraîchit son
+    // statut en astrométrie, hardware rend son panneau en mode matériel).
+    Bus.emit('mode:changed', { mode }, { source: 'app' });
 
     refreshDriverList();
     loadAppletPositions();
@@ -78,6 +72,31 @@ function configureViewerForMode(mode) {
         if (captureViewer) captureViewer.configure(mode);
     }
 }
+
+// ── Bus : consommateur calibration:done ───────────────────────
+// Confirmation (toast) + démarrage du guidage en un clic.
+// La calibration ne fait que publier le résultat ; l'app orchestre.
+
+Bus.on('calibration:done', (env) => {
+    const status = env.payload;
+    const quality = status.quality || '';
+    const bad = (quality === 'poor' || quality === 'insufficient_data');
+    const toastColor = bad ? '#ff5577' : '#4a4';
+    const msg = `Calibration terminée — qualité ${quality}`;
+    showToast(msg, {
+        color: toastColor,
+        duration: bad ? 8000 : 0,
+        action: bad ? undefined : 'Démarrer guidage',
+        onAction: () => {
+            // Ensure guiding mode is active, then start guiding
+            if (currentMode !== 'guiding') {
+                const mode = [...document.querySelectorAll('button')].find(b => b.textContent.includes('GUIDAGE'));
+                if (mode) mode.click();
+            }
+            setTimeout(() => _guideStart(), 600);
+        },
+    });
+});
 
 function initModeBar() {
     document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {

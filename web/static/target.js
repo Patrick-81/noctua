@@ -240,3 +240,7 @@ function _centeringStep(result) {
     }
 }
 
+// ── Bus : consommateur solver:result (boucle de centrage) ─────
+
+Bus.on('solver:result', (env) => _centeringStep(env.payload.result));
+

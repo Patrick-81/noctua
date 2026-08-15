@@ -282,7 +282,17 @@ function handleSolverWsResult(result) {
         setOffsetSolved(result.ra, result.dec, result.scale, result.rotation);
         updateTargetOffset();
     }
-    if (_centeringActive) {
-        _centeringStep(result);
-    }
 }
+
+// ── Bus ───────────────────────────────────────────────────────
+
+// Consommateur solver:result (produit par le traducteur ws.js).
+Bus.on('solver:result', (env) => handleSolverWsResult(env.payload.result));
+
+// Consommateur ws:state : rafraîchit les indices RA/DEC/scale.
+Bus.on('ws:state', () => updateSolverHints());
+
+// Consommateur mode:changed : recharge le statut solver à l'entrée en astrométrie.
+Bus.on('mode:changed', (env) => {
+    if (env.payload.mode === 'astrometry') refreshSolverStatus(1);
+});

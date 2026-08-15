@@ -491,3 +491,7 @@ function renderCaptureFilter() {
     sel.disabled = !connected;
 }
 
+// ── Bus : consommateur ws:state ───────────────────────────────
+
+Bus.on('ws:state', () => renderCapturePanel());
+

@@ -715,3 +715,21 @@ function _guideCleanup() {
     if (_guideStopBtn) _guideStopBtn.disabled = true;
     if (_guidePauseBtn) _guidePauseBtn.disabled = true;
 }
+
+// ── Bus ───────────────────────────────────────────────────────
+
+// Consommateur ws:state : rafraîchit la liste des caméras guide.
+Bus.on('ws:state', () => _refreshGuideCameraList());
+
+// Consommateur calibration:done : auto-popule les gains RA/DEC.
+Bus.on('calibration:done', (env) => {
+    const s = env.payload;
+    if (s.x_rate != null && s.x_rate > 0) {
+        const raGain = document.getElementById('guide-ra-gain');
+        if (raGain) raGain.value = (1 / s.x_rate).toFixed(1);
+    }
+    if (s.y_rate != null && s.y_rate > 0) {
+        const decGain = document.getElementById('guide-dec-gain');
+        if (decGain) decGain.value = (1 / s.y_rate).toFixed(1);
+    }
+});

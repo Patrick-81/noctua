@@ -7,6 +7,39 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-15 — Bus de messages `events.js` : implémenté (checkpoint à tenir à jour)
+
+### Contexte
+`ws.js` faisait des appels directs aux modules (renderMountPanel, renderCapturePanel, renderHardwareMode, updateSolverHints, handleGuideImage/CameraImage…), couplage fort. Objectif : **bus pub/sub global** `Bus` (script classique chargé avant `layout.js`, après `state.js`), `ws.js` réduit à un simple traducteur, chaque module abonné met à jour son propre panneau.
+
+### Design (reflété dans `docs/bus-architecture.svg`)
+- Enveloppe : `{ id, ts, topic, source, targets, kind, reqId, payload }` — **payload = données pures uniquement** (jamais de callbacks), pour permettre transfert réseau ou `structuredClone` ultérieur.
+- `Bus.emit(topic, payload, {source, kind, reqId})` ; `Bus.on(topic, fn)` retourne une fonction d'unsubscribe ; `Bus.off/once`.
+- Topics namespacés `<domaine>:<événement>` ; normalisation `'foo'` → `'app:foo'` ; registre `REGISTRY` (source + targets) avec **validation en dev** : `console.error` si topic inconnu émis, `console.warn` si source ≠ source attendue.
+- **Registre (9 topics)** :
+  | Topic | Source | Targets |
+  |---|---|---|
+  | `ws:state` | ws | mount, capture, focuser, solver, guide, hardware |
+  | `ws:image` | ws | preview |
+  | `ws:log` | ws | api |
+  | `solver:result` | solver | target, preview |
+  | `mode:changed` | app | solver, hardware |
+  | `calibration:done` | calibration | app, guide |
+  | `capture:progress` | capture | sequence, stacking, app |
+  | `guide:starSelected` | preview | guide |
+  | `mount:slewed` | mount | target |
+
+### Branchements (testés)
+- **ws.js = traducteur** : `Bus.emit('ws:state', {devices})`, `ws:log`, `ws:image`, `solver:result` (source `solver`). Reste en direct : `renderDevices()` (liste devices, son rôle) + `selectDevice()` (UX device-list → `renderMountPanel()`). Gardes `typeof renderHardwareMode === 'function'` supprimées.
+- **Émetteurs** : app.js (`mode:changed` dans `switchMode` — blocs directs refreshSolverStatus/renderHardwareMode retirés) ; calibration.js (`calibration:done` — auto-gains + popup déplacés) ; preview.js (`guide:starSelected` clic + best star auto).
+- **Abonnés** : api (`ws:log`→addLog) ; preview (`ws:image`→routing guide/capture) ; mount (`ws:state`→updateCameraFov+auto-sélection+renderMountPanel) ; capture (`ws:state`→renderCapturePanel) ; focuser (`ws:state`→renderFocuserPanel+refresh liste) ; solver (`ws:state`→hints, `solver:result`→handleSolverWsResult, `mode:changed`→refresh status) ; target (`solver:result`→`_centeringStep`) ; guide (`ws:state`→refresh liste caméra, `calibration:done`→auto-population gains RA/DEC) ; hardware (`ws:state`→rebuild `_hwDevices`+render, `mode:changed`→render mode) ; app (`calibration:done`→toast+Démarrer guidage).
+- **Non encore câblés** (topics enregistrés au registre, émetteur/abonné à poser) : `capture:progress`, `mount:slewed`, abonné `guide:starSelected` (émission faite, panneau MAJ via API set-reference).
+
+### Validation
+- `node --check` sur les 13 fichiers touchés (events, ws, api, preview, mount, capture, focuser, solver, target, guide, hardware, app, calibration).
+- Playwright **36/36** (4.2m) — inclut toast « Calibration terminée », auto-population gains RA/DEC, guidage réel.
+- pytest **105/105** ; smoke headless : 0 erreur console, 0 warning `Bus:`, panneau matériel alimenté par `ws:state`.
+
 ## Session 2026-08-15 — Schéma du bus de messages : checkpoint à tenir à jour
 
 ### Checkpoint supplémentaire — `docs/bus-architecture.svg`

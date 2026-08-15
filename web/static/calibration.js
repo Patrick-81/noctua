@@ -445,37 +445,20 @@ function _calibrateDone(status) {
         _calQualityEl.textContent = flaws.length ? flaws.join(' ') : '';
     }
 
-    // Auto-populate guide gains from calibration results
-    if (status.x_rate != null && status.x_rate > 0) {
-        const raGain = document.getElementById('guide-ra-gain');
-        if (raGain) raGain.value = (1 / status.x_rate).toFixed(1);
-    }
-    if (status.y_rate != null && status.y_rate > 0) {
-        const decGain = document.getElementById('guide-dec-gain');
-        if (decGain) decGain.value = (1 / status.y_rate).toFixed(1);
-    }
+    // Auto-populate guide gains from calibration results (consommateur guide.js)
+    // + confirmation popup (consommateur app.js) : publiés sur le bus.
 
     _calibrateDrawGraph(status);
     addLog('info', 'calibration', i18nFmt('log.calibration.done', { q: status.quality }));
 
-    // Confirmation popup (toast) + one-click auto-start of guiding
-    const quality = status.quality || '';
-    const bad = (quality === 'poor' || quality === 'insufficient_data');
-    const toastColor = bad ? '#ff5577' : '#4a4';
-    const msg = `Calibration terminée — qualité ${quality}`;
-    showToast(msg, {
-        color: toastColor,
-        duration: bad ? 8000 : 0,
-        action: bad ? undefined : 'Démarrer guidage',
-        onAction: () => {
-            // Ensure guiding mode is active, then start guiding
-            if (currentMode !== 'guiding') {
-                const mode = [...document.querySelectorAll('button')].find(b => b.textContent.includes('GUIDAGE'));
-                if (mode) mode.click();
-            }
-            setTimeout(() => _guideStart(), 600);
-        },
-    });
+    Bus.emit('calibration:done', {
+        quality: status.quality,
+        x_rate: status.x_rate,
+        y_rate: status.y_rate,
+        step_count: status.step_count,
+        orthogonality: status.orthogonality,
+        quality_flaws: status.quality_flaws,
+    }, { source: 'calibration' });
 }
 
 function _calibrateAbort(msg) {

@@ -125,3 +125,7 @@ function applyLogFilters() {
     });
     logEntries.forEach(entry => entry.classList.toggle('hidden', !activeLevels.has(entry.dataset.level)));
 }
+
+// ── Bus : consommateur ws:log ─────────────────────────────────
+
+Bus.on('ws:log', (env) => addLog(env.payload.level, env.payload.logger, env.payload.msg));
