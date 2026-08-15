@@ -7,6 +7,20 @@
 INDIGO Server → Python FastAPI backend → Browser UI (Vanilla JS)
 L'autoguidage est orchestré par le frontend : expose guide camera → mesure centroïde → corrige la monture.
 
+## Session 2026-08-15 — Schéma du bus de messages : checkpoint à tenir à jour
+
+### Checkpoint supplémentaire — `docs/bus-architecture.svg`
+Documentation vivante de l'architecture des échanges entre modules frontend (voir section « Bus » du TODO). **À régénérer et mettre à jour à chaque évolution des modules, topics ou du design du bus** (cf. `TODO_LIST.md` → bus `events.js`).
+
+- **Générateur versionné** : `docs/gen_bus_architecture.py` (python3, sans dépendance). Commande : `python3 docs/gen_bus_architecture.py` → réécrit `docs/bus-architecture.svg`.
+- **Validation** (à refaire après chaque régénération) :
+  1. XML : `ET.parse('docs/bus-architecture.svg')` OK.
+  2. JS : extraire le `<script><![CDATA[…]]>` et `node --check` sur le fichier extrait.
+  3. Playwright headless (`NODE_PATH=…/node_modules node …`) : survol de chaque module → bulle visible (vérifier le **CSS calculé** `visibility`, pas l'attribut), texte dans le cadre (0..1300), 0 erreur console ; animation → 17/17 modules passent.
+- **Contenu** : 2 barres bus horizontales (BUS — `events.js` et suite), 17 modules, 9 topics mappés, légende, boutons « ▶ Animer le flux » / « ⟲ Réinitialiser ». Interaction : survol module/stub/tag/légende (focus + info-bar), survol module → **bulle descriptive** (texte sur plusieurs lignes, largeur fixe 230, clamp aux bords), animation → marqueur cyan + surbrillance `.buspass` + bulle au passage.
+- **Piège CSS documenté** : ne jamais piloter la visibilité de la bulle par l'attribut SVG `visibility` — la règle CSS `#bubble { visibility:hidden }` l'écrase (le CSS prime sur les presentation attributes). Utiliser une classe `.show` (`#bubble.show { visibility:visible }`).
+- Description des modules : dictionnaire `DESC` dans le générateur (à maintenir quand un module change de rôle).
+
 ## Session 2026-08-15 — Découpage `app.js` en modules (maintenance)
 
 ### Contexte

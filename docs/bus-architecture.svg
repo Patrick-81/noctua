@@ -283,12 +283,30 @@
   function bubbleFor(name) {
     var m = MODULES[name];
     if (!m) return;
-    var w = Math.max(150, 24 + Math.max(m.name.length, m.desc.length) * 4.6);
+    var W = 230, PAD = 12, LINE = 12, CHAR_W = 5.8;
+    var words = m.desc.split(' '), lines = [], cur = '';
+    words.forEach(function (w) {
+      var t = cur ? cur + ' ' + w : w;
+      if (t.length * CHAR_W <= W - 2 * PAD) cur = t;
+      else { if (cur) lines.push(cur); cur = w; }
+    });
+    if (cur) lines.push(cur);
+    var H = 30 + lines.length * LINE + 7;
+    var x = Math.max(0, Math.min(m.cx - W / 2, 1300 - W));
+    var y = m.cy - 24 - (H + 7);
     bubbleName.textContent = m.name;
-    bubbleDesc.textContent = m.desc;
-    bubbleRect.setAttribute('width', w);
-    bubblePointer.setAttribute('points', (w/2 - 7) + ',46 ' + (w/2) + ',53 ' + (w/2 + 7) + ',46');
-    bubble.setAttribute('transform', 'translate(' + (m.cx - w/2) + ' ' + (m.cy - 56) + ')');
+    bubbleDesc.textContent = '';
+    lines.forEach(function (ln, i) {
+      var tsp = document.createElementNS('http://www.w3.org/2000/svg', 'tspan');
+      tsp.setAttribute('x', PAD);
+      tsp.setAttribute('y', 31 + i * LINE);
+      tsp.textContent = ln;
+      bubbleDesc.appendChild(tsp);
+    });
+    bubbleRect.setAttribute('width', W);
+    bubbleRect.setAttribute('height', H);
+    bubblePointer.setAttribute('points', (W/2 - 7) + ',' + H + ' ' + (W/2) + ',' + (H + 7) + ' ' + (W/2 + 7) + ',' + H);
+    bubble.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
     bubble.classList.add('show');
   }
   function flowLoop(ts) {
