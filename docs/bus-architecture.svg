@@ -1,0 +1,241 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="bus-svg" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1300 850"
+     font-family="ui-monospace, Menlo, Consolas, monospace" role="img"
+     aria-label="Bus de messages Noctua — modules connectés à un bus horizontal">
+  <title>Bus de messages — Noctua</title>
+  <style>
+    .node { cursor:pointer; transition: opacity .25s; }
+    .node rect { fill:#131722; stroke-width:1.6; rx:9; }
+    .node .n { fill:#e8ecf4; font-size:14px; font-weight:bold; }
+    .node .s { fill:#7a8598; font-size:9px; }
+    .node.active rect { filter: drop-shadow(0 0 7px currentColor); }
+    .node.dim, .stub.dim, .tag-pill.dim, .legend-item.dim { opacity:.12; }
+    .stub { transition: opacity .25s; }
+    .stub.active { stroke-width:2.5; }
+    .busbar { pointer-events:none; }
+    .busflow { opacity:.35; }
+    .flow .busflow { stroke-dasharray:14 10; animation: dash 1.2s linear infinite; }
+    @keyframes dash { to { stroke-dashoffset:-24; } }
+    .tag-pill { cursor:pointer; transition: opacity .25s; }
+    .tag-pill rect { fill:#10141d; }
+    .tag-pill text { font-size:10px; fill:#c6cedd; }
+    .tag-pill.active rect { fill:#1a2333; }
+    .cont { pointer-events:none; }
+    .legend-item { cursor:pointer; transition: opacity .25s; }
+    .legend-item rect { fill:#10141d; stroke-width:1; rx:5; }
+    .legend-item text { font-size:11px; fill:#c6cedd; }
+    .legend-item.active rect { stroke-width:1.6; }
+    .legend-title { font-size:12px; font-weight:bold; fill:#e8ecf4; }
+    .btn { cursor:pointer; }
+    .btn rect { fill:#151b28; stroke:#2a3550; stroke-width:1; rx:6; }
+    .btn text { font-size:12px; fill:#00ffcc; }
+    .btn:hover rect { fill:#1c2436; }
+    #info-bar rect { fill:#10141d; stroke:#2a3550; stroke-width:1; rx:8; }
+    #info-text { font-size:12.5px; fill:#d7dde8; }
+</style>
+  <defs>
+    <marker id="m_cont" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="6" markerHeight="6"
+            orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" fill="#00e5ff"/></marker>
+<marker id="m_t_ws_state" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#4488ff"/></marker>
+<marker id="m_t_ws_image" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#44cc88"/></marker>
+<marker id="m_t_ws_log" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#9aa3b2"/></marker>
+<marker id="m_t_solver_result" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#ffaa44"/></marker>
+<marker id="m_t_mode_changed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#ffcc55"/></marker>
+<marker id="m_t_calibration_done" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#ff6644"/></marker>
+<marker id="m_t_capture_progress" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#7ee08a"/></marker>
+<marker id="m_t_guide_star" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#cc88ff"/></marker>
+<marker id="m_t_mount_slewed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 10 0 z" fill="#66bbff"/></marker>
+  </defs>
+  <rect class="bg" width="1300" height="850" rx="10" fill="#0b0e14"/>
+
+  <text x="26" y="34" font-size="17" font-weight="bold" fill="#e8ecf4">Bus de messages — Noctua</text>
+  <text x="26" y="54" font-size="10.5" fill="#7a8598">Modules connectés au bus : survolez un module, une étiquette ou la légende — « Animer » visualise le flux.</text>
+
+  <g class="busbar"><rect x="60" y="360" width="1148" height="8" rx="4" fill="#0a3f40" stroke="#00e5ff" stroke-width="1.4"/><line class="busflow" x1="60" y1="364" x2="1208" y2="364" stroke="#00e5ff" stroke-width="2"/><polygon points="1208,360 1230,364 1208,368" fill="#00e5ff"/><text x="70" y="352" font-size="10" fill="#00e5ff">BUS — events.js</text></g>
+  <g class="busbar"><rect x="60" y="680" width="1148" height="8" rx="4" fill="#0a3f40" stroke="#00e5ff" stroke-width="1.4"/><line class="busflow" x1="60" y1="684" x2="1208" y2="684" stroke="#00e5ff" stroke-width="2"/><polygon points="1208,680 1230,684 1208,688" fill="#00e5ff"/><text x="70" y="672" font-size="10" fill="#00e5ff">BUS — events.js (suite)</text></g>
+
+  <line class="cont" x1="1258" y1="366" x2="1258" y2="674" stroke="#00e5ff" stroke-width="2" stroke-dasharray="5 5" marker-end="url(#m_cont)"/><text x="1244" y="522" text-anchor="end" font-size="9.5" fill="#00e5ff">continuation</text>
+
+  <line class="stub t_ws_image t_ws_log t_ws_state" data-module="ws" data-topics="t_ws_image t_ws_log t_ws_state" x1="160" y1="249" x2="160" y2="356" stroke="#3a4558"/>
+  <line class="stub t_capture_progress t_ws_state" data-module="capture" data-topics="t_capture_progress t_ws_state" x1="430" y1="249" x2="430" y2="356" stroke="#3a4558"/>
+  <line class="stub t_calibration_done" data-module="calibration" data-topics="t_calibration_done" x1="700" y1="249" x2="700" y2="356" stroke="#3a4558"/>
+  <line class="stub t_calibration_done t_capture_progress t_mode_changed" data-module="app" data-topics="t_calibration_done t_capture_progress t_mode_changed" x1="900" y1="249" x2="900" y2="356" stroke="#3a4558"/>
+  <line class="stub " data-module="objects" data-topics="" x1="270" y1="471" x2="270" y2="364" stroke="#3a4558"/>
+  <line class="stub t_mode_changed t_ws_state" data-module="hardware" data-topics="t_mode_changed t_ws_state" x1="560" y1="471" x2="560" y2="364" stroke="#3a4558"/>
+  <line class="stub t_capture_progress" data-module="stacking" data-topics="t_capture_progress" x1="830" y1="471" x2="830" y2="364" stroke="#3a4558"/>
+  <line class="stub " data-module="state" data-topics="" x1="1090" y1="471" x2="1090" y2="364" stroke="#3a4558"/>
+  <line class="stub t_guide_star t_solver_result t_ws_image" data-module="preview" data-topics="t_guide_star t_solver_result t_ws_image" x1="170" y1="579" x2="170" y2="676" stroke="#3a4558"/>
+  <line class="stub t_mode_changed t_solver_result t_ws_state" data-module="solver" data-topics="t_mode_changed t_solver_result t_ws_state" x1="430" y1="579" x2="430" y2="676" stroke="#3a4558"/>
+  <line class="stub t_mount_slewed t_ws_state" data-module="mount" data-topics="t_mount_slewed t_ws_state" x1="700" y1="579" x2="700" y2="676" stroke="#3a4558"/>
+  <line class="stub t_calibration_done t_guide_star t_ws_state" data-module="guide" data-topics="t_calibration_done t_guide_star t_ws_state" x1="950" y1="579" x2="950" y2="676" stroke="#3a4558"/>
+  <line class="stub t_capture_progress" data-module="sequence" data-topics="t_capture_progress" x1="270" y1="766" x2="270" y2="684" stroke="#3a4558"/>
+  <line class="stub t_mount_slewed t_solver_result" data-module="target" data-topics="t_mount_slewed t_solver_result" x1="560" y1="766" x2="560" y2="684" stroke="#3a4558"/>
+  <line class="stub " data-module="polar" data-topics="" x1="830" y1="766" x2="830" y2="684" stroke="#3a4558"/>
+  <line class="stub t_ws_state" data-module="focuser" data-topics="t_ws_state" x1="1030" y1="766" x2="1030" y2="684" stroke="#3a4558"/>
+  <line class="stub t_ws_log" data-module="api" data-topics="t_ws_log" x1="1210" y1="766" x2="1210" y2="684" stroke="#3a4558"/>
+
+  <g class="tag-pill" data-topic="t_ws_state" data-color="#4488ff" data-info="ws:state — producteur ws → mount, capture, focuser, solver, guide, hardware — payload { devices }" transform="translate(160 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#4488ff"/><rect x="-33.4" y="-9" width="66.8" height="16" rx="8" stroke="#4488ff"/><circle cx="-26.4" cy="0" r="3" fill="#4488ff"/><text x="-18.4" y="3">ws:state</text></g>
+  <g class="tag-pill" data-topic="t_ws_image" data-color="#44cc88" data-info="ws:image — producteur ws → preview — payload { device, format, b64 }" transform="translate(250 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#44cc88"/><rect x="-33.4" y="-9" width="66.8" height="16" rx="8" stroke="#44cc88"/><circle cx="-26.4" cy="0" r="3" fill="#44cc88"/><text x="-18.4" y="3">ws:image</text></g>
+  <g class="tag-pill" data-topic="t_ws_log" data-color="#9aa3b2" data-info="ws:log — producteur ws → api — payload { level, logger, msg }" transform="translate(340 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#9aa3b2"/><rect x="-26.799999999999997" y="-9" width="53.599999999999994" height="16" rx="8" stroke="#9aa3b2"/><circle cx="-19.799999999999997" cy="0" r="3" fill="#9aa3b2"/><text x="-11.799999999999997" y="3">ws:log</text></g>
+  <g class="tag-pill" data-topic="t_solver_result" data-color="#ffaa44" data-info="solver:result — producteur solver → target, preview — payload { result }" transform="translate(430 700)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#ffaa44"/><rect x="-49.9" y="-9" width="99.8" height="16" rx="8" stroke="#ffaa44"/><circle cx="-42.9" cy="0" r="3" fill="#ffaa44"/><text x="-34.9" y="3">solver:result</text></g>
+  <g class="tag-pill" data-topic="t_mode_changed" data-color="#ffcc55" data-info="mode:changed — producteur app → solver, hardware — payload { mode }" transform="translate(900 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#ffcc55"/><rect x="-46.599999999999994" y="-9" width="93.19999999999999" height="16" rx="8" stroke="#ffcc55"/><circle cx="-39.599999999999994" cy="0" r="3" fill="#ffcc55"/><text x="-31.599999999999994" y="3">mode:changed</text></g>
+  <g class="tag-pill" data-topic="t_calibration_done" data-color="#ff6644" data-info="calibration:done — producteur calibration → app, guide — payload { quality, gains }" transform="translate(700 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#ff6644"/><rect x="-59.8" y="-9" width="119.6" height="16" rx="8" stroke="#ff6644"/><circle cx="-52.8" cy="0" r="3" fill="#ff6644"/><text x="-44.8" y="3">calibration:done</text></g>
+  <g class="tag-pill" data-topic="t_capture_progress" data-color="#7ee08a" data-info="capture:progress — producteur capture → sequence, stacking, app — payload { done, total, last }" transform="translate(430 380)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#7ee08a"/><rect x="-59.8" y="-9" width="119.6" height="16" rx="8" stroke="#7ee08a"/><circle cx="-52.8" cy="0" r="3" fill="#7ee08a"/><text x="-44.8" y="3">capture:progress</text></g>
+  <g class="tag-pill" data-topic="t_guide_star" data-color="#cc88ff" data-info="guide:starSelected — producteur preview → guide — payload { star }" transform="translate(950 700)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#cc88ff"/><rect x="-66.4" y="-9" width="132.8" height="16" rx="8" stroke="#cc88ff"/><circle cx="-59.400000000000006" cy="0" r="3" fill="#cc88ff"/><text x="-51.400000000000006" y="3">guide:starSelected</text></g>
+  <g class="tag-pill" data-topic="t_mount_slewed" data-color="#66bbff" data-info="mount:slewed — producteur mount → target — payload { ra, dec }" transform="translate(700 700)"><line class="tick" x1="0" y1="0" x2="0" y2="0" stroke="#66bbff"/><rect x="-46.599999999999994" y="-9" width="93.19999999999999" height="16" rx="8" stroke="#66bbff"/><circle cx="-39.599999999999994" cy="0" r="3" fill="#66bbff"/><text x="-31.599999999999994" y="3">mount:slewed</text></g>
+
+  <g class="node t_ws_image t_ws_log t_ws_state" data-module="ws" data-topics="t_ws_image t_ws_log t_ws_state" transform="translate(76 201)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">ws.js</text><text x="84" y="36" text-anchor="middle" class="s">WebSocket · devices</text></g>
+  <g class="node t_capture_progress t_ws_state" data-module="capture" data-topics="t_capture_progress t_ws_state" transform="translate(346 201)"><rect width="168" height="48" stroke="#44cc88"/><text x="84" y="19" text-anchor="middle" class="n">capture.js</text><text x="84" y="36" text-anchor="middle" class="s">prise de vue</text></g>
+  <g class="node t_calibration_done" data-module="calibration" data-topics="t_calibration_done" transform="translate(616 201)"><rect width="168" height="48" stroke="#ff6644"/><text x="84" y="19" text-anchor="middle" class="n">calibration.js</text><text x="84" y="36" text-anchor="middle" class="s">calibration monture</text></g>
+  <g class="node t_calibration_done t_capture_progress t_mode_changed" data-module="app" data-topics="t_calibration_done t_capture_progress t_mode_changed" transform="translate(816 201)"><rect width="168" height="48" stroke="#00ffcc"/><text x="84" y="19" text-anchor="middle" class="n">app.js</text><text x="84" y="36" text-anchor="middle" class="s">modes · init · sky</text></g>
+  <g class="node " data-module="objects" data-topics="" transform="translate(186 471)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">objects.js</text><text x="84" y="36" text-anchor="middle" class="s">search · site · time</text></g>
+  <g class="node t_mode_changed t_ws_state" data-module="hardware" data-topics="t_mode_changed t_ws_state" transform="translate(476 471)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">hardware.js</text><text x="84" y="36" text-anchor="middle" class="s">panneau · profils</text></g>
+  <g class="node t_capture_progress" data-module="stacking" data-topics="t_capture_progress" transform="translate(746 471)"><rect width="168" height="48" stroke="#44cc88"/><text x="84" y="19" text-anchor="middle" class="n">stacking.js</text><text x="84" y="36" text-anchor="middle" class="s">live stacking</text></g>
+  <g class="node " data-module="state" data-topics="" transform="translate(1006 471)"><rect width="168" height="48" stroke="#00ffcc"/><text x="84" y="19" text-anchor="middle" class="n">state.js</text><text x="84" y="36" text-anchor="middle" class="s">état global partagé</text></g>
+  <g class="node t_guide_star t_solver_result t_ws_image" data-module="preview" data-topics="t_guide_star t_solver_result t_ws_image" transform="translate(86 531)"><rect width="168" height="48" stroke="#44cc88"/><text x="84" y="19" text-anchor="middle" class="n">preview.js</text><text x="84" y="36" text-anchor="middle" class="s">FITS · overlays</text></g>
+  <g class="node t_mode_changed t_solver_result t_ws_state" data-module="solver" data-topics="t_mode_changed t_solver_result t_ws_state" transform="translate(346 531)"><rect width="168" height="48" stroke="#ffaa44"/><text x="84" y="19" text-anchor="middle" class="n">solver.js</text><text x="84" y="36" text-anchor="middle" class="s">plate solve</text></g>
+  <g class="node t_mount_slewed t_ws_state" data-module="mount" data-topics="t_mount_slewed t_ws_state" transform="translate(616 531)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">mount.js</text><text x="84" y="36" text-anchor="middle" class="s">commandes monture</text></g>
+  <g class="node t_calibration_done t_guide_star t_ws_state" data-module="guide" data-topics="t_calibration_done t_guide_star t_ws_state" transform="translate(866 531)"><rect width="168" height="48" stroke="#ff6644"/><text x="84" y="19" text-anchor="middle" class="n">guide.js</text><text x="84" y="36" text-anchor="middle" class="s">autoguidage</text></g>
+  <g class="node t_capture_progress" data-module="sequence" data-topics="t_capture_progress" transform="translate(186 766)"><rect width="168" height="48" stroke="#44cc88"/><text x="84" y="19" text-anchor="middle" class="n">sequence.js</text><text x="84" y="36" text-anchor="middle" class="s">multi-poses</text></g>
+  <g class="node t_mount_slewed t_solver_result" data-module="target" data-topics="t_mount_slewed t_solver_result" transform="translate(476 766)"><rect width="168" height="48" stroke="#ffaa44"/><text x="84" y="19" text-anchor="middle" class="n">target.js</text><text x="84" y="36" text-anchor="middle" class="s">centrage cible</text></g>
+  <g class="node " data-module="polar" data-topics="" transform="translate(746 766)"><rect width="168" height="48" stroke="#ffaa44"/><text x="84" y="19" text-anchor="middle" class="n">polar.js</text><text x="84" y="36" text-anchor="middle" class="s">alignement polaire</text></g>
+  <g class="node t_ws_state" data-module="focuser" data-topics="t_ws_state" transform="translate(946 766)"><rect width="168" height="48" stroke="#ff6644"/><text x="84" y="19" text-anchor="middle" class="n">focuser.js</text><text x="84" y="36" text-anchor="middle" class="s">focuser · autofocus</text></g>
+  <g class="node t_ws_log" data-module="api" data-topics="t_ws_log" transform="translate(1126 766)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">api.js</text><text x="84" y="36" text-anchor="middle" class="s">addLog · API</text></g>
+
+  <g class="btn" id="btn-animate" transform="translate(470 60)">
+    <rect width="118" height="26" rx="6"/>
+    <text id="btn-animate-text" x="59" y="17" text-anchor="middle">▶ Animer le flux</text>
+  </g>
+  <g class="btn" id="btn-reset" transform="translate(600 60)">
+    <rect width="112" height="26" rx="6"/>
+    <text x="56" y="17" text-anchor="middle">⟲ Réinitialiser</text>
+  </g>
+
+  <g transform="translate(1040 56)">
+    <text class="legend-title" x="0" y="14">Topics (événements sur le bus)</text>
+<g class="legend-item" data-topic="t_ws_state" data-color="#4488ff" data-info="ws:state — producteur ws → mount, capture, focuser, solver, guide, hardware — payload { devices }" transform="translate(0 80)"><rect width="195" height="24" rx="5" stroke="#4488ff"/><circle cx="12" cy="12" r="4.5" fill="#4488ff"/><text x="24" y="16">ws:state</text></g>
+<g class="legend-item" data-topic="t_ws_image" data-color="#44cc88" data-info="ws:image — producteur ws → preview — payload { device, format, b64 }" transform="translate(0 110)"><rect width="195" height="24" rx="5" stroke="#44cc88"/><circle cx="12" cy="12" r="4.5" fill="#44cc88"/><text x="24" y="16">ws:image</text></g>
+<g class="legend-item" data-topic="t_ws_log" data-color="#9aa3b2" data-info="ws:log — producteur ws → api — payload { level, logger, msg }" transform="translate(0 140)"><rect width="195" height="24" rx="5" stroke="#9aa3b2"/><circle cx="12" cy="12" r="4.5" fill="#9aa3b2"/><text x="24" y="16">ws:log</text></g>
+<g class="legend-item" data-topic="t_solver_result" data-color="#ffaa44" data-info="solver:result — producteur solver → target, preview — payload { result }" transform="translate(0 170)"><rect width="195" height="24" rx="5" stroke="#ffaa44"/><circle cx="12" cy="12" r="4.5" fill="#ffaa44"/><text x="24" y="16">solver:result</text></g>
+<g class="legend-item" data-topic="t_mode_changed" data-color="#ffcc55" data-info="mode:changed — producteur app → solver, hardware — payload { mode }" transform="translate(0 200)"><rect width="195" height="24" rx="5" stroke="#ffcc55"/><circle cx="12" cy="12" r="4.5" fill="#ffcc55"/><text x="24" y="16">mode:changed</text></g>
+<g class="legend-item" data-topic="t_calibration_done" data-color="#ff6644" data-info="calibration:done — producteur calibration → app, guide — payload { quality, gains }" transform="translate(0 230)"><rect width="195" height="24" rx="5" stroke="#ff6644"/><circle cx="12" cy="12" r="4.5" fill="#ff6644"/><text x="24" y="16">calibration:done</text></g>
+<g class="legend-item" data-topic="t_capture_progress" data-color="#7ee08a" data-info="capture:progress — producteur capture → sequence, stacking, app — payload { done, total, last }" transform="translate(0 260)"><rect width="195" height="24" rx="5" stroke="#7ee08a"/><circle cx="12" cy="12" r="4.5" fill="#7ee08a"/><text x="24" y="16">capture:progress</text></g>
+<g class="legend-item" data-topic="t_guide_star" data-color="#cc88ff" data-info="guide:starSelected — producteur preview → guide — payload { star }" transform="translate(0 290)"><rect width="195" height="24" rx="5" stroke="#cc88ff"/><circle cx="12" cy="12" r="4.5" fill="#cc88ff"/><text x="24" y="16">guide:starSelected</text></g>
+<g class="legend-item" data-topic="t_mount_slewed" data-color="#66bbff" data-info="mount:slewed — producteur mount → target — payload { ra, dec }" transform="translate(0 320)"><rect width="195" height="24" rx="5" stroke="#66bbff"/><circle cx="12" cy="12" r="4.5" fill="#66bbff"/><text x="24" y="16">mount:slewed</text></g>
+  </g>
+
+  <g id="info-bar" transform="translate(380 812)">
+    <rect width="540" height="28" rx="8"/>
+    <text id="info-text" x="12" y="18">Survolez un module, une étiquette de topic ou la légende pour afficher les détails.</text>
+  </g>
+
+  <script><![CDATA[
+(function () {
+  var svg = document.getElementById('bus-svg');
+  var nodes = Array.prototype.slice.call(svg.querySelectorAll('.node'));
+  var stubs = Array.prototype.slice.call(svg.querySelectorAll('.stub'));
+  var tags = Array.prototype.slice.call(svg.querySelectorAll('.tag-pill'));
+  var legend = Array.prototype.slice.call(svg.querySelectorAll('.legend-item'));
+  var infoText = document.getElementById('info-text');
+
+  var TOPICS = {
+    t_ws_state: { prod: 'ws', cons: ['mount','capture','focuser','solver','guide','hardware'], color: '#4488ff', topic: 'ws:state' },
+    t_ws_image: { prod: 'ws', cons: ['preview'], color: '#44cc88', topic: 'ws:image' },
+    t_ws_log:   { prod: 'ws', cons: ['api'], color: '#9aa3b2', topic: 'ws:log' },
+    t_solver_result: { prod: 'solver', cons: ['target','preview'], color: '#ffaa44', topic: 'solver:result' },
+    t_mode_changed: { prod: 'app', cons: ['solver','hardware'], color: '#ffcc55', topic: 'mode:changed' },
+    t_calibration_done: { prod: 'calibration', cons: ['app','guide'], color: '#ff6644', topic: 'calibration:done' },
+    t_capture_progress: { prod: 'capture', cons: ['sequence','stacking','app'], color: '#7ee08a', topic: 'capture:progress' },
+    t_guide_star: { prod: 'preview', cons: ['guide'], color: '#cc88ff', topic: 'guide:starSelected' },
+    t_mount_slewed: { prod: 'mount', cons: ['target'], color: '#66bbff', topic: 'mount:slewed' }
+  };
+
+  function setState(el, active) {
+    el.classList.toggle('active', active);
+    el.classList.toggle('dim', !active);
+  }
+  function involvedModules(tids) {
+    var set = {};
+    tids.forEach(function (t) {
+      var info = TOPICS[t];
+      if (!info) return;
+      set[info.prod] = true;
+      info.cons.forEach(function (c) { set[c] = true; });
+    });
+    return set;
+  }
+  function focusTopic(tid) {
+    var info = TOPICS[tid], involved = {};
+    involved[info.prod] = true;
+    info.cons.forEach(function (c) { involved[c] = true; });
+    nodes.forEach(function (n) {
+      var name = n.getAttribute('data-module');
+      setState(n, !!involved[name]);
+    });
+    stubs.forEach(function (s) {
+      var active = !!involved[s.getAttribute('data-module')];
+      setState(s, active);
+      s.style.stroke = active ? info.color : '';
+    });
+    tags.forEach(function (t) { setState(t, t.getAttribute('data-topic') === tid); });
+    legend.forEach(function (l) { setState(l, l.getAttribute('data-topic') === tid); });
+  }
+  function focusModule(name) {
+    var tids = [];
+    nodes.forEach(function (n) {
+      if (n.getAttribute('data-module') === name) tids = n.getAttribute('data-topics').split(' ');
+    });
+    var involved = involvedModules(tids);
+    nodes.forEach(function (n) { setState(n, !!involved[n.getAttribute('data-module')]); });
+    stubs.forEach(function (s) {
+      var active = !!involved[s.getAttribute('data-module')];
+      setState(s, active);
+      s.style.stroke = active ? '#00ffcc' : '';
+    });
+    tags.forEach(function (t) { setState(t, tids.indexOf(t.getAttribute('data-topic')) >= 0); });
+    legend.forEach(function (l) { setState(l, tids.indexOf(l.getAttribute('data-topic')) >= 0); });
+  }
+  function clear() {
+    nodes.concat(stubs, tags, legend).forEach(function (el) {
+      el.classList.remove('active', 'dim');
+      if (el.style) el.style.stroke = '';
+    });
+  }
+  function bind(els, enter, leave) {
+    els.forEach(function (el) {
+      el.addEventListener('mouseenter', enter);
+      el.addEventListener('mouseleave', leave);
+    });
+  }
+  bind(nodes, function () {
+    var name = this.getAttribute('data-module');
+    focusModule(name);
+    infoText.textContent = 'module ' + name + '.js — émet/écoute : ' + this.getAttribute('data-topics').split(' ').join(', ');
+  }, clear);
+  bind(stubs, function () {
+    var name = this.getAttribute('data-module');
+    focusModule(name);
+    infoText.textContent = 'module ' + name + '.js — connecté au bus';
+  }, clear);
+  bind(tags, function () {
+    var tid = this.getAttribute('data-topic');
+    focusTopic(tid);
+    infoText.textContent = this.getAttribute('data-info');
+  }, clear);
+  bind(legend, function () {
+    var tid = this.getAttribute('data-topic');
+    focusTopic(tid);
+    infoText.textContent = this.getAttribute('data-info');
+  }, clear);
+
+  document.getElementById('btn-animate').addEventListener('click', function () {
+    var on = svg.classList.toggle('flow');
+    document.getElementById('btn-animate-text').textContent = on ? '⏸ Pause' : '▶ Animer le flux';
+  });
+  document.getElementById('btn-reset').addEventListener('click', function () {
+    clear();
+    infoText.textContent = 'Survolez un module, une étiquette de topic ou la légende pour afficher les détails.';
+  });
+})();
+]]></script>
+</svg>
