@@ -10,12 +10,20 @@
     .node .s { fill:#7a8598; font-size:9px; }
     .node.active rect { filter: drop-shadow(0 0 7px currentColor); }
     .node.dim, .stub.dim, .tag-pill.dim, .legend-item.dim { opacity:.12; }
+    .node.buspass rect { stroke-width:2.8; filter: drop-shadow(0 0 9px #00e5ff); }
     .stub { transition: opacity .25s; }
     .stub.active { stroke-width:2.5; }
     .busbar { pointer-events:none; }
     .busflow { opacity:.35; }
     .flow .busflow { stroke-dasharray:14 10; animation: dash 1.2s linear infinite; }
     @keyframes dash { to { stroke-dashoffset:-24; } }
+    .msg-marker { visibility:hidden; pointer-events:none; filter: drop-shadow(0 0 6px #00e5ff); }
+    .flow .msg-marker { visibility:visible; }
+    #bubble { visibility:hidden; pointer-events:none; }
+    #bubble-rect { fill:#141b2a; fill-opacity:.97; stroke:#00e5ff; stroke-width:1.2; rx:8; }
+    #bubble-pointer { fill:#141b2a; stroke:#00e5ff; stroke-width:1; }
+    #bubble-name { fill:#e8ecf4; font-size:12px; font-weight:bold; }
+    #bubble-desc { fill:#9fb0c8; font-size:9.5px; }
     .tag-pill { cursor:pointer; transition: opacity .25s; }
     .tag-pill rect { fill:#10141d; }
     .tag-pill text { font-size:10px; fill:#c6cedd; }
@@ -49,7 +57,7 @@
   <rect class="bg" width="1300" height="850" rx="10" fill="#0b0e14"/>
 
   <text x="26" y="34" font-size="17" font-weight="bold" fill="#e8ecf4">Bus de messages — Noctua</text>
-  <text x="26" y="54" font-size="10.5" fill="#7a8598">Modules connectés au bus : survolez un module, une étiquette ou la légende — « Animer » visualise le flux.</text>
+  <text x="26" y="54" font-size="10.5" fill="#7a8598">Survolez un module, une étiquette ou la légende — « Animer » : le flux déclenche une bulle sur chaque module.</text>
 
   <g class="busbar"><rect x="60" y="360" width="1148" height="8" rx="4" fill="#0a3f40" stroke="#00e5ff" stroke-width="1.4"/><line class="busflow" x1="60" y1="364" x2="1208" y2="364" stroke="#00e5ff" stroke-width="2"/><polygon points="1208,360 1230,364 1208,368" fill="#00e5ff"/><text x="70" y="352" font-size="10" fill="#00e5ff">BUS — events.js</text></g>
   <g class="busbar"><rect x="60" y="680" width="1148" height="8" rx="4" fill="#0a3f40" stroke="#00e5ff" stroke-width="1.4"/><line class="busflow" x1="60" y1="684" x2="1208" y2="684" stroke="#00e5ff" stroke-width="2"/><polygon points="1208,680 1230,684 1208,688" fill="#00e5ff"/><text x="70" y="672" font-size="10" fill="#00e5ff">BUS — events.js (suite)</text></g>
@@ -102,6 +110,18 @@
   <g class="node t_ws_state" data-module="focuser" data-topics="t_ws_state" transform="translate(946 766)"><rect width="168" height="48" stroke="#ff6644"/><text x="84" y="19" text-anchor="middle" class="n">focuser.js</text><text x="84" y="36" text-anchor="middle" class="s">focuser · autofocus</text></g>
   <g class="node t_ws_log" data-module="api" data-topics="t_ws_log" transform="translate(1126 766)"><rect width="168" height="48" stroke="#4488ff"/><text x="84" y="19" text-anchor="middle" class="n">api.js</text><text x="84" y="36" text-anchor="middle" class="s">addLog · API</text></g>
 
+  <g id="msg-marker" class="msg-marker">
+    <circle r="6" fill="#00e5ff" opacity=".25"/>
+    <circle r="3" fill="#eaffff"/>
+  </g>
+
+  <g id="bubble">
+    <rect id="bubble-rect" x="-0" y="0" width="200" height="46" rx="8"/>
+    <polygon id="bubble-pointer" points="93,46 100,53 107,46"/>
+    <text id="bubble-name" x="12" y="18">module</text>
+    <text id="bubble-desc" x="12" y="33">description</text>
+  </g>
+
   <g class="btn" id="btn-animate" transform="translate(470 60)">
     <rect width="118" height="26" rx="6"/>
     <text id="btn-animate-text" x="59" y="17" text-anchor="middle">▶ Animer le flux</text>
@@ -137,6 +157,34 @@
   var tags = Array.prototype.slice.call(svg.querySelectorAll('.tag-pill'));
   var legend = Array.prototype.slice.call(svg.querySelectorAll('.legend-item'));
   var infoText = document.getElementById('info-text');
+  var marker = document.getElementById('msg-marker');
+  var bubble = document.getElementById('bubble');
+  var bubbleRect = document.getElementById('bubble-rect');
+  var bubblePointer = document.getElementById('bubble-pointer');
+  var bubbleName = document.getElementById('bubble-name');
+  var bubbleDesc = document.getElementById('bubble-desc');
+  var raf = null, lastMod = null;
+
+  var X0 = 60, X1 = 1208, Y1 = 364, Y2 = 684, CX = 1258;
+  var MODULES = {
+    ws: { cx: 160, cy: 225, bus: 1, name: 'ws.js', desc: 'Reçoit l\'état INDIGO via WebSocket et le publie sur le bus' },
+    capture: { cx: 430, cy: 225, bus: 1, name: 'capture.js', desc: 'Lance les poses, émet capture:progress' },
+    calibration: { cx: 700, cy: 225, bus: 1, name: 'calibration.js', desc: 'Calibre la monture, annonce calibration:done' },
+    app: { cx: 900, cy: 225, bus: 1, name: 'app.js', desc: 'Orchestre modes, init et ciel (sky)' },
+    objects: { cx: 270, cy: 495, bus: 1, name: 'objects.js', desc: 'Recherche d\'objets, config site et heure' },
+    hardware: { cx: 560, cy: 495, bus: 1, name: 'hardware.js', desc: 'Devices, connexions et profils matériel' },
+    stacking: { cx: 830, cy: 495, bus: 1, name: 'stacking.js', desc: 'Empile les poses en direct' },
+    state: { cx: 1090, cy: 495, bus: 1, name: 'state.js', desc: 'État global partagé : devices, uiConfig, modes' },
+    preview: { cx: 170, cy: 555, bus: 2, name: 'preview.js', desc: 'FITS, aperçus, overlays, étoile guide' },
+    solver: { cx: 430, cy: 555, bus: 2, name: 'solver.js', desc: 'Résout l\'image, publie solver:result' },
+    mount: { cx: 700, cy: 555, bus: 2, name: 'mount.js', desc: 'Commandes monture : slew, park, tracking' },
+    guide: { cx: 950, cy: 555, bus: 2, name: 'guide.js', desc: 'Autoguidage : boucle, dérive, RMS' },
+    sequence: { cx: 270, cy: 790, bus: 2, name: 'sequence.js', desc: 'Plan d\'acquisition multi-poses' },
+    target: { cx: 560, cy: 790, bus: 2, name: 'target.js', desc: 'Centrage automatique de la cible' },
+    polar: { cx: 830, cy: 790, bus: 2, name: 'polar.js', desc: 'Alignement polaire en 3 points' },
+    focuser: { cx: 1030, cy: 790, bus: 2, name: 'focuser.js', desc: 'Mise au point et autofocus (V-curve)' },
+    api: { cx: 1210, cy: 790, bus: 2, name: 'api.js', desc: 'Logs, toasts et appels API' },
+  };
 
   var TOPICS = {
     t_ws_state: { prod: 'ws', cons: ['mount','capture','focuser','solver','guide','hardware'], color: '#4488ff', topic: 'ws:state' },
@@ -169,8 +217,7 @@
     involved[info.prod] = true;
     info.cons.forEach(function (c) { involved[c] = true; });
     nodes.forEach(function (n) {
-      var name = n.getAttribute('data-module');
-      setState(n, !!involved[name]);
+      setState(n, !!involved[n.getAttribute('data-module')]);
     });
     stubs.forEach(function (s) {
       var active = !!involved[s.getAttribute('data-module')];
@@ -228,9 +275,56 @@
     infoText.textContent = this.getAttribute('data-info');
   }, clear);
 
+  function bubbleFor(name) {
+    var m = MODULES[name];
+    if (!m) return;
+    var w = Math.max(150, 24 + Math.max(m.name.length, m.desc.length) * 4.6);
+    bubbleName.textContent = m.name;
+    bubbleDesc.textContent = m.desc;
+    bubbleRect.setAttribute('width', w);
+    bubblePointer.setAttribute('points', (w/2 - 7) + ',46 ' + (w/2) + ',53 ' + (w/2 + 7) + ',46');
+    bubble.setAttribute('transform', 'translate(' + (m.cx - w/2) + ' ' + (m.cy - 56) + ')');
+    bubble.setAttribute('visibility', 'visible');
+  }
+  function flowLoop(ts) {
+    if (!svg.classList.contains('flow')) { raf = null; return; }
+    var t = ((ts % 4200) / 4200);
+    var x, y, bus = 0;
+    if (t < 0.45) { bus = 1; x = X0 + (X1 - X0) * (t / 0.45); y = Y1; }
+    else if (t < 0.55) { bus = 0; x = CX; y = Y1 + (Y2 - Y1) * ((t - 0.45) / 0.10); }
+    else { bus = 2; x = X0 + (X1 - X0) * ((t - 0.55) / 0.45); y = Y2; }
+    marker.setAttribute('transform', 'translate(' + x + ' ' + y + ')');
+    var hit = null, best = 1e9;
+    if (bus) {
+      for (var name in MODULES) {
+        var m = MODULES[name];
+        if (m.bus !== bus) continue;
+        var d = Math.abs(m.cx - x);
+        if (d < 92 && d < best) { best = d; hit = name; }
+      }
+    }
+    if (hit !== lastMod) {
+      if (lastMod) document.querySelector('[data-module="' + lastMod + '"]').classList.remove('buspass');
+      if (hit) {
+        document.querySelector('[data-module="' + hit + '"]').classList.add('buspass');
+        bubbleFor(hit);
+      } else {
+        bubble.setAttribute('visibility', 'hidden');
+      }
+      lastMod = hit;
+    }
+    raf = requestAnimationFrame(flowLoop);
+  }
+  function stopFlow() {
+    if (raf) { cancelAnimationFrame(raf); raf = null; }
+    bubble.setAttribute('visibility', 'hidden');
+    if (lastMod) { document.querySelector('[data-module="' + lastMod + '"]').classList.remove('buspass'); lastMod = null; }
+  }
   document.getElementById('btn-animate').addEventListener('click', function () {
     var on = svg.classList.toggle('flow');
     document.getElementById('btn-animate-text').textContent = on ? '⏸ Pause' : '▶ Animer le flux';
+    if (on) { if (!raf) raf = requestAnimationFrame(flowLoop); }
+    else stopFlow();
   });
   document.getElementById('btn-reset').addEventListener('click', function () {
     clear();
