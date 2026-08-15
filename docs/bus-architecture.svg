@@ -247,6 +247,8 @@
       el.classList.remove('active', 'dim');
       if (el.style) el.style.stroke = '';
     });
+    bubble.setAttribute('visibility', 'hidden');
+    if (svg.classList.contains('flow') && lastMod) bubbleFor(lastMod);
   }
   function bind(els, enter, leave) {
     els.forEach(function (el) {
@@ -257,11 +259,13 @@
   bind(nodes, function () {
     var name = this.getAttribute('data-module');
     focusModule(name);
+    bubbleFor(name);
     infoText.textContent = 'module ' + name + '.js — émet/écoute : ' + this.getAttribute('data-topics').split(' ').join(', ');
   }, clear);
   bind(stubs, function () {
     var name = this.getAttribute('data-module');
     focusModule(name);
+    bubbleFor(name);
     infoText.textContent = 'module ' + name + '.js — connecté au bus';
   }, clear);
   bind(tags, function () {
