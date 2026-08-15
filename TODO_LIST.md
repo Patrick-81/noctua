@@ -75,8 +75,7 @@
 - [ ] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible
 - [ ] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`)
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
-- [x] **Découpage `app.js` (en cours)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + minimize), `utils.js` (i18n + helpers purs), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick) — **app.js 7720 → 6273 lignes**, scripts classiques globals chargés avant app.js, Playwright **36/36 ✓**
-- [ ] Découpage `app.js` (suite) : extraire websocket, guide, calibration, capture/sequence, focuser/autofocus, solver/polar… (objectif ≤ 1000 lignes/module)
+- [x] **Découpage `app.js` (terminé)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + `ChecklistPanel`), `utils.js` (i18n + helpers purs + `sleep`), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick), `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` — **app.js 7720 → 457 lignes**, scripts classiques globals chargés avant app.js, tous modules ≤ 1000 lignes, Playwright **36/36 ✓**
 - [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
 
 ## Planifiés (décision 2026-08-04, cf. COMPARISON_NINA.md)

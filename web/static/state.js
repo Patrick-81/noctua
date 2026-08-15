@@ -13,6 +13,40 @@ let selectedDevice = null;
 let selectedCamera = null;
 let _targetObject = null;
 let _hwModeDevice = null;
+
+// Viewer instances (initialized later)
+let captureViewer = null;
+let guideViewer = null;
+
+// ── Modes ─────────────────────────────────────────────────────
+
+const MODES = {
+    mount: {
+        applets: ['applet-status', 'applet-pilotage',
+                  'applet-hud'],
+        driverType: 'mount'
+    },
+    focuser: {
+        applets: ['applet-focuser-control', 'applet-focuser-position', 'applet-capture-preview'],
+        driverType: 'focuser'
+    },
+    guiding: {
+        applets: ['applet-guide-checklist', 'applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration'],
+        driverType: 'ccd'
+    },
+    capture: {
+        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence'],
+        driverType: 'ccd'
+    },
+    astrometry: {
+        applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-capture-preview'],
+        driverType: 'ccd'
+    },
+    hardware: {
+        applets: ['applet-hardware-mode'],
+        driverType: null
+    }
+};
 const MAX_LOG = 500;
 let logEntries = [];
 let skyEngine = null;

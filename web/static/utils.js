@@ -39,3 +39,5 @@ function sexaToDec(str, isRA) {
     const deg = parts[0] + parts[1] / 60 + parts[2] / 3600;
     return isRA ? deg / 15 : sign * deg;
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }

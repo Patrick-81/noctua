@@ -20,28 +20,44 @@ L'autoguidage est orchestré par le frontend : expose guide camera → mesure ce
 ### Modules créés / adoptés
 | Module | Lignes | Contenu |
 |---|---|---|
-| `state.js` *(nouveau)* | 65 | État global (`ws`, `devices`, `uiConfig`, `currentMode`…), helpers config (`loadUiConfig`/`saveUiConfig`/`currentModeConfig`), vars preview/histogramme/guide |
+| `state.js` *(nouveau)* | 99 | État global (`ws`, `devices`, `uiConfig`, `currentMode`…), `MODES`, `captureViewer`/`guideViewer`, helpers config, vars preview/histogramme/guide |
 | `viewer.js` *(nouveau)* | 699 | Classe `Viewer` complète (FITS parsing/rendu asinh, zoom/pan, histogramme, `renderGuide`) |
-| `layout.js` *(adopté)* | 175 | Layout panneaux (overlap, clamp, positions) + `toggleMinimize`/`applyCollapsedState` ajoutés |
-| `utils.js` *(réparé)* | 41 | Helpers purs + `i18n`/`i18nFmt` (les `export` d'origine cassaient le script classique) |
+| `layout.js` *(adopté)* | 226 | Layout panneaux (overlap, clamp, positions) + `ChecklistPanel` + `toggleMinimize`/`applyCollapsedState` |
+| `utils.js` *(réparé)* | 43 | Helpers purs + `i18n`/`i18nFmt` + `sleep` (les `export` d'origine cassaient le script classique) |
 | `api.js` *(nouveau)* | 127 | `apiPost`, `setSwitch/Number/TextItem`, `addLog`, `showToast`, log copy/filters, `escapeAttr/HTML` |
 | `mount.js` *(nouveau)* | 228 | `findMount`, `renderMountPanel/FlipPanel`, `updateCameraFov`, `setTargetObject`, commandes monture |
 | `controls.js` *(nouveau)* | 140 | `initDpad`, `initButtons`, `initJoystick` |
+| `ws.js` *(nouveau)* | 440 | `connectWS` + handler, device list (`renderDevices`/`renderProps`…), `DRIVER_TYPE_KEYWORDS`/`filterDriversByType`, `refreshDriverList`, `initConnectionBar`, `initLocationUpdate` |
+| `objects.js` *(nouveau)* | 384 | Object search + selector (GOTO), catalogs, `initSitePopup`, `initTimeControls` |
+| `hardware.js` *(nouveau)* | 350 | Panneau Matériel + profils (`HW_ROLES`, `hwLoad`, `renderHardwarePanel`…), mode dédié |
+| `capture.js` *(nouveau)* | 493 | Capture panel, `startSequence`, countdown, `renderCapturePanel`, filtre (roue) |
+| `sequence.js` *(nouveau)* | 271 | Panneau SÉQUENCE (table de poses, `seqStart`, poll status) |
+| `stacking.js` *(nouveau)* | 156 | Panneau LIVE STACKING (`stkStart/Stop/Reset`, poll status) |
+| `preview.js` *(nouveau)* | 604 | FITS image handling (`handleGuideImage`/`handleCameraImage`, `_guideDetectStars`, `_guideClick`+`window._guideClick`), histogramme, resize, zoom/pan, save, overlays offset/focus |
+| `testharness.js` *(nouveau)* | 145 | Dev / no-camera testing (`_testHarness`, `loadTestFITS`, `mockSolveResult`…) |
+| `solver.js` *(nouveau)* | 288 | Plate Solver panel, `refreshSolverStatus`, `handleSolverWsResult` |
+| `target.js` *(nouveau)* | 242 | Target centering panel + centering loop (`_centeringStep`) |
+| `polar.js` *(nouveau)* | 558 | Polar alignment 3-point (auto/manual, diagramme) |
+| `focuser.js` *(nouveau)* | 625 | Focuser panel + autofocus sequence (V-curve, `_autofocus*`) |
+| `guide.js` *(nouveau)* | 717 | Guide panel, `_guideLoop`, drift graph, RMS/SNR, `_guideCleanup` |
+| `calibration.js` *(nouveau)* | 500 | Calibration monture (`_calibrateStart/Loop/Done`) |
 
 ### Résultats
-- **`app.js` : 7720 → 6273 lignes** (retrait ~1450 lignes).
+- **`app.js` : 6273 → 457 lignes** (retrait ~5820 lignes). Il ne garde que : Mode Manager (`switchMode`/`configureViewerForMode`/`initModeBar`), `initI18nSelector`, `initSkyEngine`, `initLayerToggles`, `initDraggableApplets`, exports globaux, et le boot `DOMContentLoaded`.
+- **Déplacements d'état** : `MODES` + `captureViewer`/`guideViewer` → `state.js` ; `DRIVER_TYPE_KEYWORDS`/`filterDriversByType` → `ws.js` ; `sleep` → `utils.js` ; `ChecklistPanel` → `layout.js` (tous en bindings lexicaux globaux pour rester accessibles aux scripts classiques).
+- Tous les modules ≤ 1000 lignes (seuls `sky-engine.js` 1148 — module ES bibliothèque — et `i18n.js` 1025 — dictionnaires — dépassent).
 - Vars mortes supprimées : `_histAuto`, `_histBlackPct`, `_guidePreviewZoom/PanX/PanY` (déclarées, jamais lues).
 - `window._guideClick = _guideClick` publié (classe Viewer en script classique) ; les helpers `hexToRgb`/`decToSexa`/`sexaToDec` dédupliqués (implémentations canoniques d'app.js → `utils.js`).
 - `.gitignore` : `backups/` ajouté ; `web/static/app.js.refactored` (brouillon refonte totale) supprimé.
-- **Ordre de chargement** : `i18n.js → utils.js → state.js → layout.js → viewer.js → api.js → mount.js → controls.js → app.js`.
+- **Ordre de chargement** : `i18n.js → utils.js → state.js → layout.js → viewer.js → api.js → mount.js → controls.js → ws.js → objects.js → hardware.js → capture.js → sequence.js → stacking.js → preview.js → testharness.js → solver.js → target.js → polar.js → focuser.js → guide.js → calibration.js → app.js (module)`.
 
 ### Validation
 - `node --check` OK sur tous les fichiers.
 - **Playwright : 36/36** ✓ (viewer, polar, hardware, sequence, guide-validation).
 
 ### Fichiers
-- Nouveaux : `state.js`, `viewer.js`, `api.js`, `mount.js`, `controls.js` (dans `web/static/`).
-- Modifiés : `app.js` (dépouillé), `index.html` (ordre scripts), `utils.js`, `layout.js`, `TODO_LIST.md`, `CHECKPOINT.md`, `.gitignore`.
+- Nouveaux : `state.js`, `viewer.js`, `api.js`, `mount.js`, `controls.js`, `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` (dans `web/static/`).
+- Modifiés : `app.js` (dépouillé 457 lignes), `index.html` (ordre scripts), `utils.js`, `layout.js`, `state.js`, `TODO_LIST.md`, `CHECKPOINT.md`, `.gitignore`.
 - Supprimé : `web/static/app.js.refactored`.
 
 ## Session 2026-08-11 — Validation UI section « À tester » (items 1–11) + infra Playwright guidage
