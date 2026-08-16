@@ -402,6 +402,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initGuidePanel();
     setInterval(() => _guideChecklist?.update(), 1000);
     initCalibrationPanel();
+    initSessionPanel();
     await initSkyEngine();
     initDraggableApplets();
     initLayerToggles();

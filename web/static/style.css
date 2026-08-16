@@ -1388,6 +1388,15 @@ body {
 .solver-param-label { color: #888; min-width: 40px; }
 .solver-param-value { color: #00ffcc; font-family: monospace; }
 .solver-unit { color: #666; font-size: 0.6rem; }
+.session-phase {
+    font-size: 0.6rem;
+    color: #999;
+    line-height: 1.5;
+    border-left: 2px solid #2a3a5a;
+    padding-left: 6px;
+    margin-top: 2px;
+}
+#session-phases .session-phase:first-child { border-left-color: #88ff88; }
 
 .solver-mode-row {
     display: flex; gap: 4px;

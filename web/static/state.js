@@ -31,11 +31,11 @@ const MODES = {
         driverType: 'focuser'
     },
     guiding: {
-        applets: ['applet-guide-checklist', 'applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration'],
+        applets: ['applet-guide-checklist', 'applet-guide-preview', 'applet-guiding-graph', 'applet-guiding-settings', 'applet-calibration', 'applet-session'],
         driverType: 'ccd'
     },
     capture: {
-        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence'],
+        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence', 'applet-session'],
         driverType: 'ccd'
     },
     astrometry: {

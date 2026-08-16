@@ -33,6 +33,7 @@
     <script src="/focuser.js"></script>
     <script src="/guide.js"></script>
     <script src="/calibration.js"></script>
+    <script src="/session.js"></script>
 </head>
 <body>
 
@@ -1051,6 +1052,27 @@
                     <div class="solver-progress-fill" id="target-center-fill"></div>
                 </div>
                 <div class="solver-progress-text" id="target-center-text">Centrage en cours...</div>
+            </div>
+        </div>
+
+        <div id="applet-session" class="glass-panel applet mode-specific" data-modes="capture guiding" style="display:none; top:470px; right:16px; width:300px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="session.title">◎ SESSION — meridian flip</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+
+            <div style="padding:6px 8px;">
+                <div class="solver-section">
+                    <div class="solver-label" data-i18n="session.status">Statut</div>
+                    <div class="solver-row">
+                        <span id="session-status" style="font-size:0.65rem; color:#888;">—</span>
+                    </div>
+                </div>
+                <div class="solver-row" style="justify-content:flex-start; gap:12px; padding:2px 0;">
+                    <label class="seq-chk" style="font-size:0.6rem;"><input type="checkbox" id="session-active"> <span data-i18n="session.monitor">Session active</span></label>
+                    <label class="seq-chk" style="font-size:0.6rem;"><input type="checkbox" id="session-auto-flip"> <span data-i18n="session.auto_flip">Flip auto</span></label>
+                </div>
+                <div class="solver-actions" style="margin-top:2px;">
+                    <button id="session-flip-btn" class="btn-glass warning solver-action-btn" data-i18n="session.flip_now">⟳ FLIP maintenant</button>
+                </div>
+                <div id="session-phases" style="font-size:0.6rem; color:#666; margin-top:6px; max-height:110px; overflow-y:auto;"></div>
             </div>
         </div>
 
