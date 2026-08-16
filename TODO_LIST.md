@@ -76,7 +76,7 @@
 - [x] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s — commit `9350475`
 - [x] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible — auto-save dans `<root>/masters/` + `master_path` exposé dans le statut (WS + `/api/stacking/status`)
 - [x] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`) — `save_master()` route vers `<dir>/masters/`
-- [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
+- [x] Réduire les violations requestAnimationFrame (sky chart canvas lourd) — sky-engine.js : étoiles projetées en un seul `path`+`fill` batchées avec cache des positions (clé rotation+mag+échelle, réutilisé entre ticks sidéraux), graticule/équateur/écliptique/horizon mis en cache dans `init()`, Voie lactée décimée au chargement (30676 → 6142 points, cap 40/anneau) — rendu mesuré (1280×720, mag 6, headless Chromium, médiane 8 itérations) : sweep 20.9 → 10.8 ms, MW seul 16 → ~5 ms
 - [x] **Découpage `app.js` (terminé)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + `ChecklistPanel`), `utils.js` (i18n + helpers purs + `sleep`), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick), `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` — **app.js 7720 → 457 lignes**, scripts classiques globals chargés avant app.js, tous modules ≤ 1000 lignes, Playwright **36/36 ✓**
 - [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
 

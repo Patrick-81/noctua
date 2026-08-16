@@ -67,6 +67,7 @@ export class SkyEngine {
         this._milkywayData = null;
         this._dsosData = null;
         this._planetsData = null;
+        this._starCache = null;         // { key, pts } — positions projetées des étoiles
 
         // Layer visibility
         this.layers = {
@@ -127,6 +128,13 @@ export class SkyEngine {
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
         this._graticule = d3.geo.graticule().step([15, 10]);
 
+        // Géométries fixes en coordonnées RA/Dec : calculées une seule fois,
+        // la rotation LST est appliquée par la projection à chaque rendu.
+        this._cachedGraticule = this._graticule();
+        this._cachedEquator = this._getCelestialEquator();
+        this._cachedEcliptic = this._getEcliptic();
+        this._cachedHorizon = this._getHorizon();
+
         this._setupDrag();
         this._setupZoom();
         this._setupResize();
@@ -149,11 +157,33 @@ export class SkyEngine {
 
         this._starsData = stars;
         this._constellationsData = consts;
-        this._milkywayData = mw;
+        this._milkywayData = this._decimateMilkyway(mw);
         this._dsosData = dsos;
         this._planetsData = planets;
         this._mapReady = true;
         this.render();
+    }
+
+    _decimateMilkyway(data) {
+        if (!data || !Array.isArray(data.features)) return data;
+        const cap = 40;
+        const decimate = (ring) => {
+            const n = ring.length;
+            if (n <= cap) return ring;
+            const stride = (n - 1) / (cap - 1);
+            const out = [];
+            for (let i = 0; i < cap - 1; i++) out.push(ring[Math.round(i * stride)]);
+            out.push(ring[n - 1]);
+            return out;
+        };
+        for (const feature of data.features) {
+            const polys = feature.geometry && feature.geometry.coordinates;
+            if (!polys) continue;
+            for (const poly of polys) {
+                for (let i = 0; i < poly.length; i++) poly[i] = decimate(poly[i]);
+            }
+        }
+        return data;
     }
 
     setLayerVisibility(layer, visible) {
@@ -383,7 +413,7 @@ export class SkyEngine {
             ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
             ctx.lineWidth = 1;
             ctx.beginPath();
-            this._pathGenerator(this._graticule());
+            this._pathGenerator(this._cachedGraticule);
             ctx.stroke();
         }
 
@@ -392,7 +422,7 @@ export class SkyEngine {
             ctx.strokeStyle = "rgba(0, 255, 255, 0.75)";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            this._pathGenerator(this._getCelestialEquator());
+            this._pathGenerator(this._cachedEquator);
             ctx.stroke();
         }
 
@@ -402,7 +432,7 @@ export class SkyEngine {
             ctx.lineWidth = 2;
             ctx.setLineDash([6, 3]);
             ctx.beginPath();
-            this._pathGenerator(this._getEcliptic());
+            this._pathGenerator(this._cachedEcliptic);
             ctx.stroke();
             ctx.setLineDash([]);
         }
@@ -428,7 +458,7 @@ export class SkyEngine {
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]);
             ctx.beginPath();
-            this._pathGenerator(this._getHorizon());
+            this._pathGenerator(this._cachedHorizon);
             ctx.stroke();
             ctx.setLineDash([]);
 
@@ -481,22 +511,36 @@ export class SkyEngine {
             ctx.stroke();
         }
 
-        // 8. Étoiles
+        // 8. Étoiles : projection/élimination en cache (clé = rotation + mag +
+        // échelle) — la rotation ne change qu'une fois par seconde (sync
+        // sidérale) ; entre deux ticks on réutilise les positions projetées.
         if (this.layers.stars && this._starsData && this._starsData.features) {
             const scaleFactor = this._scale / (Math.min(w, h) * 0.45);
-            for (const star of this._starsData.features) {
-                const mag = star.properties.mag;
-                if (mag > this._maxMagnitude) continue;
-                const coords = star.geometry.coordinates;
-                if (!this._celestialClip(coords)) continue;
-                const pt = this._projection(coords);
-                if (!pt) continue;
-                const size = Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5));
-                ctx.fillStyle = "#ffffff";
-                ctx.beginPath();
-                ctx.arc(pt[0], pt[1], size, 0, 2 * Math.PI);
-                ctx.fill();
+            const rot = this._currentRotation;
+            const cacheKey = rot[0].toFixed(5) + '|' + rot[1].toFixed(5) + '|' + rot[2].toFixed(5)
+                + '|' + this._maxMagnitude + '|' + scaleFactor.toFixed(4);
+            if (!this._starCache || this._starCache.key !== cacheKey) {
+                const pts = [];
+                for (const star of this._starsData.features) {
+                    const mag = star.properties.mag;
+                    if (mag > this._maxMagnitude) continue;
+                    const coords = star.geometry.coordinates;
+                    if (!this._celestialClip(coords)) continue;
+                    const pt = this._projection(coords);
+                    if (!pt) continue;
+                    pts.push(pt[0], pt[1], Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)));
+                }
+                this._starCache = { key: cacheKey, pts };
             }
+            const pts = this._starCache.pts;
+            ctx.fillStyle = "#ffffff";
+            ctx.beginPath();
+            for (let i = 0; i < pts.length; i += 3) {
+                const sx = pts[i], sy = pts[i + 1], size = pts[i + 2];
+                ctx.moveTo(sx + size, sy);
+                ctx.arc(sx, sy, size, 0, 2 * Math.PI);
+            }
+            ctx.fill();
         }
 
         // 9. Labels méridiens
