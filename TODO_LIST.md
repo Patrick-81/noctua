@@ -58,9 +58,9 @@
 - [x] Vérification croisée : les 311 clés référencées existent bien dans les 2 dictionnaires (fr + en) — script de contrôle OK
 
 ### Internationalisation — restant
-- [ ] **~28 messages** `addLog` encore en français littéral (lignes repérées : 2818, 3023, 3026, 3193, 3822, 4200, 4654, 4708, 4722, 4732, 4761, 4888, 4895, 4903, 4998, 5345, 5591, 5787, 5993, 5995, 6165, 6710, 6734, 6900, 6906, 6916, 6943, 7238) — migrer vers `i18n('log.…')`/`i18nFmt`
-- [ ] Vérifier boutons/places restantes sans `data-i18n` (choix, textes interpolés JS autres que addLog)
-- [ ] Mettre à jour `docs/UTILISATION.md` (mention sélecteur de langue, fichiers i18n)
+- [x] **~28 messages** `addLog` encore en français littéral — migrés (balayage des 14 modules JS, 0 littéral restant vérifié)
+- [x] Vérifier boutons/places restantes sans `data-i18n` — balayé (résiduel volontaire hors périmètre : logs console dev dans events.js, commentaire state.js, labels de scénarios testharness.js)
+- [x] Mettre à jour `docs/UTILISATION.md` (mention sélecteur de langue, fichiers i18n)
 
 ### Mobile / tablette — fait
 - [x] Icônes PWA/favicons (favicon.svg/ico/png, icon-16/32/64/192/256, apple-touch-icon) + `index.html` head lié
@@ -69,13 +69,13 @@
 - [x] Live stacking sorti des applets auto-visibles du mode capture → **bouton toggle** `#cap-stacking-toggle` + classe `.stacking-on` (style.css)
 
 ### Mobile / tablette — restant
-- [ ] Vérifier que le toggle stacking se ré-affiche correctement après un changement de mode capture (affichage forcé par switchMode)
-- [ ] Optionnel : manifest.json PWA + thème couleur si souhaité (icônes déjà prêtes)
+- [x] Vérifier que le toggle stacking se ré-affiche correctement après un changement de mode capture — **fix** : état `_stkPanelHidden` persisté et ré-appliqué sur `mode:changed`, indicateur `.stacking-on` resynchronisé → `tests/stacking-toggle.spec.js`
+- [x] Optionnel : manifest.json PWA + thème couleur — `manifest.webmanifest` + `icon-512.png` généré, `theme-color` #020205, servis avec le bon MIME
 
 ## Améliorations possibles
-- [ ] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s
-- [ ] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible
-- [ ] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`)
+- [x] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s — commit `9350475`
+- [x] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible — auto-save dans `<root>/masters/` + `master_path` exposé dans le statut (WS + `/api/stacking/status`)
+- [x] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`) — `save_master()` route vers `<dir>/masters/`
 - [ ] Réduire les violations requestAnimationFrame (sky chart canvas lourd)
 - [x] **Découpage `app.js` (terminé)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + `ChecklistPanel`), `utils.js` (i18n + helpers purs + `sleep`), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick), `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` — **app.js 7720 → 457 lignes**, scripts classiques globals chargés avant app.js, tous modules ≤ 1000 lignes, Playwright **36/36 ✓**
 - [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
@@ -83,9 +83,9 @@
 ## Planifiés (décision 2026-08-04, cf. COMPARISON_NINA.md)
 
 ### P0 — Meridian flip
-- [ ] Détection de proximité du méridien (position monture + heure sidérale) en amont du flip
-- [ ] Séquence : halt guidage → pause capture → flip (slew → côté opposé) → re-centrage (solve) → reprise guidage → reprise capture
-- [ ] État/indicateur dans l'UI + option automatique/manuel dans un mode « session »
+- [x] Détection de proximité du méridien (position monture + heure sidérale) en amont du flip — commit `aca49d7`
+- [x] Séquence : halt guidage → pause capture → flip (slew → côté opposé) → re-centrage (solve) → reprise guidage → reprise capture — commit `aca49d7`
+- [x] État/indicateur dans l'UI + option automatique/manuel dans un mode « session » — commit `aca49d7`
 
 ### P1 — Roue à filtres dans la prise de vue
 - [x] Device FilterWheel côté INDIGO (modèle + sélecteur dans le panneau matériel)
@@ -93,10 +93,10 @@
 - [x] Nommage des fichiers par filtre (`capture_{filtre}_*.fits`) + boucle capture par filtre (LRGB/NB via séquence)
 
 ### P1 — Gestion de profils + panneau matériel indépendant
-- [ ] Profil = { monture, caméra, caméra d'autoguidage, focuser (optionnel), roue à filtres (optionnel), optique (optionnel) }
-- [ ] Persistance des profils (fichier YAML/JSON) + sélection/suppression dans l'UI
-- [ ] Panneau matériel indépendant : état des devices (connecté/erreur), connexion **élément par élément** ou **tout d'un coup**
-- [ ] Binding profil ↔ connexion : appliquer un profil = connecter son set de devices
+- [x] Profil = { monture, caméra, caméra d'autoguidage, focuser (optionnel), roue à filtres (optionnel), optique (optionnel) } — commit `5fec1b1`
+- [x] Persistance des profils (fichier YAML/JSON) + sélection/suppression dans l'UI — commit `5fec1b1` (`ProfileStore`, `/api/profiles` CRUD)
+- [x] Panneau matériel indépendant : état des devices (connecté/erreur), connexion **élément par élément** ou **tout d'un coup** — commit `5fec1b1`
+- [x] Binding profil ↔ connexion : appliquer un profil = connecter son set de devices — commit `5fec1b1` (`/api/profiles/apply`)
 
 ## Notes techniques
 - Le serveur Python doit être redémarré manuellement par l'utilisateur

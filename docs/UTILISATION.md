@@ -46,6 +46,7 @@ Toujours visible en haut au centre :
 | Driver (Attach) | Sélection du driver à attacher, puis **ATTACHER** |
 | Port (série) | Port série pour périphériques connectés par câble (monture, focuser…) — masqué en modes capture/astro |
 | Coordonnées 📍 | Latitude / longitude du site |
+| Langue FR/EN | Sélecteur de langue de l'interface (voir § 3) |
 
 L'état de la connexion est affiché en ligne (`● Hors ligne` / `● En ligne`).
 
@@ -65,6 +66,14 @@ Six modes accessibles par la barre en haut à gauche :
 | Astro | ⭐ | Plate solver, cible, polaire |
 
 Chaque panneau est **mobile** (glisser par sa barre de titre), **réductible** (bouton `−` / `+`) et **épinglable** (📌 fige la position). Positions et états sont mémorisés par mode dans `ui.yaml` via `POST /api/ui`.
+
+### Langue de l'interface
+
+Un sélecteur **FR / EN** se trouve dans la barre de connexion (à droite de l'état de connexion).
+
+- La langue détectée au premier chargement est celle du navigateur (`navigator.language`), sinon français par défaut.
+- Le choix est **persisté** dans `localStorage` : il est conservé d'un chargement à l'autre.
+- Le changement de langue s'applique immédiatement (interface + messages du journal). Les dictionnaires vivent dans `web/static/i18n.js` (`fr` / `en`) ; toute chaîne est référencée par une clé `i18n('…')` et balisée `data-i18n` dans `index.html`.
 
 ---
 
@@ -167,12 +176,13 @@ L'aperçu affiche l'image empilée étirée, mise à jour après chaque pose acc
   **0 = en continu** jusqu'au bouton STOP. Si des poses sont rejetées, elle ne comptent pas.
 - **Filtre** : filtre éventuellement appliqué (roue à filtres) avant la session.
 - **Sauver dans (root)** : répertoire racine partagé (défaut `sequence.save_dir`).
-  Les images vont dans `livestack_YYYYMMDD_HHMMSS/` ; le master peut y être sauvegardé ensuite.
+  Les images vont dans `livestack_YYYYMMDD_HHMMSS/` ; le master est sauvegardé dans `<root>/masters/`.
 - **Calibration (optionnel)** : chemins vers des dossiers de **dark** et/ou **flat** (FITS) servant à bâtir les
   masters de calibration appliqués à chaque pose avant empilement.
 - Contrôles : **DÉMARRER**, **STOP**, **⟲ Reset**, **Master** (le master empilé en FITS), **Master PNG**.
-- **Session terminée** : quand le nombre de poses acceptées atteint la cible, la session s'arrête et peut
-  sauver un master. Le bouton STOP arrête toute session en cours (avec ou sans cible).
+- **Session terminée** : quand le nombre de poses acceptées atteint la cible, la session s'arrête et **le master
+  est sauvegardé automatiquement** dans `<root>/masters/master_YYYYMMDD_HHMMSS.fits` (le chemin apparaît dans le
+  statut du panneau). Le bouton STOP arrête toute session en cours (avec ou sans cible, sans sauvegarde auto).
 
 ---
 
@@ -194,7 +204,7 @@ L'aperçu affiche l'image empilée étirée, mise à jour après chaque pose acc
 | Logs | `✓` dans le journal des événements | traçabilité (WebSocket `log`) |
 | Site / fuseau | `config.yaml` | calcul LST, hauteur méridienne |
 | Flip méridien | `config.yaml` (`telescope.*`) | marge angulaire, altitude min, recentrage |
-| Répertoire racine FITS | `config.yaml` (`sequence.save_dir`) | racine des sessions `capture_TS/` et `livestack_TS/` |
+| Répertoire racine FITS | `config.yaml` (`sequence.save_dir`) | racine des sessions `capture_TS/`, `livestack_TS/` et des masters `masters/` |
 | Profils | `profiles.yaml` | sets de périphériques nommés |
 
 ---
@@ -206,6 +216,7 @@ L'aperçu affiche l'image empilée étirée, mise à jour après chaque pose acc
 | `config.yaml` | INDIGO (hôte/port), web (hôte/port), site, telescope (flip), sequence (save_dir, dither, stack, max_frames) |
 | `profiles.yaml` | Profils matériel : `{ name, mount, camera, guide_camera, focuser, filter_wheel, optics }` |
 | `ui.yaml` | Disposition des panneaux par mode, log levels, couches du ciel, histogramme, driver sélectionné |
+| `web/static/i18n.js` | Dictionnaires FR/EN de l'interface (toutes les chaînes via clés `i18n('…')`) |
 
 Le bloc `sequence.stack` de `config.yaml` permet la rétro-compatibilité (l'ancienne poussée automatique des
 poses de la séquence vers l'empileur) :

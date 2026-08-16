@@ -382,12 +382,16 @@ class LiveStackEngine:
                 return None
 
     def save_master(self, output_dir, name: str = "master", fmt: str = "fits") -> dict:
-        """Save the current stack as a FITS master (or stretched PNG)."""
+        """Save the current stack as a FITS master (or stretched PNG).
+
+        Masters are centralized under ``<output_dir>/masters/`` so they are
+        never mixed with raw frames.
+        """
         with self._lock:
             if self._stacker is None:
                 return {"ok": False, "error": "no stack — no frames appended"}
             try:
-                out = Path(output_dir)
+                out = Path(output_dir) / "masters"
                 out.mkdir(parents=True, exist_ok=True)
                 if fmt == "png":
                     snap = self._stacker.snapshot()

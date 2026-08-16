@@ -130,6 +130,7 @@ def test_save_master():
         check(r.get("ok") is True, "master saved")
         check(r.get("path") and r["path"].endswith(".fits"), "master path fits")
         check(os.path.exists(r["path"]), "master file exists on disk")
+        check("/masters/" in (r.get("path") or ""), "master saved under masters/")
     else:
         check(False, "no stack to save (skip)")
 
@@ -154,6 +155,9 @@ def test_auto_stacking_session():
     ok = wait_until(lambda: api_get("/api/stacking/status").get("complete") is True,
                     timeout=40)
     check(ok, "session auto-completes at max_frames")
+    ok = wait_until(lambda: api_get("/api/stacking/status").get("master_path") is not None,
+                    timeout=20)
+    check(ok, "auto-saved master_path exposed after completion")
 
     st = api_get("/api/stacking/status")
     check(st.get("accepted", 0) >= 3,
@@ -162,10 +166,18 @@ def test_auto_stacking_session():
     files = sorted(glob.glob(os.path.join(r["session_dir"], "light_*.fits")))
     check(len(files) >= 3, f"live poses saved in session dir (found {len(files)})")
 
+    # Master auto-sauve à la cible dans <root>/masters/
+    check(st.get("master_path") and os.path.exists(st["master_path"]),
+          f"master auto-saved at target → {st.get('master_path')}")
+    check("/masters/" in (st.get("master_path") or ""),
+          "auto-saved master lives under masters/")
+
     # Save the master while the finished stack is still live
     mr = api_post("/api/stacking/save", {"dir": r["session_dir"]})
     check(mr.get("ok") is True, "master saved after session")
     check(mr.get("path") and os.path.exists(mr["path"]), "master exists on disk")
+    check("/masters/" in (mr.get("path") or ""),
+          "manual master also under masters/")
 
     api_post("/api/stacking/reset")
 

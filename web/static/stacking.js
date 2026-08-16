@@ -7,6 +7,12 @@
 let _stkRunning = false;
 let _stkStatus = null;              // dernier statut serveur reçu
 let _stkQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
+let _stkPanelHidden = true;         // état du toggle LIVE STACKING (masqué par défaut, persisté entre modes)
+
+function stkToggleRefresh() {
+    const toggleBtn = document.getElementById('cap-stacking-toggle');
+    if (toggleBtn) toggleBtn.classList.toggle('stacking-on', !_stkPanelHidden);
+}
 
 function initStackingPanel() {
     const defaults = document.getElementById('stk-save-dir');
@@ -19,21 +25,17 @@ function initStackingPanel() {
     const toggleBtn = document.getElementById('cap-stacking-toggle');
     const stackingPanel = document.getElementById('applet-stacking');
     if (toggleBtn && stackingPanel) {
-        const refreshToggle = () => {
-            const visible = stackingPanel.style.display !== 'none' && stackingPanel.offsetParent !== null;
-            toggleBtn.classList.toggle('stacking-on', visible);
-        };
         toggleBtn.addEventListener('click', () => {
-            const visible = stackingPanel.style.display !== 'none' && stackingPanel.offsetParent !== null;
-            if (visible) {
+            _stkPanelHidden = !_stkPanelHidden;
+            if (_stkPanelHidden) {
                 stackingPanel.style.display = 'none';
             } else {
                 stackingPanel.style.display = '';
                 requestAnimationFrame(() => resolvePanelLayout());
             }
-            refreshToggle();
+            stkToggleRefresh();
         });
-        refreshToggle();
+        stkToggleRefresh();
     }
 
     const startBtn = document.getElementById('stk-start');
@@ -61,8 +63,16 @@ Bus.on('stacking:update', (env) => {
 
 // Rafraîchit une fois à l'entrée en mode capture (rattrapage si des
 // événements ont été manqués pendant qu'on était dans un autre mode).
+// Le panneau n'est PAS dans les applets auto-visibles du mode capture :
+// on ré-applique ici l'état du toggle (masqué par défaut, ou le choix de
+// l'utilisateur) après le changement de mode.
 Bus.on('mode:changed', (env) => {
-    if (env.payload.mode === 'capture') stkPollStatus();
+    if (env.payload.mode === 'capture') {
+        const panel = document.getElementById('applet-stacking');
+        if (panel) panel.style.display = _stkPanelHidden ? 'none' : '';
+        stkToggleRefresh();
+        stkPollStatus();
+    }
 });
 
 function stkGetVal(id) { return document.getElementById(id)?.value?.trim() || ''; }
@@ -146,6 +156,9 @@ function stkApplyStatus(st) {
     const quickActive = !!(_stkQuickCapture && _stkQuickCapture.running);
     if (prevRunning && !_stkRunning && st.complete) {
         addLog('info', 'stacking', i18nFmt('log.stacking.done', { n: st.accepted }));
+        if (st.master_path) {
+            addLog('info', 'stacking', i18nFmt('log.stacking.master_auto', { path: st.master_path }));
+        }
     }
 
     const startBtn = document.getElementById('stk-start');
@@ -167,6 +180,7 @@ function stkApplyStatus(st) {
             if (hasStack) txt += ` — ${st.accepted} LIGHT empilées, ${st.rejected} rejetées`;
             if (st.max_frames) txt += ` (cible ${st.max_frames})`;
             if (st.error) txt += ` — ${st.error}`;
+            if (st.master_path) txt += ` — 💾 ${st.master_path}`;
             statusEl.textContent = txt;
         }
     }

@@ -1,0 +1,15 @@
+{
+  "name": "Noctua — INDIGO Control",
+  "short_name": "Noctua",
+  "description": "Pilotage d'équipements astronomiques INDIGO (monture, caméras, focuser, roue à filtres).",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020205",
+  "theme_color": "#020205",
+  "lang": "fr",
+  "icons": [
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-256.png", "sizes": "256x256", "type": "image/png", "purpose": "any" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}

@@ -144,6 +144,7 @@ class WebServer:
         # Auto-stacking session state (short-exposure loop feeding the engine)
         self._stacking_session: asyncio.Task | None = None
         self._stacking_stop = False
+        self._stacking_master_path = None  # master auto-sauvé à la cible (sinon None)
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
@@ -1618,9 +1619,11 @@ class WebServer:
             frame_descr = {"duration": duration, "frame_type": "LIGHT",
                            "filter": filter_name, "count": 1, "delay": 0.0}
             idx = 0
+            completed_with_target = False
             while not self._stacking_stop:
                 st = self.stacking.status()
                 if max_frames > 0 and st.get("complete"):
+                    completed_with_target = True
                     break
 
                 base = self._camera_images.get(cam.name, b"")
@@ -1658,6 +1661,22 @@ class WebServer:
             logging.getLogger(__name__).error(f"stacking session failed: {e}")
         finally:
             self._stacking_session = None
+            # Session avec cible atteinte → sauvegarde automatique du master
+            # dans <root>/masters/ (le root = parent du dossier de session).
+            self._stacking_master_path = None
+            if completed_with_target:
+                try:
+                    res = await _asyncio.to_thread(
+                        self.stacking.save_master, os.path.dirname(session_dir), "master", "fits")
+                    if res.get("ok"):
+                        self._stacking_master_path = res["path"]
+                        logging.getLogger(__name__).info(
+                            f"auto-saved master at target: {res['path']}")
+                    else:
+                        logging.getLogger(__name__).warning(
+                            f"auto-save master failed: {res.get('error')}")
+                except Exception as e:  # noqa: BLE001
+                    logging.getLogger(__name__).error(f"auto-save master error: {e}")
             self._broadcast_stacking_status()
 
     def _stacking_status_payload(self) -> dict:
@@ -1668,6 +1687,7 @@ class WebServer:
             "stop_requested": self._stacking_stop,
         }
         st["session_dir"] = getattr(self, "_stacking_session_dir", None)
+        st["master_path"] = self._stacking_master_path
         return st
 
     def _broadcast_stacking_status(self) -> None:
