@@ -21,6 +21,7 @@ const Bus = (function () {
         'capture:progress':   { source: 'capture',     targets: ['sequence', 'stacking', 'app'] },
         'guide:starSelected': { source: 'preview',     targets: ['guide'] },
         'mount:slewed':       { source: 'mount',       targets: ['target'] },
+        'stacking:update':    { source: 'ws',          targets: ['stacking'] },
     };
 
     const listeners = {};

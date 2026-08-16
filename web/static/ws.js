@@ -46,6 +46,8 @@ function connectWS() {
             Bus.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
             Bus.emit('solver:result', { result: msg.result }, { source: 'solver' });
+        } else if (msg.type === 'stacking') {
+            Bus.emit('stacking:update', msg.status, { source: 'ws' });
         }
     };
 }
@@ -122,7 +124,7 @@ function renderProps(deviceName) {
     const dragHandle = container.querySelector('.applet-drag');
     if (dragHandle) dragHandle.remove();
 
-    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span><button class="applet-minimize" title="Réduire / étendre"></button></div>`;
+    let html = `<div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">${escapeHTML(deviceName)}</span><button class="applet-minimize" title="${i18n('ws.minimize')}"></button></div>`;
     html += buildPropsHTML(deviceName);
     container.innerHTML = html;
 
@@ -375,7 +377,7 @@ function initConnectionBar() {
             const statusEl = document.getElementById('indigo-status');
             isConnected = !!data.connected;
             if (statusEl) {
-                statusEl.textContent = data.connected ? '● Connecté' : '● Hors ligne';
+                statusEl.textContent = data.connected ? i18n('ws.connected') : i18n('hw.offline');
                 statusEl.className = data.connected ? 'status-online' : 'status-offline';
             }
             if (data.connected) {

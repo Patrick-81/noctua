@@ -1084,6 +1084,8 @@ class WebServer:
                 # Push a fresh preview to WebSocket clients
                 loop = _asyncio.get_running_loop()
                 loop.create_task(self._broadcast_stacking_snapshot(path))
+                # Live status push (accepted/rejected/complete) — remplace le polling
+                self._broadcast_stacking_status()
 
             async def delay(seconds: float) -> None:
                 if seconds and seconds > 0:
@@ -1171,18 +1173,14 @@ class WebServer:
 
         @app.get("/api/stacking/status")
         async def stacking_status():
-            st = self.stacking.status()
-            st["session"] = {
-                "running": self._stacking_session is not None and not self._stacking_session.done(),
-                "stop_requested": self._stacking_stop,
-            }
-            st["session_dir"] = getattr(self, "_stacking_session_dir", None)
-            return SanitizedJSONResponse(st)
+            return SanitizedJSONResponse(self._stacking_status_payload())
 
         @app.post("/api/stacking/reset")
         async def stacking_reset():
             self._stacking_stop = True
-            return SanitizedJSONResponse(self.stacking.reset())
+            st = self.stacking.reset()
+            self._broadcast_stacking_status()
+            return SanitizedJSONResponse(st)
 
         @app.post("/api/stacking/configure")
         async def stacking_configure(body: dict):
@@ -1241,6 +1239,7 @@ class WebServer:
             self._stacking_session_dir = session_dir
             self._stacking_session = asyncio.create_task(
                 self._stacking_session_loop(duration, max_frames, session_dir, filter_name))
+            self._broadcast_stacking_status()
             return {"ok": True, "session_dir": session_dir,
                     "status": self.stacking.status()}
 
@@ -1249,6 +1248,7 @@ class WebServer:
             self._stacking_stop = True
             st = self.stacking.status()
             st["session"] = {"running": False, "stop_requested": True}
+            self._broadcast_stacking_status()
             return SanitizedJSONResponse(st)
 
         # ── Guide calibration ─────────────────────────────────────
@@ -1649,6 +1649,7 @@ class WebServer:
                     f"stacking session frame {idx}: ok={res.get('ok')} "
                     f"accepted={res.get('accepted')} err={res.get('error','')}")
                 _asyncio.get_running_loop().create_task(self._broadcast_stacking_snapshot(path))
+                self._broadcast_stacking_status()
             logging.getLogger(__name__).info(
                 f"stacking session ended: {self.stacking.status().get('accepted')} "
                 f"accepted in {session_dir}")
@@ -1657,6 +1658,34 @@ class WebServer:
             logging.getLogger(__name__).error(f"stacking session failed: {e}")
         finally:
             self._stacking_session = None
+            self._broadcast_stacking_status()
+
+    def _stacking_status_payload(self) -> dict:
+        """Status payload shared by /api/stacking/status and the WS push."""
+        st = self.stacking.status()
+        st["session"] = {
+            "running": self._stacking_session is not None and not self._stacking_session.done(),
+            "stop_requested": self._stacking_stop,
+        }
+        st["session_dir"] = getattr(self, "_stacking_session_dir", None)
+        return st
+
+    def _broadcast_stacking_status(self) -> None:
+        """Broadcast live stacking status to all WebSocket clients
+        (message type ``stacking`` — remplace le polling frontend)."""
+        if not self._ws_clients:
+            return
+        payload = json.dumps(_sanitize({"type": "stacking", "status": self._stacking_status_payload()}))
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))
 
     async def _broadcast_stacking_snapshot(self, path: str = "") -> None:
         """Broadcast the current live-stack preview to WebSocket clients."""

@@ -10,6 +10,7 @@ Run via: python tests/test_live_stack_flow.py
 
 __test__ = False  # pytest: run via python tests/test_live_stack_flow.py
 
+import asyncio
 import base64
 import glob
 import json
@@ -281,6 +282,65 @@ def test_dirs_filters_separation():
               "livestack_* only holds light_*.fits / master_* masters")
 
 
+def test_ws_stacking_push():
+    print("\n=== Test: live stacking status pushed over WebSocket ===")
+    api_post("/api/stacking/reset")
+    try:
+        import websockets
+    except Exception as e:  # noqa: BLE001
+        check(False, f"websockets library unavailable: {e}")
+        return
+
+    received = []
+
+    async def _run():
+        async with websockets.connect(f"ws://127.0.0.1:{WEB_PORT}/ws",
+                                      max_size=None) as ws:
+            # Drain the initial "state" handshake before starting the session
+            for _ in range(10):
+                msg = json.loads(await ws.recv())
+                if msg.get("type") == "state":
+                    break
+            # Connection established → now start the session
+            r = await asyncio.to_thread(api_post, "/api/stacking/start", {
+                "duration": 0.1, "max_frames": 3,
+                "save_dir": SAVE_DIR, "filter": "L"})
+            check(r.get("ok") is True, "session started while WS listening")
+            # Collect stacking pushes until the session reports stopped
+            while True:
+                msg = json.loads(await asyncio.wait_for(ws.recv(), timeout=30))
+                if msg.get("type") == "stacking":
+                    received.append(msg)
+                    if not msg["status"]["session"].get("running"):
+                        break
+            await ws.close()
+            # Let the connection's background task finish its close handshake
+            await asyncio.sleep(0.05)
+
+    try:
+        asyncio.run(_run())
+    except Exception as e:  # noqa: BLE001
+        check(False, f"ws collect failed: {e}")
+
+    statuses = [m["status"] for m in received]
+    running_seen = any(s["session"].get("running") for s in statuses)
+    complete_seen = any(s.get("complete") for s in statuses)
+    accepted_updates = [s.get("accepted", 0) for s in statuses]
+    check(len(received) >= 3, f"at least 3 stacking pushes (got {len(received)})")
+    check(running_seen, "a push with session.running=true was received")
+    check(complete_seen, "a push with complete=true was received")
+    check(max(accepted_updates) >= 3,
+          f"accepted reached 3 via push (got {max(accepted_updates)})")
+    check(any(not s["session"].get("running") for s in statuses),
+          "final push reports session stopped")
+
+    # Final poll agrees with the last push
+    st = api_get("/api/stacking/status")
+    check(st.get("complete") is True and st["session"]["running"] is False,
+          "poll confirms session done after push")
+    api_post("/api/stacking/reset")
+
+
 # ── Main ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -363,6 +423,7 @@ sequence:
         test_auto_stacking_session()
         test_continuous_session_manual_stop()
         test_calibration_only_with_dirs()
+        test_ws_stacking_push()
         test_dirs_filters_separation()
     finally:
         print("\n\nShutting down...")

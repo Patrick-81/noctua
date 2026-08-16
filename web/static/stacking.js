@@ -5,7 +5,6 @@
 // ── LIVE STACKING (accumulation en direct, poses courtes) ──────
 
 let _stkRunning = false;
-let _stkPollTimer = null;
 let _stkStatus = null;              // dernier statut serveur reçu
 let _stkQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
 
@@ -48,9 +47,23 @@ function initStackingPanel() {
     const savePngBtn = document.getElementById('stk-save-png');
     if (savePngBtn) savePngBtn.addEventListener('click', () => stkSaveMaster('png'));
 
-    if (_stkPollTimer) clearInterval(_stkPollTimer);
-    _stkPollTimer = setInterval(stkPollStatus, 1000);
+    // Live status via WebSocket push (stacking:update) — plus de polling.
+    // Un fetch initial hydrate le panneau avant le premier événement.
+    stkPollStatus();
 }
+
+// ── Bus : consommateur stacking:update (push WS du serveur) ────
+
+Bus.on('stacking:update', (env) => {
+    _stkQuickCapture = null;
+    stkApplyStatus(env.payload);
+});
+
+// Rafraîchit une fois à l'entrée en mode capture (rattrapage si des
+// événements ont été manqués pendant qu'on était dans un autre mode).
+Bus.on('mode:changed', (env) => {
+    if (env.payload.mode === 'capture') stkPollStatus();
+});
 
 function stkGetVal(id) { return document.getElementById(id)?.value?.trim() || ''; }
 
@@ -150,7 +163,7 @@ function stkApplyStatus(st) {
     if (!quickActive) {
         const statusEl = document.getElementById('stk-status');
         if (statusEl) {
-            let txt = running ? '⏳ Accumulation en cours…' : (st.complete ? '✓ Terminé' : 'Ready');
+            let txt = running ? i18n('stk.accumulating') : (st.complete ? i18n('stk.done') : 'Ready');
             if (hasStack) txt += ` — ${st.accepted} LIGHT empilées, ${st.rejected} rejetées`;
             if (st.max_frames) txt += ` (cible ${st.max_frames})`;
             if (st.error) txt += ` — ${st.error}`;
@@ -174,7 +187,7 @@ Bus.on('capture:progress', (env) => {
         return;
     }
     const statusEl = document.getElementById('stk-status');
-    if (statusEl) statusEl.textContent = '⏳ Capture rapide en cours…';
+    if (statusEl) statusEl.textContent = i18n('stk.quick_capture');
     const startBtn = document.getElementById('stk-start');
     if (startBtn) startBtn.disabled = true;
 });
