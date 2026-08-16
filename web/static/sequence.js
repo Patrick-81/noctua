@@ -248,7 +248,7 @@ function seqApplyStatus(st) {
             } else if (st.running) {
                 cur.textContent = `Pose ${st.done + 1}/${st.total}${st.paused ? ' (PAUSÉE)' : ''}`;
             } else if (finished || doneRun) {
-                cur.textContent = 'Séquence terminée';
+                cur.textContent = i18n('seq.done');
             } else {
                 cur.textContent = '—';
             }
@@ -297,7 +297,7 @@ Bus.on('capture:progress', (env) => {
     if (p && p.running) {
         if (pt) pt.textContent = `${p.done} / ${p.total}`;
         if (fill) fill.style.width = Math.round((p.total > 0 ? p.done / p.total : 0) * 100) + '%';
-        if (cur) cur.textContent = 'Capture rapide en cours…';
+        if (cur) cur.textContent = i18n('seq.quick_capture');
     } else {
         if (cur) cur.textContent = '—';
         updateSequenceTotals();

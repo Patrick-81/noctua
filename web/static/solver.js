@@ -74,7 +74,7 @@ function initSolverPanel() {
                 const images = await loadTestImageList();
                 testList.innerHTML = '';
                 if (!images.length) {
-                    testList.innerHTML = '<div style="color:#666; font-size:0.6rem;">Aucune image trouvée dans tests/fake_sky/</div>';
+                    testList.innerHTML = `<div style="color:#666; font-size:0.6rem;">${i18n('solver.no_image_fake')}</div>`;
                     return;
                 }
                 for (const img of images) {
@@ -109,17 +109,17 @@ async function refreshSolverStatus(retries = 2) {
 
             if (status.available && status.catalogs_loaded) {
                 if (led) led.className = 'solver-led solver-led-ok';
-                if (text) text.textContent = `Seiza prêt${status.has_blind_index ? ' (blind OK)' : ''}`;
+                if (text) text.textContent = i18n('solver.ready') + (status.has_blind_index ? ' (blind OK)' : '');
                 if (solveBtn) solveBtn.disabled = false;
                 return;
             } else if (status.available) {
                 if (led) led.className = 'solver-led solver-led-warn';
-                if (text) text.textContent = 'Catalogues non chargés';
+                if (text) text.textContent = i18n('solver.catalogs_not_loaded');
                 if (solveBtn) solveBtn.disabled = true;
                 return;
             } else {
                 if (led) led.className = 'solver-led solver-led-error';
-                if (text) text.textContent = 'Seiza non installé';
+                if (text) text.textContent = i18n('solver.seiza_not_installed');
                 if (solveBtn) solveBtn.disabled = true;
                 return;
             }
@@ -223,7 +223,7 @@ async function solverSolve(mode) {
         } else {
             if (errorEl) {
                 errorEl.style.display = '';
-                errorEl.textContent = result.error || 'Échec de la résolution';
+                errorEl.textContent = result.error || i18n('solver.failed_default');
             }
             addLog('error', 'solver', result.error || i18n('log.solver.failed'));
         }

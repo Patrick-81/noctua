@@ -85,9 +85,9 @@ class Viewer {
         const titleEl = document.getElementById('viewer-title')
             || document.getElementById(this.containerId)?.querySelector('.hud-title');
         if (titleEl && Viewer.MODES[mode]) {
-            const titles = { capture: '◎ CAPTURE — Aperçu', guiding: '◎ GUIDAGE — Aperçu',
-                            focuser: '◎ FOCUSER — Aperçu', astrometry: '◎ ASTROMÉTRIE — Aperçu' };
-            titleEl.textContent = titles[mode] || '◎ Aperçu';
+            const titles = { capture: 'viewer.title_capture', guiding: 'viewer.title_guiding',
+                            focuser: 'viewer.title_focuser', astrometry: 'viewer.title_astrometry' };
+            titleEl.textContent = i18n(titles[mode] || 'viewer.title_default');
         }
         this._applyFeatures();
     }
@@ -214,7 +214,7 @@ class Viewer {
 
     _renderFITS(bytes) {
         const result = this._parseFITS(bytes);
-        if (!result) { this.setStatus('⚠️ En-tête FITS invalide', '#ff4444'); return; }
+        if (!result) { this.setStatus(i18n('viewer.bad_fits'), '#ff4444'); return; }
         const { w, h, pixels, sky, soft, k } = result;
         this.pixels = pixels;
         this.imgW = w;
@@ -614,7 +614,7 @@ class Viewer {
     renderGuide(bytes, fmt, onDone) {
         if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
             const result = this._parseFITS(bytes);
-            if (!result) { this.setStatus('⚠️ En-tête FITS invalide', '#ff4444'); onDone?.(); return; }
+            if (!result) { this.setStatus(i18n('viewer.bad_fits'), '#ff4444'); onDone?.(); return; }
             Object.assign(this, result);
             this.imgW = result.w; this.imgH = result.h;
             this.pixels = result.pixels;

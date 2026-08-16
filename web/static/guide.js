@@ -73,14 +73,14 @@ function initGuidePanel() {
 
     // Checklist
     _guideChecklist = new ChecklistPanel('guide-checklist-body', [
-        { label: '1. Caméra sélectionnée', check: () => !!_guideCameraSelect?.value, action: () => {
+        { label: i18n('guide.check_1_camera'), check: () => !!_guideCameraSelect?.value, action: () => {
             if (_guideCameraSelect) {
                 _guideCameraSelect.focus();
                 _guideCameraSelect.style.outline = '2px solid #ffaa00';
                 setTimeout(() => _guideCameraSelect.style.outline = '', 2000);
             }
         }},
-        { label: '2. Monture en ligne', check: () => !!findMount(), action: () => {
+        { label: i18n('guide.check_2_mount'), check: () => !!findMount(), action: () => {
             const mount = findMount();
             if (!mount && devices) {
                 const firstMount = Object.entries(devices).find(([n, d]) => d.type === 'mount');
@@ -88,7 +88,7 @@ function initGuidePanel() {
                 else addLog('warn', 'guide', i18n('log.guide.no_mount'));
             }
         }},
-        { label: '3. Calibration faite', check: () => _calibrated, action: () => {
+        { label: i18n('guide.check_3_cal'), check: () => _calibrated, action: () => {
             const calBtn = document.getElementById('cal-start-btn');
             if (calBtn) { calBtn.click(); calBtn.scrollIntoView({ behavior: 'smooth' }); }
             else addLog('warn', 'guide', i18n('log.guide.open_calibration'));
@@ -100,11 +100,11 @@ function _refreshGuideCameraList() {
     fetch('/api/cameras').then(r => r.json()).then(cameras => {
         if (!_guideCameraSelect) return;
         const prev = _guideCameraSelect.value;
-        _guideCameraSelect.innerHTML = '<option value="">— aucune —</option>';
+        _guideCameraSelect.innerHTML = `<option value="">${i18n('guide.no_camera')}</option>`;
         for (const c of cameras) {
             const opt = document.createElement('option');
             opt.value = c.name;
-            opt.textContent = c.name + (c.connected ? '' : ' (déco)');
+            opt.textContent = c.name + (c.connected ? '' : i18n('guide.deco'));
             _guideCameraSelect.appendChild(opt);
         }
         if (prev && [..._guideCameraSelect.options].some(o => o.value === prev)) {
@@ -123,7 +123,7 @@ async function _guideCapHandler() {
     if (!cam) { addLog('warn', 'guide', i18n('log.guide.select_camera')); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
     const statusEl = document.getElementById('guide-preview-status');
-    if (statusEl) { statusEl.textContent = '📷 Capture en cours...'; statusEl.style.color = '#ffaa00'; }
+    if (statusEl) { statusEl.textContent = i18n('guide.capturing'); statusEl.style.color = '#ffaa00'; }
     addLog('info', 'guide', i18nFmt('log.guide.capture_preview', { exposure }));
     const res = await fetch('/api/camera/expose', {
         method: 'POST',
@@ -131,7 +131,7 @@ async function _guideCapHandler() {
         body: JSON.stringify({ device: cam, duration: exposure })
     }).then(r => r.json()).catch(() => null);
     if (!res?.ok) {
-        const msg = res?.error || 'Échec capture';
+        const msg = res?.error || i18n('guide.capture_fail');
         if (statusEl) { statusEl.textContent = `❌ ${msg}`; statusEl.style.color = '#ff4444'; }
         addLog('error', 'guide', msg);
     }
@@ -472,7 +472,7 @@ function _guideDrawDrift() {
         ctx.fillStyle = '#777';
         ctx.font = `${12 * dpr}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText('En attente de données...', w / 2, midY);
+        ctx.fillText(i18n('guide.waiting'), w / 2, midY);
         return;
     }
 

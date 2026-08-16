@@ -314,13 +314,13 @@ function renderCapturePanel() {
     let state, label;
     if (!cam) {
         state = 'none';
-        label = 'Pas de caméra';
+        label = i18n('cap.no_camera');
     } else if (!cam.dev.is_ready) {
         state = 'attaching';
-        label = `${cam.name} — attachement...`;
+        label = i18nFmt('cap.attaching', { name: cam.name });
     } else if (!cam.dev.connected) {
         state = 'disconnected';
-        label = `${cam.name} — déconnectée`;
+        label = i18nFmt('cap.disconnected', { name: cam.name });
     } else {
         state = 'ready';
         label = cam.name;

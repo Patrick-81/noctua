@@ -5,11 +5,11 @@
 // ── Hardware panel + profiles ────────────────────────────────────
 
 const HW_ROLES = [
-    ['mount', 'Monture'],
-    ['camera', 'Caméra'],
-    ['guide_camera', 'Caméra guide'],
-    ['focuser', 'Focuser'],
-    ['filter_wheel', 'Roue à filtres'],
+    ['mount', 'hw.role_mount'],
+    ['camera', 'hw.role_camera'],
+    ['guide_camera', 'hw.role_guide_camera'],
+    ['focuser', 'hw.role_focuser'],
+    ['filter_wheel', 'hw.role_filter_wheel'],
 ];
 const HW_ROLE_TYPES = {
     mount: ['mount'],
@@ -49,7 +49,7 @@ function renderHardwarePanel() {
     if (!profiles.length) {
         const opt = document.createElement('option');
         opt.value = '';
-        opt.textContent = '(aucun profil)';
+        opt.textContent = i18n('hw.no_profile');
         sel.appendChild(opt);
     } else {
         for (const p of profiles) {
@@ -72,7 +72,7 @@ function renderHardwarePanel() {
     list.innerHTML = '';
     const names = Object.keys(_hwDevices);
     if (!names.length) {
-        list.innerHTML = '<div style="color:#555; font-size:0.6rem; padding:4px;">Aucun device détecté — connectez-vous au serveur INDIGO.</div>';
+        list.innerHTML = `<div style="color:#555; font-size:0.6rem; padding:4px;">${i18n('hw.no_devices')}</div>`;
         return;
     }
     for (const name of names) {
@@ -83,8 +83,8 @@ function renderHardwarePanel() {
         row.innerHTML =
             `<span class="hw-icon">${icon}</span>` +
             `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
-            `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? '● Connecté' : '○ Hors ligne'}</span>` +
-            `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? 'DÉC' : 'CONN'}</button>`;
+            `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? i18n('hw.connected') : i18n('hw.offline')}</span>` +
+            `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
         list.appendChild(row);
     }
 
@@ -92,7 +92,7 @@ function renderHardwarePanel() {
     fetch('/api/connection').then(r => r.json()).then(data => {
         const el = document.getElementById('hw-conn-status');
         if (el) {
-            el.textContent = data.connected ? '● Serveur connecté' : '● Hors ligne';
+            el.textContent = data.connected ? i18n('hw.server_connected') : i18n('hw.offline');
             el.className = data.connected ? 'status-online' : 'status-offline';
         }
     }).catch(() => {});
@@ -108,12 +108,12 @@ function renderHardwareRoles() {
     const fields = HW_ROLE_FIELDS;
     container.innerHTML = '';
     for (const f of fields) {
-        const label = HW_ROLES.find(([r]) => r === f)?.[1] || f;
+        const label = i18n(HW_ROLES.find(([r]) => r === f)?.[1] || 'hw.role_mount');
         const types = HW_ROLE_TYPES[f] || [];
         const candidates = Object.keys(_hwDevices)
             .filter(name => types.includes(_hwDevices[name].type))
             .sort();
-        const opts = ['<option value="">— Aucun —</option>'];
+        const opts = [`<option value="">${i18n('hw.none')}</option>`];
         for (const name of candidates) {
             opts.push(`<option value="${escapeAttr(name)}" ${ap?.[f] === name ? 'selected' : ''}>${escapeHTML(name)}</option>`);
         }
@@ -129,7 +129,7 @@ function renderHardwareRoles() {
 async function hwAssignRole(role, name) {
     let ap = hwActiveProfile();
     if (!ap) {
-        const profName = prompt('Aucun profil actif. Nom du nouveau profil :', 'Rig');
+        const profName = prompt(i18n('hw.prompt_no_profile'), 'Rig');
         if (!profName) { renderHardwarePanel(); return; }
         await fetch('/api/profiles', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -182,7 +182,7 @@ function initHardwarePanel() {
     });
 
     if (newBtn) newBtn.addEventListener('click', async () => {
-        const name = prompt('Nom du nouveau profil :', '');
+        const name = prompt(i18n('hw.prompt_new'), '');
         if (!name) return;
         const ap = hwActiveProfile() || {};
         const body = { name };
@@ -219,7 +219,7 @@ function initHardwarePanel() {
     if (delBtn) delBtn.addEventListener('click', async () => {
         const ap = hwActiveProfile();
         if (!ap) return;
-        if (!confirm(`Supprimer le profil "${ap.name}" ?`)) return;
+        if (!confirm(i18nFmt('hw.confirm_delete', { name: ap.name }))) return;
         await fetch('/api/profiles/delete', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ name: ap.name }),
@@ -311,7 +311,7 @@ function renderHardwareMode() {
     const devSel = document.getElementById('hw-mode-device-select');
     if (devSel) {
         const prev = devSel.value;
-        devSel.innerHTML = '<option value="">— Sélectionnez un device —</option>';
+        devSel.innerHTML = `<option value="">${i18n('hw.select_device')}</option>`;
         const names = Object.keys(_hwDevices);
         if (names.length && (!_hwModeDevice || !names.includes(_hwModeDevice))) {
             _hwModeDevice = names.includes('Mount') ? 'Mount' : names[0];
@@ -334,11 +334,11 @@ function renderHardwareModeProps() {
     if (!propsEl) return;
     if (document.activeElement && propsEl.contains(document.activeElement)) return;
     if (!_hwModeDevice || !devices[_hwModeDevice]) {
-        propsEl.innerHTML = '<div style="color:#555; font-size:0.65rem; padding:6px;">Sélectionnez un device pour éditer ses propriétés.</div>';
+        propsEl.innerHTML = `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.select_hint')}</div>`;
         return;
     }
     const html = buildPropsHTML(_hwModeDevice);
-    propsEl.innerHTML = html || '<div style="color:#555; font-size:0.65rem; padding:6px;">Aucune propriété exposée pour ce device.</div>';
+    propsEl.innerHTML = html || `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.no_props')}</div>`;
 }
 
 function initHardwareMode() {

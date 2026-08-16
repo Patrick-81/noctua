@@ -1006,7 +1006,7 @@ export class SkyEngine {
         // "Set target" button for astrometry offset overlay
         const targetBtn = document.createElement('button');
         targetBtn.className = 'obj-menu-btn';
-        targetBtn.textContent = '◎ Définir cible';
+        targetBtn.textContent = i18n('sky.define_target');
         targetBtn.addEventListener('click', () => {
             if (typeof window.setOffsetTarget === 'function') {
                 window.setOffsetTarget(raDeg, decDeg);

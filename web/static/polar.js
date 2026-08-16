@@ -196,12 +196,12 @@ async function _polarAutoSequence() {
     _polarAutoRunning = true;
 
     const steps = [
-        'GOTO position centrale',
-        'Capture + résolution #1',
-        'GOTO position Est',
-        'Capture + résolution #2',
-        'GOTO position Ouest',
-        'Capture + résolution #3',
+        i18n('polar.goto_center'),
+        i18nFmt('polar.cap_solve', { n: 1 }),
+        i18n('polar.goto_east'),
+        i18nFmt('polar.cap_solve', { n: 2 }),
+        i18n('polar.goto_west'),
+        i18nFmt('polar.cap_solve', { n: 3 }),
     ];
     const totalSteps = steps.length;
 
@@ -227,18 +227,18 @@ async function _polarAutoSequence() {
             if (progressText) progressText.textContent = steps[solveIdx];
 
             if (!_polarSolves[i]) {
-                if (progressText) progressText.textContent = `Étape ${i+1} échouée — séquence interrompue`;
+                if (progressText) progressText.textContent = i18nFmt('polar.step_failed', { n: i + 1 });
                 break;
             }
         }
 
         if (!_polarAbortFlag && _polarSolves.every(s => s !== null)) {
             if (progressFill) progressFill.style.width = '100%';
-            if (progressText) progressText.textContent = 'Terminé — calcul en cours...';
+            if (progressText) progressText.textContent = i18n('polar.computing');
             polarCompute();
-            if (progressText) progressText.textContent = 'Terminé ✓';
+            if (progressText) progressText.textContent = i18n('polar.done');
         } else if (_polarAbortFlag) {
-            if (progressText) progressText.textContent = 'Arrêté par l\'utilisateur';
+            if (progressText) progressText.textContent = i18n('polar.aborted');
         }
     } catch (e) {
         addLog('error', 'polar', i18nFmt('log.polar.auto_error', { err: e.message }));
@@ -450,7 +450,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     ctx.fillStyle = 'rgba(0,255,204,0.5)';
     ctx.font = '9px monospace';
     ctx.textAlign = 'center';
-    ctx.fillText('Pôle true', cx, 10);
+    ctx.fillText(i18n('polar.pole_true'), cx, 10);
 
     // Draw found pole offset
     // errAltArcmin: positive = pole too low (south)
@@ -551,7 +551,7 @@ function polarReset() {
     const progressText = document.getElementById('polar-progress-text');
     if (progressSection) progressSection.style.display = 'none';
     if (progressFill) progressFill.style.width = '0%';
-    if (progressText) progressText.textContent = 'Prêt';
+    if (progressText) progressText.textContent = i18n('polar.ready');
     _polarComputeTargets();
     _polarUpdateTargetDisplay();
     addLog('info', 'polar', i18n('log.polar.reset'));

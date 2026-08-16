@@ -223,11 +223,11 @@ function _refreshCameraList() {
     fetch('/api/cameras').then(r => r.json()).then(cameras => {
         if (!_focCameraSelect) return;
         const prev = _focCameraSelect.value;
-        _focCameraSelect.innerHTML = '<option value="">— aucune —</option>';
+        _focCameraSelect.innerHTML = `<option value="">${i18n('focuser.no_camera')}</option>`;
         for (const c of cameras) {
             const opt = document.createElement('option');
             opt.value = c.name;
-            opt.textContent = c.name + (c.connected ? '' : ' (déco)');
+            opt.textContent = c.name + (c.connected ? '' : i18n('focuser.deco'));
             _focCameraSelect.appendChild(opt);
         }
         if (prev && [..._focCameraSelect.options].some(o => o.value === prev)) {
@@ -304,7 +304,7 @@ async function _autofocusStep() {
 
     // Wait for focuser to arrive
     const arrived = await _autofocusWaitFocuser(pos, 15000);
-    if (!arrived) { _autofocusAbort('Focuser non arrivé à ' + pos); return; }
+    if (!arrived) { _autofocusAbort(i18n('focuser.not_arrived') + pos); return; }
 
     // Expose (short exposure)
     if (_afStatusText) _afStatusText.textContent = `Expose ${pos}`;
@@ -316,7 +316,7 @@ async function _autofocusStep() {
 
     // Wait for image
     const imgReady = await _autofocusWaitImage(30000);
-    if (!imgReady) { _autofocusAbort('Pas d\'image reçue'); return; }
+    if (!imgReady) { _autofocusAbort(i18n('focuser.no_image')); return; }
 
     // Measure HFR
     if (_afStatusText) _afStatusText.textContent = `Mesure ${pos}`;
@@ -414,7 +414,7 @@ async function _autofocusFinish() {
             await _autofocusWaitFocuser(res.best_position, 30000);
 
             // Verification capture
-            if (_afStatusText) _afStatusText.textContent = 'Vérification...';
+            if (_afStatusText) _afStatusText.textContent = i18n('focuser.checking');
             await fetch('/api/camera/expose', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -426,7 +426,7 @@ async function _autofocusFinish() {
         addLog('error', 'autofocus', res?.error || i18n('log.autofocus.analysis_failed'));
     }
     _autofocusDrawVcurve();
-    if (_afStatusText) _afStatusText.textContent = '✅ Terminé';
+    if (_afStatusText) _afStatusText.textContent = i18n('focuser.done');
     _autofocusCleanup();
 }
 
@@ -462,7 +462,7 @@ function _autofocusDrawVcurve() {
         ctx.fillStyle = '#555';
         ctx.font = '11px monospace';
         ctx.textAlign = 'center';
-        ctx.fillText('En attente de données...', w / 2, h / 2);
+        ctx.fillText(i18n('focuser.waiting'), w / 2, h / 2);
         return;
     }
 

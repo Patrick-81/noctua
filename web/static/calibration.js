@@ -79,7 +79,7 @@ function _calDrawCalCrosshair() {
         ctx.fillStyle = '#555';
         ctx.font = `${11 * dpr}px monospace`;
         ctx.textAlign = 'center';
-        ctx.fillText('En attente des données de guidage...', w / 2, h / 2);
+        ctx.fillText(i18n('cal.waiting_data'), w / 2, h / 2);
         return;
     }
 
@@ -426,7 +426,7 @@ function _calibrateDone(status) {
     if (_calStartBtn) _calStartBtn.disabled = false;
     if (_calStopBtn) _calStopBtn.disabled = true;
 
-    if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ✅ Terminé';
+    if (_calPhaseEl) _calPhaseEl.textContent = i18n('cal.phase_done');
     if (_calStepCountEl) _calStepCountEl.textContent = `Steps: ${status.step_count}`;
 
     // Results
@@ -476,7 +476,7 @@ async function _calibrateStop() {
     _calRunning = false;
     if (_calTimer) { clearTimeout(_calTimer); _calTimer = null; }
     await fetch('/api/guide/calibrate/stop', {method: 'POST'}).catch(() => {});
-    if (_calPhaseEl) _calPhaseEl.textContent = 'Phase: ⏹ Arrêté';
+    if (_calPhaseEl) _calPhaseEl.textContent = i18n('cal.phase_stopped');
     if (_calStartBtn) _calStartBtn.disabled = false;
     if (_calStopBtn) _calStopBtn.disabled = true;
     addLog('warning', 'calibration', i18n('log.calibration.stopped'));

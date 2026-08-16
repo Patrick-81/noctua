@@ -82,11 +82,11 @@ Bus.on('calibration:done', (env) => {
     const quality = status.quality || '';
     const bad = (quality === 'poor' || quality === 'insufficient_data');
     const toastColor = bad ? '#ff5577' : '#4a4';
-    const msg = `Calibration terminée — qualité ${quality}`;
+    const msg = i18nFmt('cal.toast_done', { quality });
     showToast(msg, {
         color: toastColor,
         duration: bad ? 8000 : 0,
-        action: bad ? undefined : 'Démarrer guidage',
+        action: bad ? undefined : i18n('cal.toast_start_guide'),
         onAction: () => {
             // Ensure guiding mode is active, then start guiding
             if (currentMode !== 'guiding') {
@@ -282,7 +282,7 @@ function initDraggableApplets() {
         if (!handle) return;
         const pinBtn = document.createElement('button');
         pinBtn.className = 'applet-pin';
-        pinBtn.title = 'Épingler (empêche le déplacement)';
+        pinBtn.title = i18n('app.pin');
         pinBtn.style.cssText = 'font-size:0.6rem; background:none; border:none; cursor:pointer; padding:0 4px; margin-left:auto; transition:color 0.2s;';
         handle.insertBefore(pinBtn, handle.lastElementChild);
         const isPinned = currentModeConfig().pinned?.[panel.id];
@@ -290,7 +290,7 @@ function initDraggableApplets() {
             panel.dataset.pinned = 'true';
             pinBtn.textContent = '🔒';
             pinBtn.style.color = '#00ffcc';
-            pinBtn.title = 'Détacher (autoriser le déplacement)';
+            pinBtn.title = i18n('app.unpin');
         } else {
             pinBtn.textContent = '📌';
             pinBtn.style.color = '#555';
@@ -303,13 +303,13 @@ function initDraggableApplets() {
                 delete panel.dataset.pinned;
                 pinBtn.textContent = '📌';
                 pinBtn.style.color = '#555';
-                pinBtn.title = 'Épingler (empêche le déplacement)';
+                pinBtn.title = i18n('app.pin');
                 modeCfg.pinned[panel.id] = false;
             } else {
                 panel.dataset.pinned = 'true';
                 pinBtn.textContent = '🔒';
                 pinBtn.style.color = '#00ffcc';
-                pinBtn.title = 'Détacher (autoriser le déplacement)';
+                pinBtn.title = i18n('app.unpin');
                 modeCfg.pinned[panel.id] = true;
             }
             saveUiConfig();

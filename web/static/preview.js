@@ -123,13 +123,13 @@ function _guideDetectStars(w, h) {
     if (statusEl) {
         if (_guideSelectedStar) {
             const idx = _guideStarList.indexOf(_guideSelectedStar) + 1;
-            statusEl.textContent = `⭐ Étoile #${idx} (${_guideSelectedStar.x}, ${_guideSelectedStar.y}) — Prêt pour guidage`;
+            statusEl.textContent = i18nFmt('preview.star_selected', { idx, x: _guideSelectedStar.x, y: _guideSelectedStar.y });
             statusEl.style.color = '#00ffcc';
         } else if (_guideStarList.length > 0) {
-            statusEl.textContent = `✨ ${_guideStarList.length} étoiles — cliquez une étoile ou «⭐ Auto»`;
+            statusEl.textContent = i18nFmt('preview.star_list', { n: _guideStarList.length });
             statusEl.style.color = '#ffaa00';
         } else {
-            statusEl.textContent = 'Pas d\'étoile détectée';
+            statusEl.textContent = i18n('preview.no_star');
             statusEl.style.color = '#ff4444';
         }
     }

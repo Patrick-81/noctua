@@ -108,7 +108,7 @@ function initObjectSelector() {
                 String(o.catalog || '').toLowerCase().includes(q));
         }
         if (!filtered.length) {
-            results.innerHTML = '<div class="obj-select-empty">Aucun objet — catalogue vide ou non chargé.</div>';
+            results.innerHTML = `<div class="obj-select-empty">${i18n('objects.no_results')}</div>`;
             return;
         }
         const shown = filtered.slice(0, 300);
@@ -288,12 +288,12 @@ function initSitePopup() {
                     if (siteLat) siteLat.value = pos.coords.latitude.toFixed(4);
                     if (siteLng) siteLng.value = pos.coords.longitude.toFixed(4);
                     if (siteElev) siteElev.value = Math.round(pos.coords.altitude || 0);
-                    gpsBtn.textContent = '📍 Géolocaliser (GPS)';
+                    gpsBtn.textContent = i18n('objects.gps');
                     gpsBtn.disabled = false;
                 },
                 err => {
                     addLog('warning', 'site', i18nFmt('log.site.gps_failed', { err: err.message }));
-                    gpsBtn.textContent = '📍 Géolocaliser (GPS)';
+                    gpsBtn.textContent = i18n('objects.gps');
                     gpsBtn.disabled = false;
                 },
                 { enableHighAccuracy: true, timeout: 15000 }
