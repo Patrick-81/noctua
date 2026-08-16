@@ -721,6 +721,15 @@ function _guideCleanup() {
 // Consommateur ws:state : rafraîchit la liste des caméras guide.
 Bus.on('ws:state', () => _refreshGuideCameraList());
 
+// Consommateur guide:starSelected : l'étoile guide a été choisie dans
+// l'aperçu (clic ou sélection auto) — recentre le médaillon zoomé.
+Bus.on('guide:starSelected', (env) => {
+    const star = env.payload && env.payload.star;
+    if (!star) return;
+    _guideSelectedStar = star;
+    _guideRenderStarMedallion();
+});
+
 // Consommateur calibration:done : auto-popule les gains RA/DEC.
 Bus.on('calibration:done', (env) => {
     const s = env.payload;

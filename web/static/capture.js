@@ -13,6 +13,7 @@ let _exposureDurationMs = 0;
 let _countdownRaf = 0;
 let _captureFilter = '';            // current filter slot name
 let _captureFilterSeq = [];         // ordered filter sequence for the loop
+let _captureAborted = false;        // last capture run was aborted (not completed)
 
 // Save
 let _saveDir = '';
@@ -119,6 +120,7 @@ function initCapturePanel() {
         abortBtn.addEventListener('click', () => {
             _captureQueue = 0;
             _captureRunning = false;
+            _captureAborted = true;
             apiPost('/api/camera/abort', { device: findCamera()?.name });
             updateCaptureProgress();
         });
@@ -158,6 +160,7 @@ async function startSequence(count, delay) {
     _captureTotal = count;
     _captureQueue = count;
     _captureRunning = true;
+    _captureAborted = false;
     updateCaptureProgress();
 
     const filterSeqInput = document.getElementById('cap-filter-seq');
@@ -275,9 +278,9 @@ function updateCaptureProgress() {
     const exposeBtn = document.getElementById('cap-expose-btn');
     if (!section) return;
 
+    const done = _captureTotal - _captureQueue;
     if (_captureTotal > 0 && _captureRunning) {
         section.style.display = '';
-        const done = _captureTotal - _captureQueue;
         const pct = _captureTotal > 0 ? (done / _captureTotal * 100) : 0;
         if (fill) fill.style.width = pct + '%';
         if (text) text.textContent = `${done} / ${_captureTotal}`;
@@ -287,6 +290,15 @@ function updateCaptureProgress() {
         stopCountdown();
         if (exposeBtn) exposeBtn.disabled = false;
     }
+    // Publie la progression de la capture rapide (séquence/stacking/app s'en
+    // servent : exclusion caméra + affichage en direct sans poll).
+    Bus.emit('capture:progress', {
+        running: _captureRunning,
+        done,
+        total: _captureTotal,
+        last: _captureFilter || null,
+        aborted: _captureAborted,
+    }, { source: 'capture' });
 }
 
 function renderCapturePanel() {

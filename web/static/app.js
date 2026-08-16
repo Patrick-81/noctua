@@ -98,6 +98,22 @@ Bus.on('calibration:done', (env) => {
     });
 });
 
+// ── Bus : consommateur capture:progress ───────────────────────
+// Toast de fin de capture rapide (panneau Capture) — l'app orchestre la
+// confirmation visuelle comme pour calibration:done. L'abort n'est pas
+// annoncé comme une fin de séquence.
+
+let _appCaptureRunning = false;
+
+Bus.on('capture:progress', (env) => {
+    const p = env.payload || {};
+    const was = _appCaptureRunning;
+    _appCaptureRunning = !!p.running;
+    if (was && !_appCaptureRunning && !p.aborted && p.total > 0 && p.done >= p.total) {
+        showToast(i18nFmt('toast.capture_done', { done: p.done, total: p.total }), { color: '#44cc44', duration: 3000 });
+    }
+});
+
 function initModeBar() {
     document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
         btn.addEventListener('click', () => switchMode(btn.dataset.mode));

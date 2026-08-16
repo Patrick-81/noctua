@@ -8,6 +8,7 @@ let _nudgeAmount = 1; // arcmin
 let _centeringActive = false;
 let _centeringMaxSteps = 10;
 let _centeringThresholdArcmin = 0.5;
+let _centeringWaitingSlew = false;  // la monture est en train de pointer
 
 function initTargetPanel() {
     // Set target from inputs
@@ -233,14 +234,27 @@ function _centeringStep(result) {
         // Nudge mount toward target
         targetNudge(deltaRA, deltaDEC);
 
-        // Wait for mount to settle then re-solve
+        // Relance la boucle dès que la monture a fini de pointer
+        // (événement mount:slewed), avec un filet de sécurité temporel
+        // si l'événement est manqué.
+        _centeringWaitingSlew = true;
         setTimeout(() => {
+            _centeringWaitingSlew = false;
             if (_centeringActive) _centeringNextStep();
-        }, 3000);
+        }, 5000);
     }
 }
 
 // ── Bus : consommateur solver:result (boucle de centrage) ─────
 
 Bus.on('solver:result', (env) => _centeringStep(env.payload.result));
+
+// ── Bus : consommateur mount:slewed (fin de nudge) ────────────
+
+Bus.on('mount:slewed', () => {
+    if (_centeringActive && _centeringWaitingSlew) {
+        _centeringWaitingSlew = false;
+        _centeringNextStep();
+    }
+});
 

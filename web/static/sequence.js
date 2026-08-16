@@ -11,6 +11,7 @@ let _seqFrames = [];
 let _seqDefaults = { frames: [], save_dir: '', dither: { enabled: false, amount: 2.0 } };
 let _seqStatus = { running: false, paused: false, done: 0, total: 0 };
 let _seqPollTimer = null;
+let _seqQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
 
 function initSequencePanel() {
     const list = document.getElementById('seq-frame-list');
@@ -146,6 +147,10 @@ function renderSequenceTable() {
 function updateSequenceTotals() {
     const pt = document.getElementById('seq-progress-text');
     if (!pt) return;
+    if (_seqQuickCapture && _seqQuickCapture.running && !_seqStatus.running) {
+        pt.textContent = `${_seqQuickCapture.done} / ${_seqQuickCapture.total}`;
+        return;
+    }
     const currentTotal = _seqStatus.total || _seqFrames.reduce((s, f) => s + (parseInt(f.count) || 1), 0);
     pt.textContent = `${_seqStatus.done} / ${currentTotal}`;
 }
@@ -206,6 +211,11 @@ function seqApplyStatus(st) {
     _seqPrevRunning = st.running;
     _seqStatus = st;
 
+    // La capture rapide du panneau Capture occupe la caméra : on se met en
+    // attente (bouton désactivé) et on laisse l'événement capture:progress
+    // piloter l'affichage de progression.
+    const quickActive = !!(_seqQuickCapture && _seqQuickCapture.running);
+
     if ((finished || doneRun) && !_seqLoggedFinish) {
         _seqLoggedFinish = true;
         addLog('info', 'sequence', i18nFmt('log.capture.seq_finished', { done: st.done, total: st.total }));
@@ -216,7 +226,7 @@ function seqApplyStatus(st) {
     const pauseBtn = document.getElementById('seq-pause');
     const stopBtn = document.getElementById('seq-stop');
     const resetBtn = document.getElementById('seq-reset');
-    if (startBtn) startBtn.disabled = !!st.running;
+    if (startBtn) startBtn.disabled = !!st.running || quickActive;
     if (stopBtn) stopBtn.disabled = !st.running;
     if (resetBtn) resetBtn.disabled = !!st.running;
     if (pauseBtn) {
@@ -224,22 +234,24 @@ function seqApplyStatus(st) {
         pauseBtn.textContent = st.paused ? '▶ Reprendre' : '⏸ Pauser';
     }
 
-    const fill = document.getElementById('seq-progress-fill');
-    if (fill) fill.style.width = Math.round((st.progress || 0) * 100) + '%';
-    const pt = document.getElementById('seq-progress-text');
-    if (pt) pt.textContent = `${st.done} / ${st.total}`;
+    if (!quickActive) {
+        const fill = document.getElementById('seq-progress-fill');
+        if (fill) fill.style.width = Math.round((st.progress || 0) * 100) + '%';
+        const pt = document.getElementById('seq-progress-text');
+        if (pt) pt.textContent = `${st.done} / ${st.total}`;
 
-    const cur = document.getElementById('seq-current');
-    if (cur) {
-        if (st.running && st.current) {
-            const c = st.current;
-            cur.textContent = `Pose ${st.done + 1}/${st.total} — ${c.frame_type || 'LIGHT'} ${c.duration ?? ''}s${c.filter ? ' [' + c.filter + ']' : ''}${st.paused ? ' (PAUSÉE)' : ''}`;
-        } else if (st.running) {
-            cur.textContent = `Pose ${st.done + 1}/${st.total}${st.paused ? ' (PAUSÉE)' : ''}`;
-        } else if (finished || doneRun) {
-            cur.textContent = 'Séquence terminée';
-        } else {
-            cur.textContent = '—';
+        const cur = document.getElementById('seq-current');
+        if (cur) {
+            if (st.running && st.current) {
+                const c = st.current;
+                cur.textContent = `Pose ${st.done + 1}/${st.total} — ${c.frame_type || 'LIGHT'} ${c.duration ?? ''}s${c.filter ? ' [' + c.filter + ']' : ''}${st.paused ? ' (PAUSÉE)' : ''}`;
+            } else if (st.running) {
+                cur.textContent = `Pose ${st.done + 1}/${st.total}${st.paused ? ' (PAUSÉE)' : ''}`;
+            } else if (finished || doneRun) {
+                cur.textContent = 'Séquence terminée';
+            } else {
+                cur.textContent = '—';
+            }
         }
     }
 
@@ -268,4 +280,27 @@ function seqApplyStatus(st) {
     }
     updateSequenceTotals();
 }
+
+// ── Bus : consommateur capture:progress ───────────────────────
+// La capture rapide du panneau Capture occupe la caméra. Tant qu'aucune
+// séquence serveur n'est en cours, le panneau reflète sa progression en
+// direct (au lieu d'attendre le poll 1 s) ; le bouton Démarrer est désactivé
+// pour éviter deux processus d'acquisition simultanés.
+
+Bus.on('capture:progress', (env) => {
+    _seqQuickCapture = env.payload || null;
+    if (_seqStatus.running) return;
+    const p = _seqQuickCapture;
+    const fill = document.getElementById('seq-progress-fill');
+    const pt = document.getElementById('seq-progress-text');
+    const cur = document.getElementById('seq-current');
+    if (p && p.running) {
+        if (pt) pt.textContent = `${p.done} / ${p.total}`;
+        if (fill) fill.style.width = Math.round((p.total > 0 ? p.done / p.total : 0) * 100) + '%';
+        if (cur) cur.textContent = 'Capture rapide en cours…';
+    } else {
+        if (cur) cur.textContent = '—';
+        updateSequenceTotals();
+    }
+});
 

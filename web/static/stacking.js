@@ -6,6 +6,8 @@
 
 let _stkRunning = false;
 let _stkPollTimer = null;
+let _stkStatus = null;              // dernier statut serveur reçu
+let _stkQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
 
 function initStackingPanel() {
     const defaults = document.getElementById('stk-save-dir');
@@ -122,9 +124,13 @@ function stkShowError(msg) {
 
 function stkApplyStatus(st) {
     if (!st) return;
+    _stkStatus = st;
     const running = st.session && st.session.running;
     const prevRunning = _stkRunning;
     _stkRunning = !!running;
+    // La capture rapide occupe la caméra : on attend qu'elle se termine
+    // (statut affiché par l'événement capture:progress), start désactivé.
+    const quickActive = !!(_stkQuickCapture && _stkQuickCapture.running);
     if (prevRunning && !_stkRunning && st.complete) {
         addLog('info', 'stacking', i18nFmt('log.stacking.done', { n: st.accepted }));
     }
@@ -134,23 +140,41 @@ function stkApplyStatus(st) {
     const resetBtn = document.getElementById('stk-reset');
     const saveBtn = document.getElementById('stk-save-master');
     const savePngBtn = document.getElementById('stk-save-png');
-    if (startBtn) startBtn.disabled = !!running;
+    if (startBtn) startBtn.disabled = !!running || quickActive;
     if (stopBtn) stopBtn.disabled = !running;
     const hasStack = (st.accepted || 0) > 0;
     if (resetBtn) resetBtn.disabled = !!running || !hasStack;
     if (saveBtn) saveBtn.disabled = !hasStack;
     if (savePngBtn) savePngBtn.disabled = !hasStack;
 
-    const statusEl = document.getElementById('stk-status');
-    if (statusEl) {
-        let txt = running ? '⏳ Accumulation en cours…' : (st.complete ? '✓ Terminé' : 'Ready');
-        if (hasStack) txt += ` — ${st.accepted} LIGHT empilées, ${st.rejected} rejetées`;
-        if (st.max_frames) txt += ` (cible ${st.max_frames})`;
-        if (st.error) txt += ` — ${st.error}`;
-        statusEl.textContent = txt;
+    if (!quickActive) {
+        const statusEl = document.getElementById('stk-status');
+        if (statusEl) {
+            let txt = running ? '⏳ Accumulation en cours…' : (st.complete ? '✓ Terminé' : 'Ready');
+            if (hasStack) txt += ` — ${st.accepted} LIGHT empilées, ${st.rejected} rejetées`;
+            if (st.max_frames) txt += ` (cible ${st.max_frames})`;
+            if (st.error) txt += ` — ${st.error}`;
+            statusEl.textContent = txt;
+        }
     }
     const dirEl = document.getElementById('stk-session-dir');
     if (dirEl && st.session_dir && !running) {
         dirEl.textContent = 'Session → ' + st.session_dir;
     }
 }
+
+// ── Bus : consommateur capture:progress ───────────────────────
+// La capture rapide du panneau Capture occupe la caméra : le stacking attend
+// (start désactivé) et affiche l'occupation au lieu de son statut serveur.
+
+Bus.on('capture:progress', (env) => {
+    _stkQuickCapture = env.payload || null;
+    if (!(_stkQuickCapture && _stkQuickCapture.running)) {
+        if (_stkStatus) stkApplyStatus(_stkStatus);
+        return;
+    }
+    const statusEl = document.getElementById('stk-status');
+    if (statusEl) statusEl.textContent = '⏳ Capture rapide en cours…';
+    const startBtn = document.getElementById('stk-start');
+    if (startBtn) startBtn.disabled = true;
+});

@@ -215,9 +215,18 @@ function mountFlip() {
 // (auto-sélection quand une monture apparaît, sinon si déjà choisie).
 
 let _lastMountSeen = false;
+let _lastSlewing = false;
 Bus.on('ws:state', (env) => {
     updateCameraFov();
     const m = findMount();
+    if (m) {
+        // Détection de fin de slew (transition slewing→idle) → mount:slewed.
+        const nowSlewing = !!m.dev.slewing;
+        if (_lastSlewing && !nowSlewing) {
+            Bus.emit('mount:slewed', { ra: m.dev.ra_hours, dec: m.dev.dec_deg }, { source: 'mount' });
+        }
+        _lastSlewing = nowSlewing;
+    }
     if (m && !_lastMountSeen) {
         selectedDevice = m.name;
         renderMountPanel();
