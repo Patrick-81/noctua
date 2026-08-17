@@ -48,6 +48,8 @@ function connectWS() {
             Bus.emit('solver:result', { result: msg.result }, { source: 'solver' });
         } else if (msg.type === 'stacking') {
             Bus.emit('stacking:update', msg.status, { source: 'ws' });
+        } else if (msg.type === 'sequence') {
+            Bus.emit('sequence:update', msg.status, { source: 'ws' });
         }
     };
 }

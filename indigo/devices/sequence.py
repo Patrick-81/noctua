@@ -68,6 +68,7 @@ class SequenceRunner:
           - ``dither()``                → optional, nullable
           - ``delay(seconds)``          → sleep between frames
           - ``log(level, msg)``         → emit a server-side log line
+          - ``on_progress()``           → called after each completed frame
         """
         h = hooks or {}
         self._running = True
@@ -93,6 +94,9 @@ class SequenceRunner:
                             break
                         raise
                     self._done += 1
+                    op = h.get("on_progress")
+                    if op:
+                        await op()
                     dt = h.get("delay")
                     if dt:
                         await dt(float(frame.get("delay", 0.0)))

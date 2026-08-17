@@ -1,0 +1,187 @@
+"""Camera and plate solver routes."""
+
+import asyncio
+import base64
+import os
+from datetime import datetime
+from typing import TYPE_CHECKING
+
+from .common import SanitizedJSONResponse, log
+
+if TYPE_CHECKING:
+    from ..server import WebServer
+
+
+def register(app, server: "WebServer") -> None:
+    @app.get("/api/camera")
+    async def get_camera():
+        c = server.registry.get_camera()
+        return SanitizedJSONResponse(c.state_dict() if c else None)
+
+    @app.get("/api/cameras")
+    async def get_cameras():
+        cameras = server.registry.get_all_cameras()
+        return [{"name": c.name, "connected": c.connected, "is_ready": c.is_ready} for c in cameras]
+
+    @app.post("/api/camera/expose")
+    async def camera_expose(body: dict):
+        c = server.registry.get_camera(body.get("device"))
+        if not c:
+            return {"error": "no camera"}
+        if not c.is_ready:
+            return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
+        await c.expose(body["duration"], body.get("frame_type", "LIGHT"))
+        return {"ok": True}
+
+    @app.post("/api/camera/abort")
+    async def camera_abort(body: dict = {}):
+        c = server.registry.get_camera(body.get("device"))
+        if not c:
+            return {"error": "no camera"}
+        await c.abort()
+        return {"ok": True}
+
+    @app.post("/api/camera/save")
+    async def camera_save(body: dict):
+        """Save the last captured image to a directory."""
+        save_dir = body.get("dir", "")
+        if not save_dir:
+            return {"error": "no directory specified"}
+        # Expand ~ and create dir if needed
+        save_dir = os.path.expanduser(save_dir)
+        os.makedirs(save_dir, exist_ok=True)
+        # Build filename from timestamp + filter
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filter_name = (body.get("filter") or "").strip()
+        if filter_name:
+            filename = f"capture_{filter_name}_{ts}.fits"
+        else:
+            filename = f"capture_{ts}.fits"
+        filepath = os.path.join(save_dir, filename)
+        # Get last image data from the camera
+        c = server.registry.get_camera()
+        if not c:
+            return {"error": "no camera"}
+        # We need the raw image data — check if we can get it from the client
+        # The image was already sent to WS clients, we need to re-fetch or store it
+        # For now, we'll store the last image in the server
+        if not hasattr(server, '_last_image_data') or not server._last_image_data:
+            return {"error": "no image data available — capture first"}
+        with open(filepath, "wb") as f:
+            f.write(server._last_image_data)
+        log.info("Image saved: %s (%d bytes)", filepath, len(server._last_image_data))
+        return {"ok": True, "path": filepath, "size": len(server._last_image_data)}
+
+    @app.post("/api/camera/temperature")
+    async def camera_temperature(body: dict):
+        c = server.registry.get_camera(body.get("device"))
+        if not c:
+            return {"error": "no camera"}
+        await c.set_temperature(body["target"])
+        return {"ok": True}
+
+    # ── Plate Solver ─────────────────────────────────────────
+
+    @app.get("/api/solver/status")
+    async def solver_status():
+        return server.solver.status()
+
+    @app.post("/api/solver/catalogs")
+    async def solver_load_catalogs(body: dict = {}):
+        catalog_dir = body.get("catalog_dir")
+        result = server.solver.load_catalogs(catalog_dir)
+        return result
+
+    @app.post("/api/solver/solve")
+    async def solver_solve(body: dict):
+        """Solve a plate from the last captured image or uploaded data.
+
+        body = {
+            "mode": "hinted" | "blind" | "last_image",
+            "ra_hint": 100.5,        # degrees (hinted mode)
+            "dec_hint": 35.2,        # degrees (hinted mode)
+            "scale_hint": 2.5,       # arcsec/pixel (hinted mode)
+            "min_scale": 0.5,        # arcsec/pixel (blind mode)
+            "max_scale": 15.0,       # arcsec/pixel (blind mode)
+            "device": "camera_name", # optional, for auto-hint from mount
+        }
+        """
+        if server.solver.is_solving:
+            return {"error": "Already solving — wait for current solve to finish"}
+
+        mode = body.get("mode", "hinted")
+
+        # Get image data
+        image_data = None
+        fmt = "fits"
+
+        if mode == "last_image":
+            # Use the last captured image
+            if not server._last_image_data:
+                return {"error": "No image captured yet — capture first"}
+            image_data = server._last_image_data
+            fmt = "fits"
+        elif "image_data" in body:
+            # Direct image upload (base64)
+            image_data = base64.b64decode(body["image_data"])
+            fmt = body.get("format", "fits")
+        else:
+            return {"error": "Provide 'mode': 'last_image' or 'image_data'"}
+
+        # Get hints
+        ra_hint = body.get("ra_hint")
+        dec_hint = body.get("dec_hint")
+        scale_hint = body.get("scale_hint")
+
+        # Auto-hint from FITS WCS (highest priority for test images)
+        if (ra_hint is None or dec_hint is None or scale_hint is None) and image_data:
+            try:
+                wcs = server.solver._extract_wcs(image_data)
+                if wcs:
+                    if ra_hint is None and wcs.get("crval1") is not None:
+                        ra_hint = wcs["crval1"]
+                    if dec_hint is None and wcs.get("crval2") is not None:
+                        dec_hint = wcs["crval2"]
+                    if scale_hint is None and wcs.get("cdelt1") is not None:
+                        scale_hint = abs(wcs["cdelt1"]) * 3600  # deg/pix → arcsec/pix
+                    log.info("Auto-hint from FITS WCS: RA=%.2f DEC=%.2f scale=%.2f",
+                             ra_hint or 0, dec_hint or 0, scale_hint or 0)
+            except Exception as e:
+                log.debug("FITS WCS extraction failed: %s", e)
+
+        # Auto-hint from mount (if not yet provided)
+        if ra_hint is None or dec_hint is None:
+            m = server.registry.get_mount()
+            if m and m.ra_hours is not None:
+                ra_hint = ra_hint if ra_hint is not None else m.ra_hours * 15  # hours → degrees
+                dec_hint = dec_hint if dec_hint is not None else m.dec_deg
+                log.debug("Auto-hint from mount: RA=%.2f DEC=%.2f", ra_hint, dec_hint)
+
+        # Auto-scale from camera (only if still no scale)
+        if scale_hint is None:
+            c = server.registry.get_camera(body.get("device"))
+            if c and c.pixel_size_um and c.focal_length_mm:
+                scale_hint = (c.pixel_size_um / 1000) / (c.focal_length_mm / 1000) * 206.265
+                log.debug("Auto-scale from camera: %.2f arcsec/px", scale_hint)
+
+        # Run solve in a thread (Seiza releases GIL but we want non-blocking)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(
+            None,
+            lambda: server.solver.solve_image(
+                image_data,
+                fmt=fmt,
+                ra_hint=ra_hint,
+                dec_hint=dec_hint,
+                scale_hint=scale_hint,
+                min_scale=body.get("min_scale", 0.5),
+                max_scale=body.get("max_scale", 15.0),
+                sigma=body.get("sigma", 2.0),
+            )
+        )
+
+        # Broadcast result via WebSocket
+        if result.get("ok"):
+            await server._broadcast_solver_result(result)
+
+        return result

@@ -11,3 +11,6 @@ duckdb-extensions/
 node_modules/
 test-results/
 backups/
+# État runtime auto-sauvegardé par l'application (positions de panneaux, profil actif)
+ui.yaml
+profiles.yaml

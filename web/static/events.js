@@ -22,6 +22,7 @@ const Bus = (function () {
         'guide:starSelected': { source: 'preview',     targets: ['guide'] },
         'mount:slewed':       { source: 'mount',       targets: ['target'] },
         'stacking:update':    { source: 'ws',          targets: ['stacking'] },
+        'sequence:update':    { source: 'ws',          targets: ['sequence'] },
     };
 
     const listeners = {};

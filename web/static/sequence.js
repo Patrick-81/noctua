@@ -10,7 +10,6 @@ const SEQ_DEFAULT_FRAME = () => ({ duration: 60, frame_type: 'LIGHT', filter: ''
 let _seqFrames = [];
 let _seqDefaults = { frames: [], save_dir: '', dither: { enabled: false, amount: 2.0 } };
 let _seqStatus = { running: false, paused: false, done: 0, total: 0 };
-let _seqPollTimer = null;
 let _seqQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
 
 function initSequencePanel() {
@@ -86,9 +85,19 @@ function initSequencePanel() {
         if (errEl) errEl.style.display = 'none';
     });
 
-    // Poll status while the panel is visible
-    if (_seqPollTimer) clearInterval(_seqPollTimer);
-    _seqPollTimer = setInterval(seqPollStatus, 1000);
+    // Le statut arrive par poussée WebSocket (sequence:update) ; on ne fait
+    // qu'un rafraîchissement initial + une requête si la poussée manque.
+    seqRefreshStatus();
+
+    // Bus : consommateur des poussées de statut serveur.
+    Bus.on('sequence:update', (env) => seqApplyStatus(env.payload));
+}
+
+async function seqRefreshStatus() {
+    try {
+        const st = await fetch('/api/sequence/status').then(r => r.json());
+        if (st) seqApplyStatus(st);
+    } catch (e) { /* server not reachable — ignore */ }
 }
 
 function seqFramesFromUi() {
@@ -193,12 +202,6 @@ async function seqCall(url) {
 
 let _seqPrevRunning = false;
 let _seqLoggedFinish = false;
-async function seqPollStatus() {
-    try {
-        const st = await fetch('/api/sequence/status').then(r => r.json());
-        if (st) seqApplyStatus(st);
-    } catch (e) { /* server not reachable — ignore */ }
-}
 
 function seqApplyStatus(st) {
     if (!st) return;
