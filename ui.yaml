@@ -1,4 +1,4 @@
-mode: capture
+mode: hardware
 log_levels:
   info: true
   warning: true
@@ -492,8 +492,8 @@ modes:
   hardware:
     applets:
       applet-hardware-mode:
-        left: 1309px
-        top: 132.141px
+        left: 1249px
+        top: 14px
         right: null
         bottom: null
       applet-legend:
@@ -568,6 +568,16 @@ modes:
         top: 80px
         right: 16px
         bottom: null
+      applet-sequence:
+        left: 910px
+        top: 150px
+        right: null
+        bottom: null
+      applet-stacking:
+        left: 16px
+        top: 200px
+        right: null
+        bottom: null
       applet-capture-preview:
         left: 50%
         top: 200px
@@ -584,6 +594,11 @@ modes:
         left: null
         top: 80px
         right: 16px
+        bottom: null
+      applet-session:
+        left: 1560px
+        top: 632px
+        right: null
         bottom: null
       applet-polar:
         left: null
