@@ -42,11 +42,12 @@ class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
                  config_path: Path | None = None, ui_path: Path | None = None,
                  profiles_path: Path | None = None, telescope_config: dict | None = None,
-                 sequence_config: dict | None = None):
+                 sequence_config: dict | None = None, exposure_config: dict | None = None):
         self.registry = registry
         self.site = site_config or {}
         self.telescope = dict(telescope_config or {})
         self.sequence_cfg = dict(sequence_config or {})
+        self.exposure_cfg = dict(exposure_config or {})
         # Defaults for meridian flip
         self.telescope.setdefault("flip_enabled", False)
         self.telescope.setdefault("hour_angle_margin", 0.0)
@@ -61,6 +62,9 @@ class WebServer:
         self._ws_clients: list[WebSocket] = []
         self._last_image_data: bytes = b""
         self._camera_images: dict[str, bytes] = {}  # device_name → last image bytes
+        # Duration of the last test exposure used by /api/camera/exposure/estimate
+        # (so GET /recommend can extrapolate without re-taking a frame).
+        self._last_exposure_test_s: float = 0.0
 
         # Plate solver (lazy import to avoid circular dependency)
         from indigo.devices.solver import Solver

@@ -33,6 +33,7 @@
 - [x] Gaussian quality pour sélection étoile guide (SNR, HFR, saturation)
 - [x] Aperçu guidage : capture, marqueurs étoiles, clic sélection, zoom/pan
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
+- [x] Temps de pose idéal : bouton « Mesurer le ciel » → pose test, mesure du fond en ADU/s (BZERO/BSCALE gérés), extrapolation vers `exposure.target_bg`, garde anti-saturation (SNR projeté, bornes min/max) — `indigo/devices/exposure.py`, `/api/camera/exposure/{estimate,recommend}`, badge dans le panneau Capture — **`test_exposure.py` ✓, pytest 112/112 ✓, Playwright 39/39 ✓**
 
 ## À tester
 - [x] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct → `test_live_stack_flow.py::test_continuous_session_manual_stop`
@@ -103,4 +104,4 @@
 - Les JS sont servis en statique, un simple refresh suffit après modification
 - Flow tests : exécuter via `python tests/test_X_flow.py` (pas pytest)
 - Tests : `python tests/test_autofocus.py && python tests/test_autofocus_flow.py && python tests/test_guide_flow.py`
-- Suite : `python -m pytest tests/ -q && node tests/test_polar_math.js`
+- Suite : `python -m pytest tests/ -q && node tests/test_polar_math.js && python tests/test_exposure.py`

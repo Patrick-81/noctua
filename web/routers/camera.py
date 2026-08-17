@@ -80,6 +80,68 @@ def register(app, server: "WebServer") -> None:
         await c.set_temperature(body["target"])
         return {"ok": True}
 
+    # ── Ideal exposure ───────────────────────────────────────
+
+    @app.get("/api/camera/exposure/recommend")
+    async def camera_exposure_recommend(device: str = ""):
+        """Recommend an ideal exposure from the last captured image."""
+        from indigo.devices.exposure import estimate_exposure
+        img = server._camera_images.get(device, server._last_image_data) if device else server._last_image_data
+        if not img:
+            return {"ok": False, "error": "no image captured yet — take a test exposure first"}
+        params = server.exposure_cfg or {}
+        # Use the test duration actually measured by estimate, falling back to
+        # the configured default (or 10 s) when the image came from elsewhere.
+        test_duration = server._last_exposure_test_s or float(params.get("test_duration", 10.0))
+        try:
+            result = estimate_exposure(img, test_duration, params)
+            return SanitizedJSONResponse(result)
+        except Exception as e:
+            log.error("Exposure estimate error: %s", e)
+            return {"ok": False, "error": str(e)}
+
+    @app.post("/api/camera/exposure/estimate")
+    async def camera_exposure_estimate(body: dict = {}):
+        """Take a short test exposure, then recommend the ideal exposure.
+
+        body = {"device": "cam", "test_duration": 10.0} — test_duration optional
+        (defaults to config exposure.test_duration or 10 s).
+        """
+        c = server.registry.get_camera(body.get("device"))
+        if not c:
+            return {"error": "no camera"}
+        if not c.is_ready:
+            return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
+
+        params = dict(server.exposure_cfg or {})
+        test_duration = float(body.get("test_duration", params.get("test_duration", 10.0)))
+        test_duration = max(0.1, test_duration)
+
+        from indigo.devices.exposure import estimate_exposure
+
+        server._last_exposure_test_s = test_duration
+        base = server._camera_images.get(c.name, b"")
+        await c.expose(test_duration, "LIGHT")
+        # Wait for the exposure to finish, then for a new image blob.
+        deadline = asyncio.get_running_loop().time() + test_duration + 30.0
+        while asyncio.get_running_loop().time() < deadline and c.exposing:
+            await asyncio.sleep(0.1)
+        while asyncio.get_running_loop().time() < deadline:
+            cur = server._camera_images.get(c.name, b"")
+            if cur and cur != base:
+                break
+            await asyncio.sleep(0.1)
+
+        img = server._camera_images.get(c.name, b"")
+        if not img:
+            return {"ok": False, "error": "test exposure produced no image"}
+        try:
+            result = estimate_exposure(img, test_duration, params)
+            return SanitizedJSONResponse(result)
+        except Exception as e:
+            log.error("Exposure estimate error: %s", e)
+            return {"ok": False, "error": str(e)}
+
     # ── Plate Solver ─────────────────────────────────────────
 
     @app.get("/api/solver/status")

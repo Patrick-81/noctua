@@ -37,6 +37,7 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | `indigo/devices/autofocus.py` | Autofocus (scan V-courbe) |
 | `indigo/devices/sequence.py` | Ordonnanceur de séquences (pause/resume/stop/reset, dither) |
 | `indigo/devices/live_stack.py` | Empilement temps réel |
+| `indigo/devices/exposure.py` | Temps de pose idéal : pose test → extrapolation du fond de ciel (ADU/s), garde saturation |
 | `indigo/devices/solver.py` | Solveur astrométrique |
 | `indigo/devices/focus_metrics.py` | Métriques de focus (HFR/FWHM) |
 | `indigo/devices/guide_calibration.py` | Calibration du guidage |
@@ -71,6 +72,8 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | POST | `/api/mount/slew`, `/move`, `/halt`, `/abort`, `/tracking`, `/park`, `/unpark` | Pilotage monture |
 | GET | `/api/camera` | État caméra (inclut `is_ready`) |
 | POST | `/api/camera/expose`, `/abort`, `/temperature`, `/save` | Capture + température |
+| GET | `/api/camera/exposure/recommend` | Pose idéale depuis la dernière image (fond de ciel mesuré) |
+| POST | `/api/camera/exposure/estimate` | Pose test → recommande le temps de pose (fond cible, anti-saturation) |
 | GET | `/api/filterwheel` | État roue |
 | POST | `/api/filterwheel/slot` | Changer de slot |
 | GET | `/api/focuser` | État focuser |

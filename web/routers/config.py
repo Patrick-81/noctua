@@ -14,7 +14,11 @@ if TYPE_CHECKING:
 def register(app, server: "WebServer") -> None:
     @app.get("/api/config")
     async def get_config():
-        return {"site": server.site, "telescope": server.telescope}
+        return {
+            "site": server.site,
+            "telescope": server.telescope,
+            "exposure": server.exposure_cfg,
+        }
 
     @app.post("/api/config")
     async def set_config(body: dict):
@@ -22,15 +26,19 @@ def register(app, server: "WebServer") -> None:
             server.site.update(body["site"])
         if "telescope" in body and isinstance(body["telescope"], dict):
             server.telescope.update(body["telescope"])
+        if "exposure" in body and isinstance(body["exposure"], dict):
+            server.exposure_cfg.update(body["exposure"])
         if server.config_path and server.config_path.exists():
             with open(server.config_path) as f:
                 cfg = yaml.safe_load(f) or {}
             cfg["site"] = server.site
             cfg["telescope"] = server.telescope
+            cfg["exposure"] = server.exposure_cfg
             with open(server.config_path, "w") as f:
                 yaml.dump(cfg, f, default_flow_style=False, sort_keys=False)
             log.info("Config saved to %s", server.config_path)
-        return {"ok": True, "site": server.site, "telescope": server.telescope}
+        return {"ok": True, "site": server.site, "telescope": server.telescope,
+                "exposure": server.exposure_cfg}
 
     @app.get("/api/ui")
     async def get_ui():

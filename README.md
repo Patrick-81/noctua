@@ -14,6 +14,7 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 - **Autofocus** : scan V-courbe, **HFR** (half-flux radius) par mesure du FWHM gaussien, adaptation
 - **Séquence d'acquisition** : plan éditable (type/durée/filtre/×/pause), pause/reprendre/stop/reset, dithering
 - **Capture** : exposition, réduction **BZERO/BSCALE**, sauvegarde des FITS nommés `capture_{filtre}_{timestamp}.fits`
+- **Temps de pose idéal** : pose test (bouton « Mesurer le ciel ») → mesure du fond de ciel en ADU/s, extrapolation vers un fond cible, garde anti-saturation des étoiles, SNR projeté
 - **Mise en station polaire** : calcul LST + assistant 3 étapes
 - **Orientation** : bascule au méridien (flip) gérée par la monture
 
@@ -47,6 +48,7 @@ Puis ouvrir **http://<host>:8080** dans le navigateur.
 - `site` : nom du site, coordonnées, fuseau (utilisés pour la distance LST et le flip méridien)
 - `telescope` : flip méridien, marge d'angle horaire, altitude min, taux de slew recherche
 - `sequence` : répertoire de sauvegarde des FITS, dither `{enabled, amount}`, plan par défaut
+  - `exposure` : pose idéale — `target_bg` (fond cible en ADU au-dessus du biais), `test_duration` (pose test), `min_exposure`/`max_exposure` (bornes), `saturation_frac` (seuil de saturation des étoiles)
 
 `profiles.yaml` : stocke les profils de matériel (monture/caméra/caméra guide/focuser/roue). Chemin surchargeable par `INDIGO_PROFILES_PATH`.
 
@@ -67,6 +69,7 @@ Suites unitaires / flux :
 
 ```bash
 python -m pytest tests/ -q
+python tests/test_exposure.py   # temps de pose idéal (fond de ciel, saturation)
 python tests/test_guide_flow.py
 python tests/test_sequence_flow.py
 npx playwright test   # tests UI (voir tests/)

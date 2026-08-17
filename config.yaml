@@ -16,6 +16,12 @@ telescope:
   min_altitude: 5.0
   flip_slew_rate: Centering
   recenter_after_flip: true
+exposure:
+  target_bg: 4000
+  test_duration: 10.0
+  min_exposure: 1.0
+  max_exposure: 600.0
+  saturation_frac: 0.6
 sequence:
   save_dir: ~/asteo/captures/
   dither:

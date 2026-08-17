@@ -57,6 +57,12 @@ body {
     border-color: rgba(0, 255, 204, 0.35);
 }
 
+/* Le panneau de réglages capture doit rester au-dessus de l'aperçu
+   (même z-index que glass-panel, mais DOM antérieur) pour rester cliquable. */
+#applet-capture-settings {
+    z-index: 25;
+}
+
 /* ── Applet positions ───────────────────────────────────────── */
 
 .applet { position: absolute; }
@@ -830,6 +836,40 @@ body {
     font-size: 0.7rem;
     padding: 3px 6px;
     min-width: 24px;
+}
+
+/* Recommended exposure badge */
+.cap-exp-reco {
+    margin-top: 6px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    background: rgba(0, 255, 204, 0.07);
+    border: 1px solid rgba(0, 255, 204, 0.18);
+    font-size: 0.72rem;
+    color: #9be8d9;
+    line-height: 1.5;
+}
+.cap-exp-reco .cap-reco-main {
+    font-weight: 600;
+    font-size: 0.8rem;
+    color: #7ff5d8;
+}
+.cap-exp-reco .cap-reco-meta { color: #7c8a96; font-size: 0.65rem; }
+.cap-exp-reco .cap-reco-apply {
+    margin-top: 4px;
+    background: rgba(0, 255, 204, 0.14);
+    border: 1px solid rgba(0, 255, 204, 0.35);
+    color: #7ff5d8;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 0.7rem;
+    cursor: pointer;
+}
+.cap-exp-reco .cap-reco-apply:hover { background: rgba(0, 255, 204, 0.25); }
+.cap-exp-reco.cap-reco-warn {
+    background: rgba(255, 170, 0, 0.07);
+    border-color: rgba(255, 170, 0, 0.3);
+    color: #ffcc88;
 }
 
 /* Sequence */

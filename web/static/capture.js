@@ -114,6 +114,12 @@ function initCapturePanel() {
         });
     }
 
+    // Measure the sky → recommended exposure
+    const measureBtn = document.getElementById('cap-measure-btn');
+    if (measureBtn) {
+        measureBtn.addEventListener('click', measureSkyExposure);
+    }
+
     // Abort button
     const abortBtn = document.getElementById('cap-abort-btn');
     if (abortBtn) {
@@ -146,6 +152,100 @@ function findCamera() {
     // Fallback: first camera found
     selectedCamera = cams[0][0];
     return { name: cams[0][0], dev: cams[0][1] };
+}
+
+// ── Measure the sky → recommended exposure ────────────────────
+
+let _measureRunning = false;
+let _lastExposureReco = null;
+
+async function measureSkyExposure() {
+    if (_measureRunning) return;
+    const cam = findCamera();
+    if (!cam) { addLog('error', 'capture', i18n('log.capture.no_camera')); return; }
+    if (!cam.dev.is_ready) {
+        addLog('error', 'capture', i18n('log.capture.not_ready'));
+        return;
+    }
+    _measureRunning = true;
+    const btn = document.getElementById('cap-measure-btn');
+    if (btn) { btn.disabled = true; btn.textContent = '…'; }
+    setExposureReco({ loading: true });
+    try {
+        const resp = await fetch('/api/camera/exposure/estimate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: cam.name }),
+        });
+        const res = await resp.json();
+        if (res?.error) {
+            addLog('error', 'capture', i18nFmt('log.capture.measure_error', { err: res.error }));
+            setExposureReco({ error: res.error });
+        } else if (res?.ok === false) {
+            addLog('error', 'capture', i18nFmt('log.capture.measure_error', { err: res.error || '?' }));
+            setExposureReco({ error: res.error || '?' });
+        } else {
+            _lastExposureReco = res;
+            renderExposureReco(res);
+            addLog('info', 'capture', i18nFmt('log.capture.measured', {
+                exp: res.exposure_s != null ? res.exposure_s.toFixed(1) : '—',
+                bg: res.sky_adu != null ? Math.round(res.sky_adu) : '—',
+            }));
+        }
+    } catch (e) {
+        setExposureReco({ error: e.message });
+    } finally {
+        _measureRunning = false;
+        if (btn) { btn.disabled = false; btn.textContent = i18n('cap.measure'); }
+    }
+}
+
+function setExposureReco(state) {
+    const el = document.getElementById('cap-exp-reco');
+    if (!el) return;
+    if (state.loading) {
+        el.style.display = '';
+        el.className = 'cap-exp-reco';
+        el.textContent = i18n('cap.measuring');
+        return;
+    }
+    if (state.error) {
+        el.style.display = '';
+        el.className = 'cap-exp-reco cap-reco-warn';
+        el.textContent = i18nFmt('cap.measure_failed', { err: state.error });
+        return;
+    }
+}
+
+function renderExposureReco(r) {
+    const el = document.getElementById('cap-exp-reco');
+    if (!el) return;
+    el.style.display = '';
+    el.className = 'cap-exp-reco';
+    if (r.exposure_s == null) {
+        el.innerHTML = `<span class="cap-reco-meta">⚠ ${escapeHTML(r.warning || '')}</span>`;
+        return;
+    }
+    const meta = [];
+    meta.push(i18nFmt('cap.reco_bg', { bg: Math.round(r.sky_adu || 0) }));
+    if (r.snr_at_target != null) meta.push(i18nFmt('cap.reco_snr', { snr: r.snr_at_target }));
+    if (r.saturation_pct != null) meta.push(i18nFmt('cap.reco_sat', { sat: r.saturation_pct }));
+    let capNote = '';
+    if (r.capped_by === 'max_exposure') capNote = ' — ' + i18n('cap.reco_cap_max');
+    else if (r.capped_by === 'saturation') capNote = ' — ' + i18n('cap.reco_cap_sat');
+    el.innerHTML =
+        `<div class="cap-reco-main">☾ ${i18nFmt('cap.reco_value', { exp: r.exposure_s.toFixed(1) })}${escapeHTML(capNote)}</div>` +
+        `<div class="cap-reco-meta">${meta.join(' · ')}</div>` +
+        `<button class="cap-reco-apply">${escapeHTML(i18n('cap.reco_apply'))}</button>`;
+    const applyBtn = el.querySelector('.cap-reco-apply');
+    if (applyBtn) {
+        applyBtn.addEventListener('click', () => {
+            const input = document.getElementById('cap-exposure');
+            if (input) input.value = r.exposure_s;
+            addLog('info', 'capture', i18nFmt('log.capture.reco_applied', { exp: r.exposure_s.toFixed(1) }));
+            el.style.display = 'none';
+        });
+    }
 }
 
 function sendCapNumber(prop, item, value) {
