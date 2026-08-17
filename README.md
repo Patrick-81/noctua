@@ -2,7 +2,7 @@
 
 Interface web (FastAPI + Vanilla JS) pour le contrôle d'équipements astronomiques via un serveur [INDIGO](https://www.indigo-astronomy.org/).
 
-![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-96%20pytest-green)
+![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-105%20pytest-green)
 
 Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : autoguidage en étoile, autofocus HFR, calibration, séquences d'acquisition et mise au point polaire assistée.
 
@@ -21,7 +21,7 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 
 - **Backend** : Python 3.10+, FastAPI, uvicorn, PyYAML
 - **Frontend** : JS vanilla (ES modules), Canvas, CSS glassmorphisme
-- **Protocole** : INDIGO/INDI XML via TCP (pas de WebSocket côté serveur)
+- **Protocole** : INDIGO/INDI XML via TCP (le client parlé INDI au serveur ; le navigateur rejoint le serveur web via WebSocket pour l'état temps réel)
 
 ## Démarrage
 
@@ -76,18 +76,19 @@ npx playwright test   # tests UI (voir tests/)
 
 ```
 config.yaml          # configuration (INDIGO, web, séquence, flip)
-profiles.yaml        # profiles matériel
+ui.yaml, profiles.yaml # état runtime (positions panneaux, profils) — gitignorés
 run.py               # point d'entrée serveur (INDIGO client + web)
 indigo/
   client.py          # client TCP XML INDIGO
   registry.py        # découverte + auto-connexion
-  devices/           # mount, camera, focuser, filterwheel, guide, autofocus, sequence, focus_metrics
+  devices/           # mount, camera, focuser, filterwheel, guide, autofocus, sequence, live_stack, solver
   profiles.py        # persistance profils YAML
 web/
-  server.py          # API FastAPI (REST + logs WS)
-  static/            # UI (index.html, app.js, style.css)
+  server.py          # API FastAPI (REST + WS) — câblage
+  routers/           # routes REST par domaine (register(app, server))
+  static/            # UI (index.html, i18n.{fr,en}.js, ws.js, panneaux *.js, style.css)
 tests/               # unit + flow + à-blanc + specs Playwright
-PLANS/, CHECKPOINT.md, TODO_LIST.md, TESTS.md
+PLAN.md, CHECKPOINT.md, TODO_LIST.md, TESTS.md
 ```
 
 ## Licence
