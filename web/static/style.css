@@ -233,8 +233,17 @@ body {
 .hw-mode-device-select {
     flex: 1; min-width: 0; font-size: 0.7rem;
 }
-.hw-mode-props {
-    max-height: calc(100vh - 420px); overflow-y: auto;
+#applet-hardware-mode {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+#applet-hardware-mode > * { flex: none; }
+#applet-hardware-mode > .hw-mode-props {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
     font-size: 0.65rem;
 }
 
@@ -749,6 +758,7 @@ body {
     font-size: 0.7rem;
     padding: 4px 6px;
     width: 60px;
+    min-width: 0;
     outline: none;
     text-align: center;
 }
@@ -1427,6 +1437,7 @@ body {
 
 .solver-actions {
     display: flex; gap: 6px; margin-top: 8px;
+    flex-wrap: wrap;
 }
 .solver-action-btn {
     flex: 1; padding: 6px 10px; font-size: 0.65rem;
