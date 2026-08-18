@@ -645,6 +645,10 @@
                 <div class="cap-row">
                     <input type="number" id="cap-exposure" class="cap-input" value="1.0" min="0" step="0.1" placeholder="secondes" data-i18n-placeholder="cap.exposure_hint">
                     <span class="cap-unit">s</span>
+                    <select id="cap-measure-shots" class="cap-select cap-input-sm" title="Nombre de poses de test — 3 : fit linéaire (bias-indépendant)" data-i18n-title="cap.shots_tip">
+                        <option value="1" data-i18n="cap.shots_1">1 prise</option>
+                        <option value="3" data-i18n="cap.shots_3">3 prises</option>
+                    </select>
                     <button id="cap-measure-btn" class="btn-glass cap-btn-sm" data-i18n="cap.measure" title="Mesurer le ciel et recommander une pose">☾ MESURER</button>
                 </div>
                 <div class="cap-exp-reco" id="cap-exp-reco" style="display:none;"></div>

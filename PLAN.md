@@ -37,7 +37,7 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | `indigo/devices/autofocus.py` | Autofocus (scan V-courbe) |
 | `indigo/devices/sequence.py` | Ordonnanceur de séquences (pause/resume/stop/reset, dither) |
 | `indigo/devices/live_stack.py` | Empilement temps réel |
-| `indigo/devices/exposure.py` | Temps de pose idéal : pose test → extrapolation du fond de ciel (ADU/s), garde saturation |
+| `indigo/devices/exposure.py` | Temps de pose idéal : pose(s) test → extrapolation du fond de ciel (ADU/s), mode 1 prise (bias=BZERO) et 3 prises (fit linéaire bias-indépendant + détection de saturation), garde anti-saturation |
 | `indigo/devices/solver.py` | Solveur astrométrique |
 | `indigo/devices/focus_metrics.py` | Métriques de focus (HFR/FWHM) |
 | `indigo/devices/guide_calibration.py` | Calibration du guidage |
@@ -73,7 +73,7 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | GET | `/api/camera` | État caméra (inclut `is_ready`) |
 | POST | `/api/camera/expose`, `/abort`, `/temperature`, `/save` | Capture + température |
 | GET | `/api/camera/exposure/recommend` | Pose idéale depuis la dernière image (fond de ciel mesuré) |
-| POST | `/api/camera/exposure/estimate` | Pose test → recommande le temps de pose (fond cible, anti-saturation) |
+| POST | `/api/camera/exposure/estimate` | Pose(s) test → recommande le temps de pose : `shots` 1|3, `test_min/mid/max` (fond cible, anti-saturation) |
 | GET | `/api/filterwheel` | État roue |
 | POST | `/api/filterwheel/slot` | Changer de slot |
 | GET | `/api/focuser` | État focuser |
@@ -126,14 +126,14 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 
 | Suite | Commande | État |
 |---|---|---|
-| Unitaires pytest | `python -m pytest tests/ -q` | 105/105 |
+| Unitaires pytest | `python -m pytest tests/ -q` | 117/117 |
 | Flow guide | `python tests/test_guide_flow.py` | vert |
 | Flow séquence | `python tests/test_sequence_flow.py` | 27/27 |
 | Flow live-stack | `python tests/test_live_stack_flow.py` | 65/65 |
 | Flow autofocus | `python tests/test_autofocus_flow.py` | vert |
 | Flow focus | `python tests/test_focus_flow.py` | vert |
 | Flow hardware | `python tests/test_hardware_flow.py` | 45/45 |
-| UI Playwright | `npx playwright test` | 37-39/39 (2 flaky dépendants de l'heure) |
+| UI Playwright | `npx playwright test` | 42/42 |
 | À blanc simulateurs | `python tests/test_blanc_indigo.py` | voir TODO 6 |
 
 ## Démarrage

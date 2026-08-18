@@ -169,13 +169,15 @@ async function measureSkyExposure() {
     }
     _measureRunning = true;
     const btn = document.getElementById('cap-measure-btn');
+    const shotsSelect = document.getElementById('cap-measure-shots');
+    const shots = shotsSelect ? parseInt(shotsSelect.value || '1', 10) : 1;
     if (btn) { btn.disabled = true; btn.textContent = '…'; }
-    setExposureReco({ loading: true });
+    setExposureReco({ loading: true, shots });
     try {
         const resp = await fetch('/api/camera/exposure/estimate', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device: cam.name }),
+            body: JSON.stringify({ device: cam.name, shots }),
         });
         const res = await resp.json();
         if (res?.error) {
@@ -189,7 +191,9 @@ async function measureSkyExposure() {
             renderExposureReco(res);
             addLog('info', 'capture', i18nFmt('log.capture.measured', {
                 exp: res.exposure_s != null ? res.exposure_s.toFixed(1) : '—',
-                bg: res.sky_adu != null ? Math.round(res.sky_adu) : '—',
+                bg: res.mode === 'multi'
+                    ? `${Math.round(res.bg_rate || 0)} ADU/s`
+                    : (res.sky_adu != null ? Math.round(res.sky_adu) : '—'),
             }));
         }
     } catch (e) {
@@ -206,7 +210,9 @@ function setExposureReco(state) {
     if (state.loading) {
         el.style.display = '';
         el.className = 'cap-exp-reco';
-        el.textContent = i18n('cap.measuring');
+        el.textContent = state.shots && state.shots > 1
+            ? i18nFmt('cap.measuring_n', { n: state.shots })
+            : i18n('cap.measuring');
         return;
     }
     if (state.error) {
@@ -227,7 +233,13 @@ function renderExposureReco(r) {
         return;
     }
     const meta = [];
-    meta.push(i18nFmt('cap.reco_bg', { bg: Math.round(r.sky_adu || 0) }));
+    if (r.mode === 'multi') {
+        meta.push(i18nFmt('cap.reco_rate', { rate: r.bg_rate }));
+        if (r.r2 != null) meta.push(i18nFmt('cap.reco_r2', { r2: r.r2 }));
+        if (r.knee_detected) meta.push(i18n('cap.reco_knee'));
+    } else {
+        meta.push(i18nFmt('cap.reco_bg', { bg: Math.round(r.sky_adu || 0) }));
+    }
     if (r.snr_at_target != null) meta.push(i18nFmt('cap.reco_snr', { snr: r.snr_at_target }));
     if (r.saturation_pct != null) meta.push(i18nFmt('cap.reco_sat', { sat: r.saturation_pct }));
     let capNote = '';

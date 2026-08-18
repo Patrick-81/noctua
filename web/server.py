@@ -65,6 +65,9 @@ class WebServer:
         # Duration of the last test exposure used by /api/camera/exposure/estimate
         # (so GET /recommend can extrapolate without re-taking a frame).
         self._last_exposure_test_s: float = 0.0
+        # Frames (duration, fits) of the last exposure-measure pass,
+        # kept so GET /recommend can re-run the multi-shot fit when applicable.
+        self._last_exposure_frames: list[tuple[float, bytes]] = []
 
         # Plate solver (lazy import to avoid circular dependency)
         from indigo.devices.solver import Solver

@@ -85,11 +85,19 @@ def register(app, server: "WebServer") -> None:
     @app.get("/api/camera/exposure/recommend")
     async def camera_exposure_recommend(device: str = ""):
         """Recommend an ideal exposure from the last captured image."""
-        from indigo.devices.exposure import estimate_exposure
+        from indigo.devices.exposure import estimate_exposure, estimate_exposure_multi
+        params = server.exposure_cfg or {}
+        frames = server._last_exposure_frames
+        if len(frames) >= 2:
+            # Re-run the multi-shot fit from the frames saved by /estimate.
+            try:
+                return SanitizedJSONResponse(estimate_exposure_multi(frames, params))
+            except Exception as e:
+                log.error("Exposure estimate error: %s", e)
+                return {"ok": False, "error": str(e)}
         img = server._camera_images.get(device, server._last_image_data) if device else server._last_image_data
         if not img:
             return {"ok": False, "error": "no image captured yet — take a test exposure first"}
-        params = server.exposure_cfg or {}
         # Use the test duration actually measured by estimate, falling back to
         # the configured default (or 10 s) when the image came from elsewhere.
         test_duration = server._last_exposure_test_s or float(params.get("test_duration", 10.0))
@@ -102,10 +110,19 @@ def register(app, server: "WebServer") -> None:
 
     @app.post("/api/camera/exposure/estimate")
     async def camera_exposure_estimate(body: dict = {}):
-        """Take a short test exposure, then recommend the ideal exposure.
+        """Take one or more test exposures, then recommend the ideal exposure.
 
-        body = {"device": "cam", "test_duration": 10.0} — test_duration optional
-        (defaults to config exposure.test_duration or 10 s).
+        body = {
+            "device": "cam",
+            "shots": 1 | 3,                 # default: config exposure.shots (1)
+            "test_min": 5.0,                # shortest test exposure (s)
+            "test_max": 30.0,               # longest test exposure (s)
+            "test_mid": 12.0,               # optional intermediate (shots=3)
+        }
+
+        shots=1 : single frame (assumes bias = BZERO).
+        shots=3 : linear fit ADU(t) = bias + m*t — bias-independent, detects
+                  the saturation knee and validates linearity/transparency.
         """
         c = server.registry.get_camera(body.get("device"))
         if not c:
@@ -114,29 +131,59 @@ def register(app, server: "WebServer") -> None:
             return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
 
         params = dict(server.exposure_cfg or {})
-        test_duration = float(body.get("test_duration", params.get("test_duration", 10.0)))
-        test_duration = max(0.1, test_duration)
+        shots = int(body.get("shots", params.get("shots", 1)))
+        if shots not in (1, 2, 3):
+            shots = 1
 
-        from indigo.devices.exposure import estimate_exposure
+        default_min = float(params.get("test_min", params.get("test_duration", 10.0)))
+        default_max = float(params.get("test_max", 30.0))
+        default_mid = float(params.get("test_mid") or 0)
 
-        server._last_exposure_test_s = test_duration
+        min_t = max(float(body.get("test_min", default_min)), 0.1)
+        max_t = max(float(body.get("test_max", default_max)), min_t)
+        if shots < 3:
+            max_t = max(min_t, max_t)
+        mid_t = None
+        if shots == 3:
+            if body.get("test_mid") is not None:
+                mid_t = max(float(body["test_mid"]), 0.1, min_t)
+            elif default_mid > 0:
+                mid_t = max(default_mid, min_t + 0.1)
+            else:
+                mid_t = (min_t + max_t) / 2.0
+            mid_t = min(mid_t, max_t)
+
+        durations = [min_t, max_t] if shots == 2 else ([min_t] if shots == 1 else [min_t, mid_t, max_t])
+
+        from indigo.devices.exposure import estimate_exposure, estimate_exposure_multi
+
         base = server._camera_images.get(c.name, b"")
-        await c.expose(test_duration, "LIGHT")
-        # Wait for the exposure to finish, then for a new image blob.
-        deadline = asyncio.get_running_loop().time() + test_duration + 30.0
-        while asyncio.get_running_loop().time() < deadline and c.exposing:
-            await asyncio.sleep(0.1)
-        while asyncio.get_running_loop().time() < deadline:
-            cur = server._camera_images.get(c.name, b"")
-            if cur and cur != base:
-                break
-            await asyncio.sleep(0.1)
+        images = []
+        for d in durations:
+            await c.expose(d, "LIGHT")
+            # Wait for the exposure to finish, then for a new image blob.
+            deadline = asyncio.get_running_loop().time() + d + 30.0
+            while asyncio.get_running_loop().time() < deadline and c.exposing:
+                await asyncio.sleep(0.1)
+            while asyncio.get_running_loop().time() < deadline:
+                cur = server._camera_images.get(c.name, b"")
+                if cur and cur != base:
+                    break
+                await asyncio.sleep(0.1)
+            img = server._camera_images.get(c.name, b"")
+            if not img:
+                return {"ok": False, "error": "test exposure produced no image"}
+            images.append(img)
+            base = img
 
-        img = server._camera_images.get(c.name, b"")
-        if not img:
-            return {"ok": False, "error": "test exposure produced no image"}
+        server._last_exposure_test_s = durations[-1]
+        server._last_exposure_frames = list(zip(durations, images))
         try:
-            result = estimate_exposure(img, test_duration, params)
+            if len(images) >= 2:
+                frames = list(zip(durations, images))
+                result = estimate_exposure_multi(frames, params)
+            else:
+                result = estimate_exposure(images[0], durations[0], params)
             return SanitizedJSONResponse(result)
         except Exception as e:
             log.error("Exposure estimate error: %s", e)

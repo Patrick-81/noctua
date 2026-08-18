@@ -18,6 +18,15 @@ telescope:
   min_altitude: 5.0
   flip_slew_rate: Centering
   recenter_after_flip: true
+exposure:
+  target_bg: 4000            # fond de ciel cible (ADU au-dessus du bias)
+  shots: 1                   # 1 = une pose (bias = BZERO) ; 3 = fit linéaire ADU(t)=bias+m·t
+  test_min: 5.0              # pose de test la plus courte (s)
+  test_mid: 15.0             # pose intermédiaire (mode 3 prises)
+  test_max: 30.0             # pose de test la plus longue (s)
+  min_exposure: 1.0
+  max_exposure: 600.0
+  saturation_frac: 0.6       # les pics d'étoiles restent sous cette fraction du plein-échelle
 sequence:
   save_dir: ~/asteo/captures/
   dither:

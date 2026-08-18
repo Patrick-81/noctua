@@ -34,6 +34,7 @@
 - [x] Aperçu guidage : capture, marqueurs étoiles, clic sélection, zoom/pan
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 - [x] Temps de pose idéal : bouton « Mesurer le ciel » → pose test, mesure du fond en ADU/s (BZERO/BSCALE gérés), extrapolation vers `exposure.target_bg`, garde anti-saturation (SNR projeté, bornes min/max) — `indigo/devices/exposure.py`, `/api/camera/exposure/{estimate,recommend}`, badge dans le panneau Capture — **`test_exposure.py` ✓, pytest 112/112 ✓, Playwright 39/39 ✓**
+- [x] Mode multi-prises « Mesurer le ciel » : sélecteur 1/3 prises dans le panneau Capture, backend `estimate_exposure_multi` (fit linéaire ADU(t)=bias+m·t par moindres carrés, bias-indépendant, détection de knee de saturation avec cap empirique, R², fallback 1 prise), frames réutilisées par `/recommend` (`_last_exposure_frames`), mock INDIGO avec fond de ciel ∝ durée de pose, affichage reco mode-aware (pente ADU/s, linéarité R², warning non-linéaire) — **`test_exposure.py` 45/45 ✓, pytest 117/117 ✓, Playwright 42/42 ✓**
 
 ## À tester
 - [x] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct → `test_live_stack_flow.py::test_continuous_session_manual_stop`

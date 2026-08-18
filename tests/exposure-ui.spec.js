@@ -85,10 +85,11 @@ test.describe('Sky exposure measurement', () => {
 
     await measureBtn.click({ force: true });
 
-    // La reco apparaît sous le champ d'exposition.
+    // La reco apparaît sous le champ d'exposition. On attend le bouton
+    // « Appliquer » (présent uniquement après succès) : le texte de chargement
+    // « Mesure du ciel en cours… » contient déjà un « s ».
     const reco = page.locator('#cap-exp-reco');
-    await expect(reco).toBeVisible({ timeout: 30000 });
-    await expect(reco).toContainText('s');
+    await expect(reco.locator('.cap-reco-apply')).toBeVisible({ timeout: 30000 });
 
     // Le bouton « Appliquer » remplit le champ d'exposition.
     const expInput = page.locator('#cap-exposure');
@@ -102,11 +103,56 @@ test.describe('Sky exposure measurement', () => {
   });
 
   test('GET recommend reuses the last image', async ({ page }) => {
+    // Self-sufficient: run a single-shot estimate first so the server holds
+    // frames (do not depend on the order/result of the previous test).
+    const est = await fetch(`${BASE_URL}/api/camera/exposure/estimate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ device: 'Main Camera', shots: 1 }),
+    });
+    const estData = await est.json();
+    expect(estData.ok).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(estData, 'exposure_s')).toBe(true);
+
     const res = await fetch(`${BASE_URL}/api/camera/exposure/recommend`);
     const data = await res.json();
     expect(data.ok).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(data, 'exposure_s')).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(data, 'sky_adu')).toBe(true);
     expect(Object.prototype.hasOwnProperty.call(data, 'capped_by')).toBe(true);
+  });
+
+  test('3-shot  measures sky and shows multi mode reco (knee-aware)', async ({ page }) => {
+    const errors = [];
+    page.on('pageerror', e => errors.push(e.message));
+
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(2000);
+
+    await page.click('button[data-mode="capture"]');
+    await sleep(800);
+
+    // Select the 3-shot mode on the measure row.
+    await page.selectOption('#cap-measure-shots', '3');
+
+    await page.click('#cap-measure-btn', { force: true });
+
+    // Wait for a successful recommendation (the Apply button only appears on
+    // success; the loading text itself already contains an 's').
+    const reco = page.locator('#cap-exp-reco');
+    await expect(reco.locator('.cap-reco-apply')).toBeVisible({ timeout: 40000 });
+    await expect(reco).toContainText('s');
+
+    // The multi result carries the fitted slope and bias-independence fields.
+    const res = await (await fetch(`${BASE_URL}/api/camera/exposure/recommend`)).json();
+    expect(res.ok).toBe(true);
+    expect(res.mode).toBe('multi');
+    expect(res.bg_rate).toBeGreaterThan(0);
+    expect(Object.prototype.hasOwnProperty.call(res, 'knee_detected')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(res, 'bias')).toBe(true);
+    expect(Object.prototype.hasOwnProperty.call(res, 'r2')).toBe(true);
+    expect(res.test_durations).toHaveLength(3);
+
+    expect(errors).toEqual([]);
   });
 });

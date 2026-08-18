@@ -706,11 +706,14 @@ class MockCamera:
                 star_pos = (int(sx), int(sy), peak, sigma)
                 fits_data = _make_fits(w, h, [star_pos], bg=200)
             else:
-                # Default: random jitter on configured stars (guide-scale shake)
+                # Default: random jitter on configured stars (guide-scale shake).
+                # The sky background grows with the exposure duration so tests of
+                # the ideal-exposure estimator (single & multi-shot) see a bare
+                # sky rate proportional to time.
                 import random
                 stars = [(cx + random.randint(-1, 1), cy + random.randint(-1, 1), peak, sigma)
                          for cx, cy, peak, sigma in self._stars[:8]]
-                fits_data = _make_fits(w, h, stars)
+                fits_data = _make_fits(w, h, stars, bg=100.0 + self.exposure * 10.0)
             # Send as BLOB
             blob_xml = (
                 f'<setBLOBVector device="{self.name}" name="CCD1" state="Ok" timestamp="{_timestamp()}">'

@@ -18,7 +18,10 @@ telescope:
   recenter_after_flip: true
 exposure:
   target_bg: 4000
-  test_duration: 10.0
+  shots: 1
+  test_min: 5.0
+  test_mid: 15.0
+  test_max: 30.0
   min_exposure: 1.0
   max_exposure: 600.0
   saturation_frac: 0.6
