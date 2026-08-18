@@ -109,11 +109,19 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 
 | Fichier | Contenu | Taille |
 |---|---|---|
+| `public/celestial-data/stars.8.json` | **41411 étoiles** (magnitude ≤ 8, affichées via le slider mag) | 5.4 MB |
+| `public/celestial-data/dsos.6.bright.json` | 1383 DSO rendus sur la carte (+ 3311 du catalogue complet en recherche) | 260 KB |
+| `public/celestial-data/dsonames.json` | 724 noms de DSO multilingues (anglais + français recherchables) | 236 KB |
 | `public/catalogs/bsc5.json` | 9096 étoiles (BSC5) | 2.6 MB |
 | `public/catalogs/constellations.lines.json` | 743 segments constellation | 92 KB |
 | `public/catalogs/messier.json` | 110 objets Messier | 39 KB |
-| `public/catalogs/ngc_ic.json` | 32 objets NGC/Caldwell | 10 KB |
 | `public/catalogs/stars.json` | Étoiles supplémentaires | 18 KB |
+
+Rendu sky : `web/static/sky-projection.js` (projection orthographique rapide par vecteurs
+unitaires + produits scalaires, sans d3 par étoile) — parité vérifiée contre
+`d3.geo.orthographic` par `tests/sky-projection.spec.js` (1000+ points). Pas de throttle
+80 ms sur le rendu, cache de positions des DSO, fast-path `fillRect`, plafonnement à
+7000 étoiles dessinées (les plus brillantes d'abord) → drag/zoom à 60 FPS même à mag 8.
 
 ## Protocole INDIGO/INDI
 
@@ -133,8 +141,12 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | Flow autofocus | `python tests/test_autofocus_flow.py` | vert |
 | Flow focus | `python tests/test_focus_flow.py` | vert |
 | Flow hardware | `python tests/test_hardware_flow.py` | 45/45 |
-| UI Playwright | `npx playwright test` | 42/42 |
+| UI Playwright | `npx playwright test` | 43/44* |
 | À blanc simulateurs | `python tests/test_blanc_indigo.py` | voir TODO 6 |
+
+\* hors `session-ui.spec.js` « panel renders… » (flake **pré-existant**, dépendant de
+l'heure : le flip méridien réel ne se déclenche que selon le HA courant ; reproductible
+sur arbre propre).
 
 ## Démarrage
 ```bash

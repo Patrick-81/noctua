@@ -105,7 +105,8 @@ function initObjectSelector() {
             filtered = filtered.filter(o =>
                 String(o.id || '').toLowerCase().includes(q) ||
                 String(o.name || '').toLowerCase().includes(q) ||
-                String(o.catalog || '').toLowerCase().includes(q));
+                String(o.catalog || '').toLowerCase().includes(q) ||
+                (o._aliases || []).some(a => String(a || '').toLowerCase().includes(q)));
         }
         if (!filtered.length) {
             results.innerHTML = `<div class="obj-select-empty">${i18n('objects.no_results')}</div>`;
@@ -178,25 +179,66 @@ function initObjectSelector() {
 async function loadObjectCatalogs() {
     const objects = [];
     try {
-        const [mess, ngc, namedStars, bsc] = await Promise.all([
-            fetch('/catalogs/messier.json').then(r => r.json()),
-            fetch('/catalogs/ngc_ic.json').then(r => r.json()),
-            fetch('/catalogs/stars.json').then(r => r.json()),
-            fetch('/catalogs/bsc5.json').then(r => r.json()),
+        const [mess, ngc, namedStars, bsc, dsos, dsonames] = await Promise.all([
+            fetch('/catalogs/messier.json').then(r => r.json()).catch(() => null),
+            fetch('/catalogs/ngc_ic.json').then(r => r.json()).catch(() => null),
+            fetch('/catalogs/stars.json').then(r => r.json()).catch(() => null),
+            fetch('/catalogs/bsc5.json').then(r => r.json()).catch(() => null),
+            fetch('/celestial-data/dsos.6.json').then(r => r.json()).catch(() => null),
+            fetch('/celestial-data/dsonames.json').then(r => r.json()).catch(() => null),
         ]);
-        for (const o of mess.objects) {
-            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Messier', type: o.type || 'Messier' });
+
+        const known = new Set();
+        const add = (o) => {
+            const id = String(o.id || '').toUpperCase();
+            if (known.has(id)) return;
+            known.add(id);
+            objects.push(o);
+        };
+        const cleanId = (s) => String(s || '').replace(/\s+/g, '');
+
+        for (const o of (mess?.objects || [])) {
+            add({ id: cleanId(o.id), name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Messier', type: o.type || 'Messier' });
         }
-        for (const o of ngc.objects) {
-            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'NGC', type: o.type || 'NGC' });
+        for (const o of (ngc?.objects || [])) {
+            add({ id: cleanId(o.id), name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'NGC', type: o.type || 'NGC' });
         }
-        for (const o of namedStars.objects) {
-            objects.push({ id: o.id, name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Star', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
+        for (const o of (namedStars?.objects || [])) {
+            add({ id: cleanId(o.id), name: o.names?.[0] || o.id, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'Star', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
         }
-        for (const o of bsc.objects) {
-            if (objects.some(e => e.id === o.id)) continue;
-            objects.push({ id: o.id, name: o.names?.[0] || null, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'BSC', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
+        for (const o of (bsc?.objects || [])) {
+            add({ id: cleanId(o.id), name: o.names?.[0] || null, ra: o.ra_deg, dec: o.dec_deg, mag: o.mag, catalog: 'BSC', type: o.constellation ? `${o.id} (${o.constellation})` : 'Star' });
         }
+
+        // DSO étendus (NGC/IC/SH2/… à partir du catalogue complet) avec leurs
+        // noms multilingues (dsonames → nom anglais + français pour la recherche).
+        if (dsos?.features) {
+            const dsoName = (desig) => (dsonames && dsonames[desig]) || null;
+            for (const f of dsos.features) {
+                const desig = f.id || f.properties?.desig;
+                if (!desig) continue;
+                const coords = f.geometry?.coordinates;
+                if (!coords || coords.length < 2) continue;
+                const nm = dsoName(desig);
+                const id = cleanId(desig);
+                let catalog = 'DSO';
+                if (/^M/i.test(id)) catalog = 'Messier';
+                else if (/^NGC/i.test(id)) catalog = 'NGC';
+                else if (/^IC/i.test(id)) catalog = 'IC';
+                else if (/^SH2?/i.test(id)) catalog = 'Sharpless';
+                add({
+                    id,
+                    name: (nm && (nm.name || nm.fr)) || null,
+                    _aliases: (nm && [nm.name, nm.fr].filter(Boolean)) || null,
+                    ra: coords[0],
+                    dec: coords[1],
+                    mag: parseFloat(f.properties?.mag),
+                    catalog,
+                    type: f.properties?.type || 'DSO',
+                });
+            }
+        }
+
         if (skyEngine) skyEngine._objects = objects;
         addLog('info', 'sky', i18nFmt('log.sky.hit_test', { n: objects.length }));
     } catch (e) {

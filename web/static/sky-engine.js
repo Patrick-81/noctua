@@ -21,6 +21,11 @@
  *   destroy()
  */
 
+import {
+    buildStarVectors,
+    projectStars,
+} from '/sky-projection.js';
+
 export class SkyEngine {
     constructor(container, options = {}) {
         this.container = container;
@@ -53,8 +58,6 @@ export class SkyEngine {
         this._manualDate = new Date();
         this._realtimer = null;
         this._renderRequested = false;
-        this._lastRenderTime = 0;
-        this._MIN_RENDER_INTERVAL = 80;
 
         this._canvas = null;
         this._ctx = null;
@@ -67,7 +70,9 @@ export class SkyEngine {
         this._milkywayData = null;
         this._dsosData = null;
         this._planetsData = null;
-        this._starCache = null;         // { key, pts } — positions projetées des étoiles
+        this._starVectors = null;      // vecteurs unitaires triés par magnitude
+        this._dsoCache = null;         // { key, items: [{x, y, name}] }
+        this._MAX_DRAW_STARS = 7000;
 
         // Layer visibility
         this.layers = {
@@ -148,7 +153,7 @@ export class SkyEngine {
         const load = (url) => fetch(url).then(r => r.json()).catch(() => null);
 
         const [stars, consts, mw, dsos, planets] = await Promise.all([
-            load('/celestial-data/stars.6.json'),
+            load('/celestial-data/stars.8.json'),
             load('/celestial-data/constellations.lines.json'),
             load('/celestial-data/mw.json'),
             load('/celestial-data/dsos.6.bright.json'),
@@ -156,6 +161,9 @@ export class SkyEngine {
         ]);
 
         this._starsData = stars;
+        if (stars && stars.features) {
+            this._starVectors = buildStarVectors(stars.features);
+        }
         this._constellationsData = consts;
         this._milkywayData = this._decimateMilkyway(mw);
         this._dsosData = dsos;
@@ -375,10 +383,6 @@ export class SkyEngine {
     render() {
         if (!this._ctx || !this._projection) return;
 
-        const now = Date.now();
-        if (now - this._lastRenderTime < this._MIN_RENDER_INTERVAL) return;
-        this._lastRenderTime = now;
-
         const ctx = this._ctx;
         const w = this._width;
         const h = this._height;
@@ -511,34 +515,32 @@ export class SkyEngine {
             ctx.stroke();
         }
 
-        // 8. Étoiles : projection/élimination en cache (clé = rotation + mag +
-        // échelle) — la rotation ne change qu'une fois par seconde (sync
-        // sidérale) ; entre deux ticks on réutilise les positions projetées.
-        if (this.layers.stars && this._starsData && this._starsData.features) {
+        // 8. Étoiles : projection rapide (vecteurs unitaires + produits
+        // scalaires), plafonnée en nombre pour rester fluide au zoom dézoomé
+        // même avec le catalogue magnitude 8 (~41 000 étoiles).
+        if (this.layers.stars && this._starVectors && this._starVectors.length) {
             const scaleFactor = this._scale / (Math.min(w, h) * 0.45);
-            const rot = this._currentRotation;
-            const cacheKey = rot[0].toFixed(5) + '|' + rot[1].toFixed(5) + '|' + rot[2].toFixed(5)
-                + '|' + this._maxMagnitude + '|' + scaleFactor.toFixed(4);
-            if (!this._starCache || this._starCache.key !== cacheKey) {
-                const pts = [];
-                for (const star of this._starsData.features) {
-                    const mag = star.properties.mag;
-                    if (mag > this._maxMagnitude) continue;
-                    const coords = star.geometry.coordinates;
-                    if (!this._celestialClip(coords)) continue;
-                    const pt = this._projection(coords);
-                    if (!pt) continue;
-                    pts.push(pt[0], pt[1], Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)));
-                }
-                this._starCache = { key: cacheKey, pts };
-            }
-            const pts = this._starCache.pts;
+            const centerRA = -this._currentRotation[0];
+            const centerDec = -this._currentRotation[1];
+            const pts = [];
+            projectStars(
+                this._starVectors, centerRA, centerDec,
+                this._scale, w / 2, h / 2,
+                this._maxMagnitude, this._MAX_DRAW_STARS, pts,
+                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5))
+            );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
             for (let i = 0; i < pts.length; i += 3) {
                 const sx = pts[i], sy = pts[i + 1], size = pts[i + 2];
-                ctx.moveTo(sx + size, sy);
-                ctx.arc(sx, sy, size, 0, 2 * Math.PI);
+                if (size < 1.5) {
+                    // Chemin rapide : le remplissage fill > tolère des carrés
+                    // sub-pixel sans perte visuelle notable.
+                    ctx.fillRect(sx - size, sy - size, size * 2, size * 2);
+                } else {
+                    ctx.moveTo(sx + size, sy);
+                    ctx.arc(sx, sy, size, 0, 2 * Math.PI);
+                }
             }
             ctx.fill();
         }
@@ -554,31 +556,43 @@ export class SkyEngine {
             if (pt) ctx.fillText(label.text, pt[0], pt[1] - 6);
         }
 
-        // 10. DSOs
+        // 10. DSOs : positions projetées en cache (clé = rotation + mag + échelle +
+        // catalogues) pour éviter re-projections + re-clip à chaque frame.
         if (this.layers.dsos && this._dsosData && this._dsosData.features) {
-            let dsocounter = 0;
-            for (const dso of this._dsosData.features) {
-                if (!this._dsoHasCatalog(dso)) continue;
-                const props = dso.properties || {};
-                const mag = parseFloat(props.mag);
-                if (!isNaN(mag) && mag > this._maxMagnitude) continue;
-                const coords = dso.geometry.coordinates;
-                if (!this._celestialClip(coords)) continue;
-                const pt = this._projection(coords);
-                if (!pt) continue;
-                dsocounter++;
+            const rot = this._currentRotation;
+            const cacheKey = rot[0].toFixed(5) + '|' + rot[1].toFixed(5) + '|'
+                + this._maxMagnitude + '|' + this._scale.toFixed(2) + '|'
+                + Object.values(this.catalogs).join('');
+            if (!this._dsoCache || this._dsoCache.key !== cacheKey) {
+                const items = [];
+                let dsocounter = 0;
+                for (const dso of this._dsosData.features) {
+                    if (!this._dsoHasCatalog(dso)) continue;
+                    const props = dso.properties || {};
+                    const mag = parseFloat(props.mag);
+                    if (!isNaN(mag) && mag > this._maxMagnitude) continue;
+                    const coords = dso.geometry.coordinates;
+                    if (!this._celestialClip(coords)) continue;
+                    const pt = this._projection(coords);
+                    if (!pt) continue;
+                    dsocounter++;
+                    let name = props.desig || props.id || "";
+                    if (!name && dso.id) name = dso.id;
+                    if (!name) name = "DSO-" + dsocounter;
+                    items.push({ x: pt[0], y: pt[1], name });
+                }
+                this._dsoCache = { key: cacheKey, items };
+            }
+            for (const item of this._dsoCache.items) {
                 ctx.strokeStyle = "rgba(255, 0, 150, 0.6)";
                 ctx.lineWidth = 1.2;
                 ctx.beginPath();
-                ctx.arc(pt[0], pt[1], 4, 0, 2 * Math.PI);
+                ctx.arc(item.x, item.y, 4, 0, 2 * Math.PI);
                 ctx.stroke();
-                let name = props.desig || props.id || "";
-                if (!name && dso.id) name = dso.id;
-                if (!name) name = "DSO-" + dsocounter;
                 ctx.fillStyle = "rgba(255, 0, 150, 0.85)";
                 ctx.font = "14px monospace";
                 ctx.textAlign = "left";
-                ctx.fillText(name, pt[0] + 7, pt[1] + 3);
+                ctx.fillText(item.name, item.x + 7, item.y + 3);
             }
         }
 
@@ -1155,6 +1169,11 @@ export class SkyEngine {
             if (obj.id && obj.id.toLowerCase().includes(q)) return true;
             if (obj.name && obj.name.toLowerCase().includes(q)) return true;
             if (obj.catalog && obj.catalog.toLowerCase().includes(q)) return true;
+            if (obj._aliases) {
+                for (const a of obj._aliases) {
+                    if (a && a.toLowerCase().includes(q)) return true;
+                }
+            }
             return false;
         });
     }

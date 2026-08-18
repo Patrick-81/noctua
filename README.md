@@ -14,6 +14,7 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 - **Autofocus** : scan V-courbe, **HFR** (half-flux radius) par mesure du FWHM gaussien, adaptation
 - **Séquence d'acquisition** : plan éditable (type/durée/filtre/×/pause), pause/reprendre/stop/reset, dithering
 - **Capture** : exposition, réduction **BZERO/BSCALE**, sauvegarde des FITS nommés `capture_{filtre}_{timestamp}.fits`
+- **Sky map fluide** : orthographique canvas, projection des étoiles accélérée (vecteurs unitaires), catalogue **41 411 étoiles** (mag ≤ 8), recherche d'objets (NGC/IC/Sharpless + noms multilingues)
 - **Temps de pose idéal** : pose(s) test (bouton « Mesurer le ciel », 1 ou 3 prises) → mesure du fond de ciel en ADU/s, extrapolation vers un fond cible, fit linéaire bias-indépendant (3 prises) avec détection de saturation, garde anti-saturation des étoiles, SNR projeté
 - **Mise en station polaire** : calcul LST + assistant 3 étapes
 - **Orientation** : bascule au méridien (flip) gérée par la monture
