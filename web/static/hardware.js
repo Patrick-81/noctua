@@ -352,11 +352,41 @@ function initHardwareMode() {
 // ── Bus ───────────────────────────────────────────────────────
 
 // Consommateur ws:state : reconstruit _hwDevices et rend les panneaux.
+let _hwPrevDevices = {};
+const _hubTimers = {};
+const HUB_CONFIRM_MS = 1200;
 Bus.on('ws:state', (env) => {
-    _hwDevices = {};
+    const next = {};
     for (const [n, d] of Object.entries(env.payload.devices)) {
-        _hwDevices[n] = { name: n, type: d.type, connected: !!d.connected };
+        next[n] = { name: n, type: d.type, connected: !!d.connected };
     }
+    if (typeof Hub !== 'undefined') {
+        for (const [n, d] of Object.entries(next)) {
+            const prev = _hwPrevDevices[n];
+            if (d.connected && !(prev && prev.connected)) {
+                clearTimeout(_hubTimers[n]);
+                const name = n, type = d.type;
+                _hubTimers[n] = setTimeout(() => {
+                    delete _hubTimers[name];
+                    const cur = _hwPrevDevices[name];
+                    if (cur && cur.connected) {
+                        Hub.emit('device:connected', { name, type }, { source: 'hardware' });
+                    }
+                }, HUB_CONFIRM_MS);
+            } else if (!d.connected && _hubTimers[n]) {
+                clearTimeout(_hubTimers[n]);
+                delete _hubTimers[n];
+            }
+        }
+        for (const n of Object.keys(_hubTimers)) {
+            if (!(n in next)) {
+                clearTimeout(_hubTimers[n]);
+                delete _hubTimers[n];
+            }
+        }
+    }
+    _hwPrevDevices = next;
+    _hwDevices = next;
     renderHardwarePanel();
     renderHardwareMode();
 });

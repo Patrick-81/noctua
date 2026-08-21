@@ -1,4 +1,10 @@
 venv/
+.venv/
+venv_new/
+venv_temp/
+fake_fits/
+test.png
+simple_test.*
 **/__pycache__/
 *.pyc
 *.pyo

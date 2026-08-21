@@ -721,6 +721,13 @@ function _guideCleanup() {
 // Consommateur ws:state : rafraîchit la liste des caméras guide.
 Bus.on('ws:state', () => _refreshGuideCameraList());
 
+// Consommateur Hub device:connected : une caméra est arrivée — la liste
+// des caméras guide peut avoir changé.
+Hub.subscribe('device:connected', 'guide', (env) => {
+    window.__hubGuideNotified = (window.__hubGuideNotified || 0) + 1;
+    _refreshGuideCameraList();
+});
+
 // Consommateur guide:starSelected : l'étoile guide a été choisie dans
 // l'aperçu (clic ou sélection auto) — recentre le médaillon zoomé.
 Bus.on('guide:starSelected', (env) => {

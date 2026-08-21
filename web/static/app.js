@@ -73,6 +73,13 @@ function configureViewerForMode(mode) {
     }
 }
 
+// ── Hub : consommateur device:connected (sky-engine) ──────────
+// Une caméra vient d'être connectée : le sky map peut proposer de
+// pointer l'objet courant — on note la notification (tracking Hub).
+Hub.subscribe('device:connected', 'sky-engine', (env) => {
+    window.__hubSkyNotified = (window.__hubSkyNotified || 0) + 1;
+});
+
 // ── Bus : consommateur calibration:done ───────────────────────
 // Confirmation (toast) + démarrage du guidage en un clic.
 // La calibration ne fait que publier le résultat ; l'app orchestre.

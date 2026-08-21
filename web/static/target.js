@@ -249,6 +249,12 @@ function _centeringStep(result) {
 
 Bus.on('solver:result', (env) => _centeringStep(env.payload.result));
 
+// Consommateur Hub device:connected : une caméra connectée peut servir de
+// source d'image pour la boucle de centrage — on marque la notification.
+Hub.subscribe('device:connected', 'target', (env) => {
+    window.__hubTargetNotified = (window.__hubTargetNotified || 0) + 1;
+});
+
 // ── Bus : consommateur mount:slewed (fin de nudge) ────────────
 
 Bus.on('mount:slewed', () => {

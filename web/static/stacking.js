@@ -61,6 +61,13 @@ Bus.on('stacking:update', (env) => {
     stkApplyStatus(env.payload);
 });
 
+// Consommateur Hub device:connected : le status peut avoir changé (caméra
+// connectée → le polling rattrape l'état serveur).
+Hub.subscribe('device:connected', 'stacking', (env) => {
+    window.__hubStackingNotified = (window.__hubStackingNotified || 0) + 1;
+    stkPollStatus();
+});
+
 // Rafraîchit une fois à l'entrée en mode capture (rattrapage si des
 // événements ont été manqués pendant qu'on était dans un autre mode).
 // Le panneau n'est PAS dans les applets auto-visibles du mode capture :

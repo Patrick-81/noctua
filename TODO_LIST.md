@@ -1,6 +1,7 @@
 # TODO List — Prochaines étapes
 
 ## Faits
+- [x] **Hub Phase 1 — coexistence Bus legacy + Hub** (`web/static/hub.js` + `HUB_PLAN.md`) : médiateur pub/sub centralisé coexistant avec `events.js` — `Hub.subscribe/emit/getState` avec enveloppe standardisée, logs `[Hub] source.emit(topic) → targets` dans le panneau Log, isolation des erreurs de handlers (un handler qui plante n'affecte pas les autres), émission `device:connected` à la connexion d'un appareil avec débouncing 1200 ms (absorbe les flaps de démarrage du mock INDIGO), 4 panneaux abonnés (guide, stacking, target, sky-engine) — zéro modif des topics events.js — **node tests/test_hub.js 20/20 ✓, npx playwright test hub-ui.spec.js 3/3 ✓, guide-validation 2/2 ✓, pytest 120 passés (6 échecs préexistants test_plate_solve.py)** ; protocole manuel : `tests/MANUAL_HUB_TESTS.md`
 - [x] Bus de messages pub/sub `events.js` (9 topics, registre + validation dev) : ws.js = traducteur, abonnements posés dans api/preview/mount/capture/focuser/solver/target/guide/hardware/app/calibration, gardes `typeof` supprimées — **Playwright 36/36 ✓, pytest 105/105 ✓** (cf. section « Bus de messages events.js » de CHECKPOINT.md)
 - [x] 3 topics bus câblés : `capture:progress` (capture.js émet — exclusion caméra + progression en direct dans séquence/stacking, toast fin de capture dans app), `mount:slewed` (mount.js émet sur fin de slew, target.js relance la boucle de centrage), `guide:starSelected` (guide.js abonné — médaillon recentré) — Playwright 36/36 ✓, pytest 105/105 ✓
 - [x] Live stacking automatisé : panneau LIVE STACKING dédié (poses courtes, compteur `max_frames` 0=continu, dark/flat optionnels)
@@ -73,17 +74,16 @@
 
 ### Mobile / tablette — restant
 - [x] Vérifier que le toggle stacking se ré-affiche correctement après un changement de mode capture — **fix** : état `_stkPanelHidden` persisté et ré-appliqué sur `mode:changed`, indicateur `.stacking-on` resynchronisé → `tests/stacking-toggle.spec.js`
-- [x] Optionnel : manifest.json PWA + thème couleur — `manifest.webmanifest` + `icon-512.png` généré, `theme-color` #020205, servis avec le bon MIME
 
 ## Améliorations possibles
 - [x] Live stacking : push du statut (accepted/rejected) via WebSocket au lieu du poll 1 s — commit `9350475`
 - [x] Live stacking : bouton « sauver le master » auto à la fin d'une session avec cible — auto-save dans `<root>/masters/` + `master_path` exposé dans le statut (WS + `/api/stacking/status`)
 - [x] Sauvegarde des masters dans le root partagé (sous-dossier `masters/`) — `save_master()` route vers `<dir>/masters/`
-- [x] Réduire les violations requestAnimationFrame (sky chart canvas lourd) — sky-engine.js : étoiles projetées en un seul `path`+`fill` batchées avec cache des positions (clé rotation+mag+échelle, réutilisé entre ticks sidéraux), graticule/équateur/écliptique/horizon mis en cache dans `init()`, Voie lactée décimée au chargement (30676 → 6142 points, cap 40/anneau) — rendu mesuré (1280×720, mag 6, headless Chromium, médiane 8 itérations) : sweep 20.9 → 10.8 ms, MW seul 16 → ~5 ms
+- [x] Réduire les violations requestAnimationFrame (sky chart canvas lourd) — sky-engine.js : étoiles projetées en un seul `path`+`fill` batchées avec cache des positions (clé rotation+mag+échelle, réutilisé entre ticks sidéraux), graticule/équateur/écliptique/horizon mis en cache dans `init()` (10 ms) — rendu mesuré : sweep 20.9 → 10.8 ms, MW seul 16 → ~5 ms
 - [x] **Découpage `app.js` (terminé)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + `ChecklistPanel`), `utils.js` (i18n + helpers purs + `sleep`), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick), `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` — **app.js 7720 → 457 lignes**, scripts classiques globals chargés avant app.js, tous modules ≤ 1000 lignes, Playwright **36/36 ✓**
 - [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
 
-## Planifiés (décision 2026-08-04, cf. COMPARISON_NINA.md)
+## Planifié (décision 2026-08-04, cf. COMPARISON_NINA.md)
 
 ### P0 — Meridian flip
 - [x] Détection de proximité du méridien (position monture + heure sidérale) en amont du flip — commit `aca49d7`
@@ -107,3 +107,15 @@
 - Flow tests : exécuter via `python tests/test_X_flow.py` (pas pytest)
 - Tests : `python tests/test_autofocus.py && python tests/test_autofocus_flow.py && python tests/test_guide_flow.py`
 - Suite : `python -m pytest tests/ -q && node tests/test_polar_math.js && python tests/test_exposure.py`
+
+## Démarrage
+```bash
+./start.sh                    # Relance le serveur (tue le précédent)
+# ou
+source venv/bin/activate && python3 run.py
+```
+
+## Serveur INDIGO
+- `./start-mock-server.sh` pour le serveur mock (dev)
+- INDIGO réel : `192.168.1.25:7624`
+- Serveur web : `http://0.0.0.0:8080`
