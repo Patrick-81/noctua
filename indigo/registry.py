@@ -140,15 +140,16 @@ class DeviceRegistry:
 
                 connect_item = pv.get_item("CONNECT") or pv.get_item("CONNECTED")
                 if connect_item:
-                    connected = str(connect_item.value).lower() in ("on", "true", "1")
-                    dev.on_connection_status(connected)
-
+                    # A def vector is a schema, not a state update: its switch
+                    # value is often stale (e.g. "Off" while the device is
+                    # connected). Never clobber the tracked state here — only
+                    # set CONNECTION vectors (server confirmations) do that.
                     # Remember the item name for retries
                     self._connect_item_names[device_name] = connect_item.name
 
                     # Auto-connect: if device is not connected, send CONNECT=On
                     # Skip if we recently gave up on this device (60s cooldown)
-                    if not connected and device_name not in self._auto_connecting:
+                    if not dev.connected and device_name not in self._auto_connecting:
                         gave_up_at = self._connect_gave_up.get(device_name, 0)
                         if gave_up_at and time.time() - gave_up_at < 60:
                             log.info("Skipping auto-connect: %s (cooldown, gave up %.0fs ago)",

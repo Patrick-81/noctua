@@ -3,6 +3,8 @@ venv/
 venv_new/
 venv_temp/
 fake_fits/
+# Catalogue d'étoiles seiza (téléchargé au premier solve, ~26 Mo)
+data/catalogs/
 test.png
 simple_test.*
 **/__pycache__/

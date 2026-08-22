@@ -120,10 +120,13 @@ def _parse_xml_item(el: ET.Element, vector_type: VectorType) -> Item:
     text = (el.text or "").strip()
 
     if vector_type == VectorType.NUMBER:
+        # INDIGO writes the value in the `value` attribute for def*Vector
+        # and in element text for set*/new*. Accept both (text wins).
+        raw = text or el.get("value") or ""
         try:
-            item.value = float(text) if text else 0.0
+            item.value = float(raw) if raw else 0.0
         except ValueError:
-            sv = parse_sexagesimal(text)
+            sv = parse_sexagesimal(raw)
             item.value = sv if sv is not None else 0.0
         target_attr = el.get("target")
         if target_attr is not None:

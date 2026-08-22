@@ -171,10 +171,10 @@ PROP_DEFS = [
     '</defSwitchVector>',
 
     '<defNumberVector device="Main Camera" name="CCD_INFO" state="Ok" perm="r" label="CCD Info">'
-    '<defNumber name="CCD_MAX_X" value="1920" label="Width"/>'
-    '<defNumber name="CCD_MAX_Y" value="1080" label="Height"/>'
-    '<defNumber name="CCD_PIXEL_SIZE" value="3.75" label="Pixel Size"/>'
-    '<defNumber name="CCD_BITSPERPIXEL" value="16" label="Bits per pixel"/>'
+    '<defNumber name="WIDTH" value="1920" label="Width"/>'
+    '<defNumber name="HEIGHT" value="1080" label="Height"/>'
+    '<defNumber name="PIXEL_SIZE" value="3.75" label="Pixel Size"/>'
+    '<defNumber name="BITSPERPIXEL" value="16" label="Bits per pixel"/>'
     '</defNumberVector>',
 
     '<defNumberVector device="Main Camera" name="CCD_EXPOSURE" state="Ok" perm="rw" label="Exposure">'
@@ -205,10 +205,10 @@ PROP_DEFS = [
     '</defSwitchVector>',
 
     '<defNumberVector device="Guide Camera" name="CCD_INFO" state="Ok" perm="r" label="CCD Info">'
-    '<defNumber name="CCD_MAX_X" value="640" label="Width"/>'
-    '<defNumber name="CCD_MAX_Y" value="480" label="Height"/>'
-    '<defNumber name="CCD_PIXEL_SIZE" value="5.6" label="Pixel Size"/>'
-    '<defNumber name="CCD_BITSPERPIXEL" value="16" label="Bits per pixel"/>'
+    '<defNumber name="WIDTH" value="640" label="Width"/>'
+    '<defNumber name="HEIGHT" value="480" label="Height"/>'
+    '<defNumber name="PIXEL_SIZE" value="5.6" label="Pixel Size"/>'
+    '<defNumber name="BITSPERPIXEL" value="16" label="Bits per pixel"/>'
     '</defNumberVector>',
 
     '<defNumberVector device="Guide Camera" name="CCD_EXPOSURE" state="Ok" perm="rw" label="Exposure">'
