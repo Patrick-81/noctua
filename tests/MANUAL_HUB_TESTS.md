@@ -1,5 +1,7 @@
 # Protocole de test manuel — Hub (coexistence Bus legacy + Hub)
 
+> **Checklist annotée (but / méthode / attendu par case)** : `tests/HUB_CHECKLIST.md`
+
 ## Périmètre
 
 Vérifie que le **Hub** (`web/static/hub.js`) fonctionne en parallèle du bus legacy

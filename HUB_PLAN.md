@@ -81,7 +81,7 @@ Remplacer les mutations DOM directes, appels REST inline et variables globales p
 - Garder le bus events.js tel quel pour les flux existants
 - Le Hub est ajouté en parallèle avec les nouveaux cas d'usage
 - Validation : les flux anciens continuent de fonctionner, les nouveaux passent par le Hub
-- **Fait** : `web/static/hub.js` (subscribe/emit/getState, enveloppe standardisée, logs `[Hub]` dans le panneau Log, isolation des erreurs), CAS 1 câblé (`device:connected` → guide/stacking/target/sky-engine, débouncing 1200 ms), tests : `tests/test_hub.js` (20/20), `tests/hub-ui.spec.js` (3/3), protocole manuel `tests/MANUAL_HUB_TESTS.md`
+- **Fait** : `web/static/hub.js` (subscribe/emit/getState, enveloppe standardisée, logs `[Hub]` dans le panneau Log, isolation des erreurs), CAS 1 câblé (`device:connected` → guide/stacking/target/sky-engine, débouncing 1200 ms), tests : `tests/test_hub.js` (20/20), `tests/hub-ui.spec.js` (3/3), protocole manuel `tests/MANUAL_HUB_TESTS.md`, checklist annotée `tests/HUB_CHECKLIST.md`
 
 ### Phase 2 : Migration des flux actuels vers le Hub
 - Migrer topic par topic (ws:state, ws:image, solver:result, etc.)
