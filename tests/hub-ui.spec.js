@@ -129,18 +129,32 @@ test.describe.serial('Hub (coexistence bus legacy + Hub)', () => {
       logCount: document.querySelectorAll('#log-content .log-entry').length,
     }));
 
+    // Capte le dernier payload device:connected pour vérifier les dimensions capteur.
+    await page.evaluate(() => {
+      window.__lastHubEnv = null;
+      window.__hubEvents = [];
+      Hub.subscribe('device:connected', '__sensor-check', (env) => {
+        window.__hubEvents.push({ name: env.payload.name, sensor: env.payload.sensor });
+        window.__lastHubEnv = env;
+      });
+    });
+
     await apiPost('/api/hardware/connect', { device: 'Main Camera' });
 
-    // Ligne [Hub] visible dans le panneau Log (niveau info → filtre actif)
-    const line = page.locator('#log-content .log-entry', { hasText: '[Hub] hardware.emit(device:connected)' });
-    await expect(line.first()).toBeVisible({ timeout: 10000 });
-    const text = await line.first().innerText();
-    expect(text).toContain('→');
-    for (const t of ['guide', 'stacking', 'target', 'sky-engine']) {
-      expect(text).toContain(t);
+    // L'émission est confirmée après HUB_CONFIRM_MS (1200 ms) : on attend
+    // que les 4 panneaux soient effectivement notifiés.
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const after = await page.evaluate(() => ({
+        guide: window.__hubGuideNotified || 0,
+        stacking: window.__hubStackingNotified || 0,
+        target: window.__hubTargetNotified || 0,
+        sky: window.__hubSkyNotified || 0,
+      }));
+      if (after.guide > before.guide && after.stacking > before.stacking &&
+          after.target > before.target && after.sky > before.sky) break;
+      await sleep(300);
     }
-
-    // Les 4 abonnés ont reçu l'enveloppe
     const after = await page.evaluate(() => ({
       guide: window.__hubGuideNotified || 0,
       stacking: window.__hubStackingNotified || 0,
@@ -151,6 +165,25 @@ test.describe.serial('Hub (coexistence bus legacy + Hub)', () => {
     expect(after.stacking).toBeGreaterThan(before.stacking);
     expect(after.target).toBeGreaterThan(before.target);
     expect(after.sky).toBeGreaterThan(before.sky);
+
+    // Ligne [Hub] visible dans le panneau Log (niveau info → filtre actif)
+    const line = page.locator('#log-content .log-entry', { hasText: '[Hub] hardware.emit(device:connected)' });
+    await expect(line.first()).toBeVisible({ timeout: 10000 });
+    const text = await line.first().innerText();
+    expect(text).toContain('→');
+    for (const t of ['guide', 'stacking', 'target', 'sky-engine']) {
+      expect(text).toContain(t);
+    }
+
+    // Le payload porte les dimensions capteur (mock : 1920×1080, 3.75 µm).
+    const sensor = await page.evaluate(() => {
+      const ev = (window.__hubEvents || []).find(e => e.name === 'Main Camera');
+      return ev ? ev.sensor : null;
+    });
+    expect(sensor).toBeTruthy();
+    expect(sensor.width_px).toBeGreaterThan(0);
+    expect(sensor.height_px).toBeGreaterThan(0);
+    expect(sensor.pixel_size_um).toBeGreaterThan(0);
   });
 
   test('le bus legacy reste seul propriétaire des flux anciens', async ({ page }) => {

@@ -1,5 +1,24 @@
 # Checkpoint — Noctua (autoguidage + contrôle INDIGO)
 
+## Session 2026-08-22 — Hub : état partagé + requêtes/réponses, payload capteur, fix parsing INDIGO
+
+### Feature — Hub étendu (`web/static/hub.js`)
+- **État partagé** : `Hub.setState(key, value)` / `getState(key)` (copie profonde) / `watchState(key, source, fn)` (reçoit l'état courant immédiatement, retourne unwatch). Ancien `getState(topic)` (booléen d'abonnement) → renommé `topics(topic)`.
+- **Requête/réponse async** : `Hub.request(topic, payload, {source, timeoutMs})` → promesse résolue par `Hub.respond(env, value)` sur le même `reqId` ; timeout par défaut 5 s, rejet sinon. Enveloppe `kind='request'` + `reqId` tracés dans le log.
+- **Payload `device:connected` enrichi** (`web/static/hardware.js`) : porte désormais `sensor = {width_px, height_px, pixel_size_um, focal_length_mm}` depuis `ws:state`.
+- **Mock INDIGO** : items `CCD_INFO` renommés `WIDTH`/`HEIGHT`/`PIXEL_SIZE`/`BITSPERPIXEL` (noms réels INDIGO, sans préfixe `CCD_`).
+
+### Fix — parsing INDIGO (`indigo/protocol.py`, `indigo/registry.py`)
+- `defNumber` : la valeur peut être dans l'attribut `value` (def*) OU dans le texte (set*/new*) — les deux acceptés, texte prioritaire.
+- `registry.py` : un `def*Vector` est un schéma, pas une mise à jour d'état — l'état `connected` n'est plus écrasé par la valeur (souvent stale) du switch `CONNECT`/`CONNECTED` du def ; seul le vecteur `CONNECTION` (confirmation serveur) le met à jour. L'auto-connect teste `dev.connected`.
+
+### Tests
+- `tests/test_hub.js` : **39/39** (nouveau : état partagé round-trip, watcher tardif, copie getState, request/respond, timeout, respond sans reqId).
+- `tests/hub-ui.spec.js` : **3/3** (attend la confirmation des 4 panneaux après `HUB_CONFIRM_MS`, vérifie `sensor` 1920×1080/3.75 µm dans le payload).
+- `tests/test_protocol.py` + `tests/test_registry.py` : **8/8**.
+
+## Session 2026-08-15 — Bus de messages `events.js` : implémenté (checkpoint à tenir à jour)
+
 ## Projet
 `Noctua` : interface web (FastAPI + Vanilla JS) pour contrôle d'équipements astronomiques via serveur INDIGO.
 

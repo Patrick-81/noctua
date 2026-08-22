@@ -361,16 +361,22 @@ Bus.on('ws:state', (env) => {
         next[n] = { name: n, type: d.type, connected: !!d.connected };
     }
     if (typeof Hub !== 'undefined') {
-        for (const [n, d] of Object.entries(next)) {
+        for (const [n, d] of Object.entries(env.payload.devices)) {
             const prev = _hwPrevDevices[n];
             if (d.connected && !(prev && prev.connected)) {
                 clearTimeout(_hubTimers[n]);
                 const name = n, type = d.type;
+                const sensor = {
+                    width_px: d.width_px || 0,
+                    height_px: d.height_px || 0,
+                    pixel_size_um: d.pixel_size_um || 0,
+                    focal_length_mm: d.focal_length_mm || 0,
+                };
                 _hubTimers[n] = setTimeout(() => {
                     delete _hubTimers[name];
                     const cur = _hwPrevDevices[name];
                     if (cur && cur.connected) {
-                        Hub.emit('device:connected', { name, type }, { source: 'hardware' });
+                        Hub.emit('device:connected', { name, type, sensor }, { source: 'hardware' });
                     }
                 }, HUB_CONFIRM_MS);
             } else if (!d.connected && _hubTimers[n]) {
