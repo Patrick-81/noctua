@@ -40,7 +40,7 @@ class Focuser(BaseDevice):
         return prop_name.upper() in FOCUSER_PROPERTIES
 
     def _apply_def(self, pv: PropertyVector) -> None:
-        log.info("[%s] def %s", self.name, pv.name)
+        log.debug("[%s] def %s", self.name, pv.name)
 
     def _apply_set(self, pv: PropertyVector) -> None:
         name = pv.name.upper()

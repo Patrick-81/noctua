@@ -1083,6 +1083,9 @@ export class SkyEngine {
         gotoBtn.className = 'obj-menu-btn';
         gotoBtn.textContent = 'GOTO';
         gotoBtn.addEventListener('click', () => {
+            if (typeof setTargetObject === 'function') {
+                setTargetObject({ id: hit.name || hit.id || '', name: hit.name || hit.id || '', ra: raDeg, dec: decDeg });
+            }
             fetch('/api/mount/slew', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
