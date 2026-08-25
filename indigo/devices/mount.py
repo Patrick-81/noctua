@@ -133,19 +133,7 @@ class Mount(BaseDevice):
         return prop_name.upper() in MOUNT_PROPERTIES
 
     def _apply_def(self, pv: PropertyVector) -> None:
-        name = pv.name.upper()
         log.debug("[%s] def %s", self.name, pv.name)
-
-        if name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
-            self._parse_coordinates(pv)
-        elif name in ("MOUNT_TRACKING", "TELESCOPE_TRACK_STATE"):
-            self._parse_tracking(pv)
-        elif name in ("MOUNT_PARK", "TELESCOPE_PARK"):
-            self._parse_park(pv)
-        elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
-            self._parse_horizontal(pv)
-        elif name in ("MOUNT_HOME", "TELESCOPE_HOME"):
-            self._parse_home(pv)
 
     def _apply_set(self, pv: PropertyVector) -> None:
         name = pv.name.upper()

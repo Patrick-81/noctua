@@ -62,7 +62,11 @@ def test_fits_parsing():
 
 def test_star_detection():
     print("\n── Star Detection ──")
-    import seiza
+    try:
+        import seiza
+    except ImportError:
+        check("seiza available", False, "ModuleNotFoundError")
+        return
 
     s = Solver()
 
@@ -79,6 +83,12 @@ def test_star_detection():
 
 def test_hinted_solve():
     print("\n── Hinted Plate Solving ──")
+    try:
+        import seiza
+    except ImportError:
+        check("catalogs loaded", False, "seiza not available")
+        return
+
     s = Solver()
     result = s.load_catalogs()
     check("catalogs loaded", result["ok"], result.get("catalog", ""))
@@ -105,6 +115,12 @@ def test_hinted_solve():
 
 def test_accuracy_on_fields():
     print("\n── Accuracy on Multiple Fields ──")
+    try:
+        import seiza
+    except ImportError:
+        print("  ⚠ seiza not available — skipping")
+        return
+
     s = Solver()
     s.load_catalogs()
 

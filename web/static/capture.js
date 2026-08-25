@@ -404,7 +404,7 @@ function updateCaptureProgress() {
     }
     // Publie la progression de la capture rapide (séquence/stacking/app s'en
     // servent : exclusion caméra + affichage en direct sans poll).
-    Bus.emit('capture:progress', {
+    Hub.emit('capture:progress', {
         running: _captureRunning,
         done,
         total: _captureTotal,
@@ -615,7 +615,7 @@ function renderCaptureFilter() {
     sel.disabled = !connected;
 }
 
-// ── Bus : consommateur ws:state ───────────────────────────────
+// ── Hub : consommateur ws:state ───────────────────────────────
 
-Bus.on('ws:state', () => renderCapturePanel());
+Hub.subscribe('ws:state', 'capture', () => renderCapturePanel());
 

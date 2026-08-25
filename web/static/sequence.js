@@ -89,8 +89,8 @@ function initSequencePanel() {
     // qu'un rafraîchissement initial + une requête si la poussée manque.
     seqRefreshStatus();
 
-    // Bus : consommateur des poussées de statut serveur.
-    Bus.on('sequence:update', (env) => seqApplyStatus(env.payload));
+    // Hub : consommateur des poussées de statut serveur.
+    Hub.subscribe('sequence:update', 'sequence', (env) => seqApplyStatus(env.payload));
 }
 
 async function seqRefreshStatus() {
@@ -284,13 +284,13 @@ function seqApplyStatus(st) {
     updateSequenceTotals();
 }
 
-// ── Bus : consommateur capture:progress ───────────────────────
+// ── Hub : consommateur capture:progress ───────────────────────
 // La capture rapide du panneau Capture occupe la caméra. Tant qu'aucune
 // séquence serveur n'est en cours, le panneau reflète sa progression en
 // direct (au lieu d'attendre le poll 1 s) ; le bouton Démarrer est désactivé
 // pour éviter deux processus d'acquisition simultanés.
 
-Bus.on('capture:progress', (env) => {
+Hub.subscribe('capture:progress', 'sequence', (env) => {
     _seqQuickCapture = env.payload || null;
     if (_seqStatus.running) return;
     const p = _seqQuickCapture;

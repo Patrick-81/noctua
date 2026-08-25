@@ -54,9 +54,9 @@ function initStackingPanel() {
     stkPollStatus();
 }
 
-// ── Bus : consommateur stacking:update (push WS du serveur) ────
+// ── Hub : consommateur stacking:update (push WS du serveur) ────
 
-Bus.on('stacking:update', (env) => {
+Hub.subscribe('stacking:update', 'stacking', (env) => {
     _stkQuickCapture = null;
     stkApplyStatus(env.payload);
 });
@@ -64,7 +64,6 @@ Bus.on('stacking:update', (env) => {
 // Consommateur Hub device:connected : le status peut avoir changé (caméra
 // connectée → le polling rattrape l'état serveur).
 Hub.subscribe('device:connected', 'stacking', (env) => {
-    window.__hubStackingNotified = (window.__hubStackingNotified || 0) + 1;
     stkPollStatus();
 });
 
@@ -73,7 +72,7 @@ Hub.subscribe('device:connected', 'stacking', (env) => {
 // Le panneau n'est PAS dans les applets auto-visibles du mode capture :
 // on ré-applique ici l'état du toggle (masqué par défaut, ou le choix de
 // l'utilisateur) après le changement de mode.
-Bus.on('mode:changed', (env) => {
+Hub.subscribe('mode:changed', 'stacking', (env) => {
     if (env.payload.mode === 'capture') {
         const panel = document.getElementById('applet-stacking');
         if (panel) panel.style.display = _stkPanelHidden ? 'none' : '';
@@ -197,11 +196,11 @@ function stkApplyStatus(st) {
     }
 }
 
-// ── Bus : consommateur capture:progress ───────────────────────
+// ── Hub : consommateur capture:progress ───────────────────────
 // La capture rapide du panneau Capture occupe la caméra : le stacking attend
 // (start désactivé) et affiche l'occupation au lieu de son statut serveur.
 
-Bus.on('capture:progress', (env) => {
+Hub.subscribe('capture:progress', 'stacking', (env) => {
     _stkQuickCapture = env.payload || null;
     if (!(_stkQuickCapture && _stkQuickCapture.running)) {
         if (_stkStatus) stkApplyStatus(_stkStatus);

@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════════════
 // Noctua — hub.js : médiateur de communication inter-panneaux.
-// Coexiste avec le bus legacy (events.js) : les flux anciens restent
-// sur Bus, les nouveaux cas d'usage passent par Hub.
+// coexiste avec le bus legacy supprimé (events.js) : tous les flux
+// passent maintenant par Hub.
 //
 // Topics dynamiques (pas de déclaration préalable), enveloppe
 // standardisée { id, ts, topic, source, targets, kind, payload },
@@ -17,11 +17,16 @@ const Hub = (function () {
     const pending = {};
     let seq = 0;
     let reqSeq = 0;
+    let _debug = false;
 
     function log(level, msg) {
         try {
             if (typeof addLog === 'function') addLog(level, 'hub', msg);
         } catch (e) { /* DOM indisponible (tests node) */ }
+    }
+
+    function debugLog(msg) {
+        if (_debug) log('debug', msg);
     }
 
     function topicSubs(topic) {
@@ -58,7 +63,7 @@ const Hub = (function () {
                 }
             });
         }
-        log('info', `[Hub] hub.setState(${key}) → ${arr ? arr.length : 0} watcher(s)`);
+        debugLog(`[Hub] hub.setState(${key}) → ${arr ? arr.length : 0} watcher(s)`);
     }
 
     // Topics suivis (au moins un abonné ou traqueur). topic donné → booléen.
@@ -155,7 +160,7 @@ const Hub = (function () {
             payload: payload === undefined ? null : payload,
         };
         const kindTag = envelope.kind === 'request' ? ` [request ${envelope.reqId}]` : '';
-        log('info', `[Hub] ${source}.emit(${topic})${kindTag} → ${targets.length ? targets.join(', ') : '(aucun)'}`);
+        debugLog(`${source}.emit(${topic})${kindTag} → ${targets.length ? targets.join(', ') : '(aucun)'}`);
         if (arr.length) {
             arr.slice().forEach(e => {
                 if (!e.fn) return;
@@ -179,5 +184,7 @@ const Hub = (function () {
         request,
         respond,
         topics,
+        set debug(v) { _debug = !!v; },
+        get debug() { return _debug; },
     };
 })();

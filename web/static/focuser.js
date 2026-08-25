@@ -623,9 +623,9 @@ function initFocuserPanel() {
     }
 }
 
-// ── Bus : consommateur ws:state ───────────────────────────────
+// ── Hub : consommateur ws:state ───────────────────────────────
 
-Bus.on('ws:state', () => {
+Hub.subscribe('ws:state', 'focuser', () => {
     renderFocuserPanel();
     _refreshCameraList();
 });

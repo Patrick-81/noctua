@@ -451,7 +451,7 @@ function _calibrateDone(status) {
     _calibrateDrawGraph(status);
     addLog('info', 'calibration', i18nFmt('log.calibration.done', { q: status.quality }));
 
-    Bus.emit('calibration:done', {
+    Hub.emit('calibration:done', {
         quality: status.quality,
         x_rate: status.x_rate,
         y_rate: status.y_rate,

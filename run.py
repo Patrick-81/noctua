@@ -22,6 +22,16 @@ from pathlib import Path
 import uvicorn
 import yaml
 
+# Add .venv to path if not already present
+if ".venv" in sys.path:
+    pass
+else:
+    venv_path = Path(__file__).parent / ".venv"
+    if venv_path.exists():
+        sys.path.insert(0, str(venv_path))
+
+import seiza
+
 from indigo.client import IndigoClient
 from indigo.registry import DeviceRegistry
 from web.server import WebServer

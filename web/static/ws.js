@@ -38,18 +38,18 @@ function connectWS() {
         if (msg.type === 'state') {
             devices = msg.devices;
             // Traducteur : publie l'état sur le bus, chaque module met à jour son panneau.
-            Bus.emit('ws:state', { devices }, { source: 'ws' });
+            Hub.emit('ws:state', { devices }, { source: 'ws' });
             renderDevices();
         } else if (msg.type === 'log') {
-            Bus.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
+            Hub.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
         } else if (msg.type === 'image') {
-            Bus.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
+            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
-            Bus.emit('solver:result', { result: msg.result }, { source: 'solver' });
+            Hub.emit('solver:result', { result: msg.result }, { source: 'solver' });
         } else if (msg.type === 'stacking') {
-            Bus.emit('stacking:update', msg.status, { source: 'ws' });
+            Hub.emit('stacking:update', msg.status, { source: 'ws' });
         } else if (msg.type === 'sequence') {
-            Bus.emit('sequence:update', msg.status, { source: 'ws' });
+            Hub.emit('sequence:update', msg.status, { source: 'ws' });
         }
     };
 }
@@ -142,45 +142,43 @@ function renderProps(deviceName) {
             });
         }
 
-        newHandle.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+        container.addEventListener('mousedown', (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA' ||
+                e.target.closest('.btn') || e.target.closest('a')) return;
+            if (container.dataset.pinned) return;
             e.preventDefault();
             const rect = container.getBoundingClientRect();
             const offsetX = e.clientX - rect.left;
             const offsetY = e.clientY - rect.top;
+            container.style.left = rect.left + 'px';
+            container.style.top = rect.top + 'px';
+            container.style.right = 'auto';
+            container.style.bottom = 'auto';
             container.style.transform = 'none';
             container.style.zIndex = 50;
             container.style.transition = 'none';
-            newHandle.style.cursor = 'grabbing';
+            container.style.cursor = 'grabbing';
 
             const margin = 8;
             const vw = window.innerWidth, vh = window.innerHeight;
             const w = container.offsetWidth, h = container.offsetHeight;
-            const blockers = getBlockingRects(container);
 
             function onMove(ev) {
                 let left = ev.clientX - offsetX;
                 let top = ev.clientY - offsetY;
                 left = Math.max(margin, Math.min(left, vw - w - margin));
                 top = Math.max(margin, Math.min(top, vh - h - margin));
-                const cand = { left, top, right: left + w, bottom: top + h };
-                for (const b of blockers) {
-                    if (!(cand.right <= b.left || b.right <= cand.left ||
-                          cand.bottom <= b.top || b.bottom <= cand.top)) return;
-                }
                 container.style.left = left + 'px';
                 container.style.top = top + 'px';
-                container.style.right = '';
-                container.style.bottom = '';
             }
             function onUp() {
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
-                newHandle.style.cursor = 'grab';
+                container.style.cursor = '';
                 container.style.zIndex = '';
                 container.style.transition = '';
                 saveAppletPositions();
-                resolvePanelLayout();
             }
             document.addEventListener('mousemove', onMove);
             document.addEventListener('mouseup', onUp);

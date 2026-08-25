@@ -349,13 +349,13 @@ function initHardwareMode() {
     });
 }
 
-// ── Bus ───────────────────────────────────────────────────────
+// ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur ws:state : reconstruit _hwDevices et rend les panneaux.
 let _hwPrevDevices = {};
 const _hubTimers = {};
 const HUB_CONFIRM_MS = 1200;
-Bus.on('ws:state', (env) => {
+Hub.subscribe('ws:state', 'hardware', (env) => {
     const next = {};
     for (const [n, d] of Object.entries(env.payload.devices)) {
         next[n] = { name: n, type: d.type, connected: !!d.connected };
@@ -373,7 +373,7 @@ Bus.on('ws:state', (env) => {
                     focal_length_mm: d.focal_length_mm || 0,
                 };
                 _hubTimers[n] = setTimeout(() => {
-                    delete _hubTimers[name];
+                    delete _hubTimers[n];
                     const cur = _hwPrevDevices[name];
                     if (cur && cur.connected) {
                         Hub.emit('device:connected', { name, type, sensor }, { source: 'hardware' });
@@ -398,6 +398,6 @@ Bus.on('ws:state', (env) => {
 });
 
 // Consommateur mode:changed : rafraîchit le mode matériel à l'entrée.
-Bus.on('mode:changed', (env) => {
+Hub.subscribe('mode:changed', 'hardware', (env) => {
     if (env.payload.mode === 'hardware') renderHardwareMode();
 });

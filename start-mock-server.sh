@@ -14,5 +14,5 @@
 # Then in another terminal: python run.py 127.0.0.1:17624 --port 8080
 
 cd "$(dirname "$0")"
-source venv/bin/activate
+source .venv/bin/activate
 exec "$VIRTUAL_ENV/bin/python" tests/mock_indigo.py "$@"

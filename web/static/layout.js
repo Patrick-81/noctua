@@ -72,60 +72,6 @@ function applyCollapsedState() {
     }
 }
 
-function checkOverlap() {
-    const panels = [];
-    document.querySelectorAll('.glass-panel.applet').forEach(el => {
-        if (el.id === 'applet-mode-bar' || el.id === 'applet-connection') return;
-        if (el.offsetParent === null) return;
-        const rect = el.getBoundingClientRect();
-        if (rect.width === 0 || rect.height === 0) return;
-        panels.push({ el, rect });
-    });
-
-    for (let i = 0; i < panels.length; i++) {
-        for (let j = i + 1; j < panels.length; j++) {
-            const a = panels[i].rect;
-            const b = panels[j].rect;
-            const overlap = !(a.right <= b.left || b.right <= a.left ||
-                              a.bottom <= b.top || b.bottom <= a.top);
-            if (overlap) {
-                const el = panels[j].el;
-                // Push the second panel below the first; if it would fall off
-                // the bottom, slide it to the right instead. Either way, clamp
-                // it back into the viewport so it never ends up off-screen.
-                const vw = window.innerWidth, vh = window.innerHeight;
-                const margin = 8;
-                let left = el.getBoundingClientRect().left;
-                let top = a.bottom + margin;
-                if (top + b.height > vh - margin) {
-                    top = Math.min(b.top, a.top);
-                    left = a.right + margin;
-                }
-                left = Math.max(margin, Math.min(left, vw - b.width - margin));
-                top = Math.max(margin, Math.min(top, vh - b.height - margin));
-                el.style.left = left + 'px';
-                el.style.top = top + 'px';
-                el.style.right = 'auto';
-                el.style.bottom = 'auto';
-                el.style.transform = 'none';
-                panels[j].rect = el.getBoundingClientRect();
-            }
-        }
-    }
-}
-
-function getBlockingRects(excludeEl) {
-    const rects = [];
-    document.querySelectorAll('.glass-panel.applet').forEach(el => {
-        if (el === excludeEl) return;
-        if (el.offsetParent === null) return;
-        const r = el.getBoundingClientRect();
-        if (r.width === 0 || r.height === 0) return;
-        rects.push(r);
-    });
-    return rects;
-}
-
 function loadAppletPositions() {
     const modeCfg = currentModeConfig();
     const positions = modeCfg.applets || {};
@@ -147,16 +93,13 @@ function loadAppletPositions() {
     requestAnimationFrame(() => resolvePanelLayout());
 }
 
-// Run the two layout passes and re-clamp afterwards, so panels always end up
-// inside the viewport after overlap resolution.
+// Clamp panels inside the viewport and clear of the mode/connection bars.
 function resolvePanelLayout() {
-    sanitizePanelLayout();
-    checkOverlap();
     sanitizePanelLayout();
 }
 
-// Enforce the "no overlapping panels" rule: clamp every visible applet back
-// into the viewport and keep it clear of the mode bar / connection bar.
+// Clamp every visible applet inside the viewport and clear of the
+// mode bar / connection bar. Panels may freely overlap each other.
 function sanitizePanelLayout() {
     const margin = 8;
     const vw = window.innerWidth, vh = window.innerHeight;

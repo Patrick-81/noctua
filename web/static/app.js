@@ -57,7 +57,7 @@ function switchMode(mode) {
 
     // Annonce le changement de mode sur le bus (solver rafraîchit son
     // statut en astrométrie, hardware rend son panneau en mode matériel).
-    Bus.emit('mode:changed', { mode }, { source: 'app' });
+    Hub.emit('mode:changed', { mode }, { source: 'app' });
 
     refreshDriverList();
     loadAppletPositions();
@@ -73,18 +73,11 @@ function configureViewerForMode(mode) {
     }
 }
 
-// ── Hub : consommateur device:connected (sky-engine) ──────────
-// Une caméra vient d'être connectée : le sky map peut proposer de
-// pointer l'objet courant — on note la notification (tracking Hub).
-Hub.subscribe('device:connected', 'sky-engine', (env) => {
-    window.__hubSkyNotified = (window.__hubSkyNotified || 0) + 1;
-});
-
-// ── Bus : consommateur calibration:done ───────────────────────
+// ── Hub : consommateur calibration:done ───────────────────────
 // Confirmation (toast) + démarrage du guidage en un clic.
 // La calibration ne fait que publier le résultat ; l'app orchestre.
 
-Bus.on('calibration:done', (env) => {
+Hub.subscribe('calibration:done', 'app', (env) => {
     const status = env.payload;
     const quality = status.quality || '';
     const bad = (quality === 'poor' || quality === 'insufficient_data');
@@ -105,14 +98,14 @@ Bus.on('calibration:done', (env) => {
     });
 });
 
-// ── Bus : consommateur capture:progress ───────────────────────
+// ── Hub : consommateur capture:progress ───────────────────────
 // Toast de fin de capture rapide (panneau Capture) — l'app orchestre la
 // confirmation visuelle comme pour calibration:done. L'abort n'est pas
 // annoncé comme une fin de séquence.
 
 let _appCaptureRunning = false;
 
-Bus.on('capture:progress', (env) => {
+Hub.subscribe('capture:progress', 'app', (env) => {
     const p = env.payload || {};
     const was = _appCaptureRunning;
     _appCaptureRunning = !!p.running;
@@ -322,8 +315,14 @@ function initDraggableApplets() {
             saveUiConfig();
         });
 
-        handle.addEventListener('mousedown', (e) => {
-            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+        // Drag from any non-interactive area of the panel
+        panel.addEventListener('mousedown', (e) => {
+            // Don't drag on interactive elements
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' ||
+                e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA' ||
+                e.target.closest('.btn') || e.target.closest('.slider') ||
+                e.target.closest('.toggle-switch') || e.target.closest('a')) return;
+
             if (panel.dataset.pinned) return;
             e.preventDefault();
 
@@ -336,7 +335,7 @@ function initDraggableApplets() {
             panel.style.transform = 'none';
             panel.style.zIndex = 50;
             panel.style.transition = 'none';
-            handle.style.cursor = 'grabbing';
+            panel.style.cursor = 'grabbing';
 
             const offsetX = e.clientX - rect.left;
             const offsetY = e.clientY - rect.top;
@@ -344,18 +343,12 @@ function initDraggableApplets() {
             const margin = 8;
             const vw = window.innerWidth, vh = window.innerHeight;
             const w = panel.offsetWidth, h = panel.offsetHeight;
-            const blockers = getBlockingRects(panel);
 
             function onMove(ev) {
                 let left = ev.clientX - offsetX;
                 let top = ev.clientY - offsetY;
                 left = Math.max(margin, Math.min(left, vw - w - margin));
                 top = Math.max(margin, Math.min(top, vh - h - margin));
-                const cand = { left, top, right: left + w, bottom: top + h };
-                for (const b of blockers) {
-                    if (!(cand.right <= b.left || b.right <= cand.left ||
-                          cand.bottom <= b.top || b.bottom <= cand.top)) return;
-                }
                 panel.style.left = left + 'px';
                 panel.style.top = top + 'px';
             }
@@ -363,11 +356,10 @@ function initDraggableApplets() {
             function onUp() {
                 document.removeEventListener('mousemove', onMove);
                 document.removeEventListener('mouseup', onUp);
-                handle.style.cursor = 'grab';
+                panel.style.cursor = '';
                 panel.style.zIndex = '';
                 panel.style.transition = '';
                 saveAppletPositions();
-                resolvePanelLayout();
             }
 
             document.addEventListener('mousemove', onMove);

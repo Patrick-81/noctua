@@ -311,6 +311,8 @@ class MockMount:
         self.tracking = False
         self.parked = True
         self.slewing = False
+        self._start_ra = self.ra_hours
+        self._start_dec = self.dec_deg
         self._target_ra = None
         self._target_dec = None
         self._connected = True
@@ -404,15 +406,15 @@ class MockMount:
 
     def handle_number(self, prop_name, items):
         if prop_name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
+            self._start_ra = self.ra_hours
+            self._start_dec = self.dec_deg
             if "RA" in items:
-                self.ra_hours = float(items["RA"])
-                self._target_ra = self.ra_hours
+                self._target_ra = float(items["RA"])
             if "DEC" in items:
-                self.dec_deg = float(items["DEC"])
-                self._target_dec = self.dec_deg
+                self._target_dec = float(items["DEC"])
             self.slewing = True
             self.parked = False
-            log.info("Slew target: RA=%.4fh DEC=%.4f°", self.ra_hours, self.dec_deg)
+            log.info("Slew target: RA=%.4fh DEC=%.4f°", self._target_ra, self._target_dec)
         return []
 
     def handle_switch(self, prop_name, items):
@@ -479,7 +481,8 @@ class MockMount:
     async def send_state(self, writer):
         enabled = "On" if self.drift_enabled else "Off"
         disabled = "Off" if self.drift_enabled else "On"
-        for xml in [self.connection_xml(), self.coords_xml(), self.horizontal_xml(),
+        coord_state = "Busy" if self.slewing else "Ok"
+        for xml in [self.connection_xml(), self.coords_xml(coord_state), self.horizontal_xml(),
                      self.tracking_xml(),
                      self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(),
                      f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
@@ -913,7 +916,33 @@ class MockIndigoServer:
 
     async def _do_slew(self, writer):
         try:
-            await asyncio.sleep(0.5)
+            import math
+            start_ra = self.mount._start_ra
+            start_dec = self.mount._start_dec
+            target_ra = self.mount._target_ra
+            target_dec = self.mount._target_dec
+            if target_ra is None or target_dec is None:
+                return
+            # Angular distance (degrees) — RA scaled by cos(dec)
+            cos_dec = math.cos(math.radians((start_dec + target_dec) / 2))
+            ra_dist = abs(target_ra - start_ra) * 15.0 * cos_dec
+            dec_dist = abs(target_dec - start_dec)
+            dist_deg = math.hypot(ra_dist, dec_dist)
+            # Slew rate ~4°/s, clamped to [0.3, 3.0] seconds
+            duration = max(0.3, min(3.0, dist_deg / 4.0))
+            steps = max(10, int(duration / 0.03))
+            dt = duration / steps
+            log.info("Slew: %.1f° in %.1fs (%d steps)", dist_deg, duration, steps)
+            for i in range(1, steps + 1):
+                t = i / steps
+                self.mount.ra_hours = start_ra + (target_ra - start_ra) * t
+                self.mount.dec_deg = start_dec + (target_dec - start_dec) * t
+                writer.write((self.mount.coords_xml("Busy") + "\n").encode())
+                await writer.drain()
+                await asyncio.sleep(dt)
+            # Final position — exact target
+            self.mount.ra_hours = target_ra
+            self.mount.dec_deg = target_dec
             self.mount.slewing = False
             self.mount._target_ra = None
             self.mount._target_dec = None

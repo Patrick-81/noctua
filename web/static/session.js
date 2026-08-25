@@ -3,7 +3,7 @@
 // Orchestrateur de session d'imagerie : surveille le méridien et
 // exécute le flip complet (arrêt guidage → pause capture → flip →
 // attente slew → recentrage → reprise).
-// Dépendances globales : Bus (events.js), _guideStart/_guideStop
+// Dépendances globales : Hub, _guideStart/_guideStop
 // (guide.js), seqCall/seqPollStatus (sequence.js), stkStart (stacking.js),
 // solverSolve/_solverStatus (solver.js), apiPost/addLog (api.js).
 // ═══════════════════════════════════════════════════════════════
@@ -223,7 +223,7 @@ function _sessionWaitSlew(timeoutMs) {
         let done = false;
         const t0 = Date.now();
         const finish = () => { if (done) return; done = true; off(); clearTimeout(to); clearInterval(poll); resolve(); };
-        const off = Bus.on('mount:slewed', () => {
+        const off = Hub.subscribe('mount:slewed', 'session', () => {
             if (Date.now() - t0 > 1500) finish();
         });
         const to = setTimeout(finish, timeoutMs);

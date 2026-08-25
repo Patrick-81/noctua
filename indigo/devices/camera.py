@@ -75,8 +75,6 @@ class Camera(BaseDevice):
             item = pv.get_item("FOCAL_LENGTH")
             if item and item.value is not None:
                 self.focal_length_mm = float(item.value)
-        elif name == "CCD_TEMPERATURE":
-            self._parse_temperature(pv)
         elif name == "CCD_BINNING":
             self._parse_binning(pv)
         elif pv.vector_type.value == "blob":

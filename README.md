@@ -34,12 +34,14 @@ indigo_server -p 7624 indigo_mount_simulator indigo_ccd_simulator ...
 # Côté client :
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-python run.py                    # lit config.yaml (INDIGO + web)
-python run.py 192.168.1.100:7624 # surcharge l'adresse du serveur
-python run.py --port 8080        # surcharge le port web
+./start.sh                    # lit config.yaml (INDIGO + web)
+./start.sh 192.168.1.100:7624 # surcharge l'adresse du serveur
+./start.sh --port 8080        # surcharge le port web
 ```
 
 Puis ouvrir **http://<host>:8080** dans le navigateur.
+
+> ⚠️ **Note** : Le projet utilise `.venv` comme environnement unique. Les scripts `start.sh` et `start-mock-server.sh` le pointent tous deux vers `.venv/bin/python`. Si vous avez créé d'anciennes venvs (`venv`, `venv_new`, `venv_temp`), elles sont ignorées. Supprimez-les avec `rm -rf venv venv_new venv_temp` pour éviter toute confusion.
 
 ## Configuration
 

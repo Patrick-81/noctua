@@ -65,7 +65,12 @@ body {
 
 /* ── Applet positions ───────────────────────────────────────── */
 
-.applet { position: absolute; }
+.applet { position: absolute; cursor: grab; }
+.applet:active { cursor: grabbing; }
+.applet button, .applet input, .applet select, .applet textarea,
+.applet a, .applet .btn, .applet .slider, .applet .toggle-switch {
+    cursor: auto;
+}
 
 /* ── Drag handle ─────────────────────────────────────────────── */
 

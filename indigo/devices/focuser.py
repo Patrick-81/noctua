@@ -40,15 +40,7 @@ class Focuser(BaseDevice):
         return prop_name.upper() in FOCUSER_PROPERTIES
 
     def _apply_def(self, pv: PropertyVector) -> None:
-        name = pv.name.upper()
         log.info("[%s] def %s", self.name, pv.name)
-
-        if name == "FOCUSER_POSITION":
-            self._parse_position(pv)
-        elif name == "FOCUSER_SPEED":
-            item = pv.get_item("SPEED")
-            if item and item.value is not None:
-                self.speed = int(item.value)
 
     def _apply_set(self, pv: PropertyVector) -> None:
         name = pv.name.upper()

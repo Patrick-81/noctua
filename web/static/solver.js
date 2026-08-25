@@ -284,15 +284,15 @@ function handleSolverWsResult(result) {
     }
 }
 
-// ── Bus ───────────────────────────────────────────────────────
+// ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur solver:result (produit par le traducteur ws.js).
-Bus.on('solver:result', (env) => handleSolverWsResult(env.payload.result));
+Hub.subscribe('solver:result', 'solver', (env) => handleSolverWsResult(env.payload.result));
 
 // Consommateur ws:state : rafraîchit les indices RA/DEC/scale.
-Bus.on('ws:state', () => updateSolverHints());
+Hub.subscribe('ws:state', 'solver', () => updateSolverHints());
 
 // Consommateur mode:changed : recharge le statut solver à l'entrée en astrométrie.
-Bus.on('mode:changed', (env) => {
+Hub.subscribe('mode:changed', 'solver', (env) => {
     if (env.payload.mode === 'astrometry') refreshSolverStatus(1);
 });

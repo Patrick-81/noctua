@@ -12,17 +12,13 @@ const Bus = (function () {
     // Registre des topics : producteur (source) + consommateurs
     // (targets). Documente l'intention et sert à la validation dev.
     const REGISTRY = {
-        'ws:state':           { source: 'ws',          targets: ['mount', 'capture', 'focuser', 'solver', 'guide', 'hardware'] },
+        'ws:state':           { source: 'ws',          targets: ['mount', 'capture', 'focuser', 'guide', 'hardware'] },
         'ws:image':           { source: 'ws',          targets: ['preview'] },
         'ws:log':             { source: 'ws',          targets: ['api'] },
-        'solver:result':      { source: 'solver',      targets: ['target', 'preview'] },
         'mode:changed':       { source: 'app',         targets: ['solver', 'hardware'] },
         'calibration:done':   { source: 'calibration', targets: ['app', 'guide'] },
-        'capture:progress':   { source: 'capture',     targets: ['sequence', 'stacking', 'app'] },
         'guide:starSelected': { source: 'preview',     targets: ['guide'] },
         'mount:slewed':       { source: 'mount',       targets: ['target'] },
-        'stacking:update':    { source: 'ws',          targets: ['stacking'] },
-        'sequence:update':    { source: 'ws',          targets: ['sequence'] },
     };
 
     const listeners = {};

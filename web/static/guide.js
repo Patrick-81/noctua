@@ -716,21 +716,20 @@ function _guideCleanup() {
     if (_guidePauseBtn) _guidePauseBtn.disabled = true;
 }
 
-// ── Bus ───────────────────────────────────────────────────────
+// ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur ws:state : rafraîchit la liste des caméras guide.
-Bus.on('ws:state', () => _refreshGuideCameraList());
+Hub.subscribe('ws:state', 'guide', () => _refreshGuideCameraList());
 
 // Consommateur Hub device:connected : une caméra est arrivée — la liste
 // des caméras guide peut avoir changé.
 Hub.subscribe('device:connected', 'guide', (env) => {
-    window.__hubGuideNotified = (window.__hubGuideNotified || 0) + 1;
     _refreshGuideCameraList();
 });
 
 // Consommateur guide:starSelected : l'étoile guide a été choisie dans
 // l'aperçu (clic ou sélection auto) — recentre le médaillon zoomé.
-Bus.on('guide:starSelected', (env) => {
+Hub.subscribe('guide:starSelected', 'guide', (env) => {
     const star = env.payload && env.payload.star;
     if (!star) return;
     _guideSelectedStar = star;
@@ -738,7 +737,7 @@ Bus.on('guide:starSelected', (env) => {
 });
 
 // Consommateur calibration:done : auto-popule les gains RA/DEC.
-Bus.on('calibration:done', (env) => {
+Hub.subscribe('calibration:done', 'guide', (env) => {
     const s = env.payload;
     if (s.x_rate != null && s.x_rate > 0) {
         const raGain = document.getElementById('guide-ra-gain');

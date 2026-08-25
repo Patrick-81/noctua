@@ -141,7 +141,7 @@ function _guideSetStar(star) {
         const w = _guideCap()?.width || 1;
         const h = _guideCap()?.height || 1;
         apiPost('/api/guide/set-reference', { x: star.x, y: h - 1 - star.y });
-        Bus.emit('guide:starSelected', { star }, { source: 'preview' });
+        Hub.emit('guide:starSelected', { star }, { source: 'preview' });
         const statusEl = document.getElementById('guide-preview-status');
         if (statusEl) {
             const idx = _guideStarList.indexOf(star) + 1;
@@ -167,7 +167,7 @@ function _guideAutoSelect() {
         const imgH = metric.height || 1;
         _guideSelectedStar = { x: best.x, y: best.y, quality: best.gaussian_quality || 0 };
         apiPost('/api/guide/set-reference', { x: best.x, y: imgH - 1 - best.y });
-        Bus.emit('guide:starSelected', { star: _guideSelectedStar }, { source: 'preview' });
+        Hub.emit('guide:starSelected', { star: _guideSelectedStar }, { source: 'preview' });
         const statusEl = document.getElementById('guide-preview-status');
         if (statusEl) {
             statusEl.textContent = `⭐ Auto: étoile (${best.x}, ${best.y}) qualité=${best.gaussian_quality} — Prêt`;
@@ -203,10 +203,10 @@ function _guideClick(vpX, vpY) {
 // Expose _guideClick au global pour la classe Viewer (viewer.js, script classique).
 window._guideClick = _guideClick;
 
-// ── Bus ───────────────────────────────────────────────────────
+// ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur ws:image : route l'image vers le viewer guide ou capture.
-Bus.on('ws:image', (env) => {
+Hub.subscribe('ws:image', 'preview', (env) => {
     const { device, format, data } = env.payload;
     const guideCam = _guideCameraSelect?.value || '';
     console.log('WS image: device=%s format=%s guideCam=%s match=%s', device, format, guideCam, device === guideCam);

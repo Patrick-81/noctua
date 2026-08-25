@@ -168,9 +168,26 @@ function mountGoto() {
         addLog('warning', 'mount', i18n('log.mount.no_target'));
         return;
     }
+    const m = findMount();
+    if (!m) {
+        addLog('error', 'mount', 'Pas de monture detectee');
+        return;
+    }
     const raH = (((_targetObject.ra % 360) + 360) % 360) / 15;
-    apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: _targetObject.dec });
-    addLog('info', 'mount', i18nFmt('log.mount.goto_ok', { id: _targetObject.id, ra: raH.toFixed(4), dec: _targetObject.dec.toFixed(4) }));
+    const target = { ra_hours: raH, dec_deg: _targetObject.dec };
+    fetch('/api/mount/slew', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(target)
+    }).then(r => r.json()).then(data => {
+        if (data.error) {
+            addLog('error', 'mount', i18nFmt('log.ws.error', { err: data.error }));
+            return;
+        }
+        addLog('info', 'mount', i18nFmt('log.mount.goto_ok', { id: _targetObject.id, ra: raH.toFixed(4), dec: _targetObject.dec.toFixed(4) }));
+    }).catch(e => {
+        addLog('error', 'mount', i18nFmt('log.ws.error', { err: e.message }));
+    });
 }
 
 function mountMove(dir) {
@@ -210,20 +227,20 @@ function mountFlip() {
         .catch(e => addLog('error', 'mount', i18nFmt('log.mount.flip_net', { err: e })));
 }
 
-// ── Bus : consommateur ws:state ───────────────────────────────
+// ── Hub : consommateur ws:state ───────────────────────────────
 // Met à jour le FoV caméra sur le ciel + panneau monture
 // (auto-sélection quand une monture apparaît, sinon si déjà choisie).
 
 let _lastMountSeen = false;
 let _lastSlewing = false;
-Bus.on('ws:state', (env) => {
+Hub.subscribe('ws:state', 'mount', (env) => {
     updateCameraFov();
     const m = findMount();
     if (m) {
         // Détection de fin de slew (transition slewing→idle) → mount:slewed.
         const nowSlewing = !!m.dev.slewing;
         if (_lastSlewing && !nowSlewing) {
-            Bus.emit('mount:slewed', { ra: m.dev.ra_hours, dec: m.dev.dec_deg }, { source: 'mount' });
+            Hub.emit('mount:slewed', { ra: m.dev.ra_hours, dec: m.dev.dec_deg }, { source: 'mount' });
         }
         _lastSlewing = nowSlewing;
     }

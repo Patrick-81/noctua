@@ -245,19 +245,13 @@ function _centeringStep(result) {
     }
 }
 
-// ── Bus : consommateur solver:result (boucle de centrage) ─────
+// ── Hub : consommateur solver:result (boucle de centrage) ─────
 
-Bus.on('solver:result', (env) => _centeringStep(env.payload.result));
+Hub.subscribe('solver:result', 'target', (env) => _centeringStep(env.payload.result));
 
-// Consommateur Hub device:connected : une caméra connectée peut servir de
-// source d'image pour la boucle de centrage — on marque la notification.
-Hub.subscribe('device:connected', 'target', (env) => {
-    window.__hubTargetNotified = (window.__hubTargetNotified || 0) + 1;
-});
+// ── Hub : consommateur mount:slewed (fin de nudge) ────────────
 
-// ── Bus : consommateur mount:slewed (fin de nudge) ────────────
-
-Bus.on('mount:slewed', () => {
+Hub.subscribe('mount:slewed', 'target', () => {
     if (_centeringActive && _centeringWaitingSlew) {
         _centeringWaitingSlew = false;
         _centeringNextStep();

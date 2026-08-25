@@ -26,6 +26,14 @@ function apiPost(url, body) {
     }).catch(e => addLog('error', 'api', i18nFmt('log.ws.error', { err: e.message })));
 }
 
+// ── Hub subscription ─────────────────────────────────────────
+
+Hub.subscribe('ws:image', 'api', (env) => {
+    const { device, format, data } = env.payload;
+    const viewer = getViewer(device);
+    if (viewer) viewer.displayImage(data, format);
+});
+
 // ── Utilities ─────────────────────────────────────────────────
 
 function escapeAttr(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
@@ -126,6 +134,6 @@ function applyLogFilters() {
     logEntries.forEach(entry => entry.classList.toggle('hidden', !activeLevels.has(entry.dataset.level)));
 }
 
-// ── Bus : consommateur ws:log ─────────────────────────────────
+// ── Hub : consommateur ws:log ─────────────────────────────────
 
-Bus.on('ws:log', (env) => addLog(env.payload.level, env.payload.logger, env.payload.msg));
+Hub.subscribe('ws:log', 'api', (env) => addLog(env.payload.level, env.payload.logger, env.payload.msg));
