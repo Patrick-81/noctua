@@ -337,7 +337,12 @@ class Mount(BaseDevice):
         self._start_move_poll()
 
     def _start_move_poll(self) -> None:
-        """Start a background task that polls coordinates every 500ms."""
+        """Start a background task that monitors coordinate stabilization.
+
+        Runs every 500ms and checks if coords have stabilized (no change
+        for 3 consecutive checks).  Coordinate updates come from INDIGO
+        push-based set*Vector messages — no explicit polling needed.
+        """
         self._stop_move_poll()
         self._move_poll_task = asyncio.get_running_loop().create_task(
             self._move_poll_loop())
@@ -352,7 +357,6 @@ class Mount(BaseDevice):
             stable_count = 0
             poll_count = 0
             while True:
-                await self._poll_coords()
                 poll_count += 1
                 # During GOTO: detect slew completion by coordinate stabilization
                 if self.slewing and self._target_ra is not None:
