@@ -46,8 +46,21 @@ echo [INFO] Installation des dependances ^(requirements.txt^)...
 python -m pip install -r requirements.txt
 if errorlevel 1 exit /b 1
 
-REM --- 4. Configuration ---------------------------------------------------------
-if not exist "config.yaml" (
+REM --- 4. Verification seiza ---------------------------------------------------
+python -c "import seiza" >nul 2>nul
+if errorlevel 1 (
+    echo.
+    echo [ATTENTION] seiza ^(solveur astrometrique^) n'a pas pu etre installe.
+    echo   C'est optionnel - le serveur fonctionnera sans, mais la resolution
+    echo   astrometrique sera indisponible.
+    echo   Pour l'installer manuellement : pip install seiza
+    echo.
+)
+
+REM --- 5. Configuration --------------------------------------------------------
+if exist "config.yaml" (
+    echo [INFO] config.yaml deja present - conserve.
+) else (
     if exist "config.example.yaml" (
         echo [INFO] Copie de config.example.yaml vers config.yaml...
         copy config.example.yaml config.yaml >nul

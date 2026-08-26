@@ -15,6 +15,8 @@ VENV_DIR=".venv"
 # --- 1. Vérification de Python -----------------------------------------------
 if ! command -v "$PYTHON" >/dev/null 2>&1; then
     echo "✗ Python introuvable ($PYTHON). Installez Python 3.10+ puis relancez." >&2
+    echo "  Ubuntu/Debian : sudo apt install python3 python3-venv python3-pip" >&2
+    echo "  macOS : brew install python3" >&2
     exit 1
 fi
 if ! "$PYTHON" -c 'import sys; exit(0 if sys.version_info >= (3, 10) else 1)' 2>/dev/null; then
@@ -41,8 +43,20 @@ python -m pip install --upgrade pip --quiet
 echo "• Installation des dépendances (requirements.txt)…"
 python -m pip install -r requirements.txt
 
-# --- 4. Configuration -----------------------------------------------------------
-if [ ! -f "config.yaml" ]; then
+# --- 4. Vérification seiza (solveur Rust) --------------------------------------
+if ! python -c "import seiza" 2>/dev/null; then
+    echo
+    echo "⚠  seiza (solveur astrométrique) n'a pas pu être installé automatiquement."
+    echo "   C'est optionnel — le serveur fonctionnera sans, mais la résolution"
+    echo "   astrométrique sera indisponible."
+    echo "   Pour l'installer manuellement : pip install seiza"
+    echo
+fi
+
+# --- 5. Configuration -----------------------------------------------------------
+if [ -f "config.yaml" ]; then
+    echo "• config.yaml déjà présent — conservé."
+else
     echo "• Aucun config.yaml — copie du modèle config.example.yaml."
     cp config.example.yaml config.yaml
 fi
