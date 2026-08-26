@@ -54,14 +54,20 @@ function toggleMinimize(panel) {
     panel.classList.toggle('collapsed');
     const minBtn = panel.querySelector('.applet-minimize');
     if (minBtn) minBtn.classList.toggle('collapsed-label', !wasCollapsed);
-    currentModeConfig().collapsed = currentModeConfig().collapsed || {};
-    currentModeConfig().collapsed[panel.id] = !wasCollapsed;
+    const isFixed = ['applet-log', 'applet-legend'].includes(panel.id);
+    if (isFixed) {
+        uiConfig.fixedCollapsed = uiConfig.fixedCollapsed || {};
+        uiConfig.fixedCollapsed[panel.id] = !wasCollapsed;
+    } else {
+        currentModeConfig().collapsed = currentModeConfig().collapsed || {};
+        currentModeConfig().collapsed[panel.id] = !wasCollapsed;
+    }
     saveUiConfig();
 }
 
 function applyCollapsedState() {
     const modeCfg = currentModeConfig();
-    const collapsed = modeCfg.collapsed || {};
+    const collapsed = { ...modeCfg.collapsed, ...(uiConfig.fixedCollapsed || {}) };
     for (const [id, isCollapsed] of Object.entries(collapsed)) {
         if (!isCollapsed) continue;
         const el = document.getElementById(id);
@@ -75,7 +81,9 @@ function applyCollapsedState() {
 function loadAppletPositions() {
     const modeCfg = currentModeConfig();
     const positions = modeCfg.applets || {};
+    const FIXED_PANELS = ['applet-log', 'applet-legend'];
     for (const [id, pos] of Object.entries(positions)) {
+        if (FIXED_PANELS.includes(id)) continue;
         const el = document.getElementById(id);
         if (!el || id === 'applet-mode-bar') continue;
         if (pos.left != null) el.style.left = pos.left;
@@ -119,8 +127,10 @@ function sanitizePanelLayout() {
         const el = document.getElementById(id);
         return el ? el.getBoundingClientRect() : { right: 0, bottom: 0, left: 0, top: 0 };
     });
+    const FIXED_PANELS = ['applet-log', 'applet-legend'];
     document.querySelectorAll('.glass-panel.applet').forEach(el => {
         if (el.id === 'applet-mode-bar' || el.id === 'applet-connection') return;
+        if (FIXED_PANELS.includes(el.id)) return;
         if (el.offsetParent === null) return;
         const rect = el.getBoundingClientRect();
         if (rect.width === 0 || rect.height === 0) return;
@@ -145,8 +155,10 @@ function sanitizePanelLayout() {
 function saveAppletPositions() {
     const modeCfg = currentModeConfig();
     const positions = {};
+    const FIXED_PANELS = ['applet-log', 'applet-legend'];
     document.querySelectorAll('.glass-panel.applet').forEach(el => {
         if (el.id === 'applet-mode-bar') return;
+        if (FIXED_PANELS.includes(el.id)) return;
         const s = el.style;
         const hasLeft = s.left && s.left !== 'auto';
         const hasTop = s.top && s.top !== 'auto';

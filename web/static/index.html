@@ -36,6 +36,7 @@
     <script src="/polar.js"></script>
     <script src="/focuser.js"></script>
     <script src="/guide.js"></script>
+    <script src="/dashboard.js"></script>
     <script src="/calibration.js"></script>
     <script src="/session.js"></script>
 </head>
@@ -185,12 +186,22 @@
         <!-- APPLETS MODE: PILOTAGE MONTURE                       -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-status" class="glass-panel applet mode-specific" data-modes="mount">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="stat.title">STATUS</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
-            <div class="status-item"><span class="label" data-i18n="stat.tracking">Tracking</span><span class="value" id="status-tracking">● OFF</span></div>
-            <div class="status-item"><span class="label" data-i18n="stat.slewing">Slewing</span><span class="value" id="status-slewing">● IDLE</span></div>
-            <div class="status-item"><span class="label" data-i18n="stat.parking">Parking</span><span class="value" id="status-parking">● IDLE</span></div>
-            <div class="status-item"><span class="label" data-i18n="stat.homing">Homing</span><span class="value" id="status-homing">● IDLE</span></div>
+        <div id="applet-status" class="glass-panel applet">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="dash.title">◈ TABLEAU DE BORD</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div class="dash-toggle">
+                <button class="dash-toggle-btn active" data-dash="drift" data-i18n="dash.drift">Dérive</button>
+                <button class="dash-toggle-btn" data-dash="medallion" data-i18n="dash.medallion">Médaille</button>
+                <button class="dash-toggle-btn" data-dash="camera" data-i18n="dash.camera">Caméra</button>
+            </div>
+            <canvas id="dash-canvas" width="480" height="160" style="width:100%; height:160px; background:#0a0a12; border-radius:4px;"></canvas>
+            <div class="dash-stats">
+                <div class="dash-stat"><span class="dash-stat-label" data-i18n="dash.frames">Vues</span><span class="dash-stat-value" id="dash-frames">— / —</span></div>
+                <div class="dash-stat"><span class="dash-stat-label" data-i18n="dash.remaining">Temps</span><span class="dash-stat-value" id="dash-countdown">—</span></div>
+                <div class="dash-stat"><span class="dash-stat-label" data-i18n="dash.filter">Filtre</span><span class="dash-stat-value" id="dash-filter">—</span></div>
+                <div class="dash-stat"><span class="dash-stat-label">RMS RA</span><span class="dash-stat-value" id="dash-rms-ra">—</span></div>
+                <div class="dash-stat"><span class="dash-stat-label">RMS DEC</span><span class="dash-stat-value" id="dash-rms-dec">—</span></div>
+                <div class="dash-stat"><span class="dash-stat-label">RMS total</span><span class="dash-stat-value" id="dash-rms-total">—</span></div>
+            </div>
         </div>
 
         <div id="applet-pilotage" class="glass-panel applet mode-specific" data-modes="mount">
@@ -219,6 +230,7 @@
                     <option value="Max">Max</option>
                 </select>
                 <button id="btn-sync" class="btn-glass" title="Synchroniser" data-i18n-title="pil.sync">⟳ SYNC</button>
+                <button id="btn-center-tel" class="btn-glass" title="Centrer le télescope" data-i18n-title="pil.center_tel">◎ TÉL</button>
             </div>
             <div id="target-info" class="target-info">Cible : —</div>
             <div class="joy-speed-row" style="margin-top:6px;">

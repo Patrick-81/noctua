@@ -74,6 +74,7 @@ function initButtons() {
         mountToggleTracking();
         addLog('warning', 'mount', i18n('log.mount.emergency'));
     });
+    bind('btn-center-tel', () => { if (skyEngine) skyEngine.centerOnTel(); });
     bind('btn-sync', () => {
         if (!skyEngine) return;
         let ra = -skyEngine._currentRotation[0];

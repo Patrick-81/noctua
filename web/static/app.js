@@ -15,6 +15,10 @@ function switchMode(mode) {
         el.style.display = 'none';
     });
 
+    // Dashboard always visible
+    const dashEl = document.getElementById('applet-status');
+    if (dashEl) dashEl.style.display = '';
+
     for (const id of MODES[mode].applets) {
         const el = document.getElementById(id);
         if (el) el.style.display = '';
@@ -265,8 +269,10 @@ window.setTextItem = setTextItem;
 // ── Init ──────────────────────────────────────────────────────
 
 function initDraggableApplets() {
+    const FIXED_PANELS = ['applet-log', 'applet-legend'];
     document.querySelectorAll('.glass-panel.applet').forEach(panel => {
         if (panel.id === 'applet-mode-bar' || panel.id === 'applet-connection') return;
+        if (FIXED_PANELS.includes(panel.id)) return;
 
         // Minimize button
         const minBtn = panel.querySelector('.applet-minimize');
@@ -399,6 +405,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initPolarPanel();
     initFocuserPanel();
     initGuidePanel();
+    initDashboard();
     setInterval(() => _guideChecklist?.update(), 1000);
     initCalibrationPanel();
     initSessionPanel();

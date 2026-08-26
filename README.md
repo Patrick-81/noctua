@@ -2,9 +2,21 @@
 
 Interface web (FastAPI + Vanilla JS) pour le contrôle d'équipements astronomiques via un serveur [INDIGO](https://www.indigo-astronomy.org/).
 
-![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-117%20pytest-green)
+![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-134%20pytest-green)
 
 Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : autoguidage en étoile, autofocus HFR, calibration, séquences d'acquisition et mise au point polaire assistée.
+
+## Captures d'écran
+
+| Mode Monture | Mode Capture | Mode Autoguidage |
+|:---:|:---:|:---:|
+| ![Monture](docs/screenshots/mount.png) | ![Capture](docs/screenshots/capture.png) | ![Guidage](docs/screenshots/guiding.png) |
+
+| Sky Map | Dashboard | Mise en station polaire |
+|:---:|:---:|:---:|
+| ![Sky Map](docs/screenshots/skymap.png) | ![Dashboard](docs/screenshots/dashboard.png) | ![Polaire](docs/screenshots/polar.png) |
+
+> Pour prendre les screenshots : lancez le serveur avec le mock (`./start-mock-server.sh`), ouvrez l'interface, naviguez dans chaque onglet, et faites un screenshot du navigateur (Ctrl+Shift+S dans Firefox, ou F12 → screenshot node).
 
 ## Fonctionnalités
 
@@ -94,6 +106,7 @@ web/
   routers/           # routes REST par domaine (register(app, server))
   static/            # UI (index.html, i18n.{fr,en}.js, ws.js, panneaux *.js, style.css)
 tests/               # unit + flow + à-blanc + specs Playwright
+docs/screenshots/    # captures d'écran pour le README
 PLAN.md, CHECKPOINT.md, TODO_LIST.md, TESTS.md
 ```
 

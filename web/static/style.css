@@ -144,8 +144,8 @@ body {
 
 #applet-status {
     position: absolute;
-    top: 280px; left: 16px;
-    min-width: 180px;
+    top: 16px; left: 16px;
+    min-width: 260px;
     z-index: 18;
 }
 
@@ -170,14 +170,14 @@ body {
 #applet-legend {
     position: absolute;
     bottom: 16px; right: 16px;
-    min-width: 180px;
+    min-width: 160px;
     z-index: 15;
 }
 
 #applet-log {
     position: absolute;
-    bottom: 16px; left: 300px;
-    width: 420px;
+    bottom: 16px; right: 190px;
+    width: 400px;
     max-height: 200px;
     z-index: 15;
 }
@@ -524,7 +524,7 @@ body {
     border-color: #ff5577;
 }
 .joy-speed-row {
-    display: flex; gap: 6px; justify-content: center;
+    display: flex; gap: 6px; justify-content: center; flex-wrap: wrap;
     margin-top: 8px; align-items: center;
 }
 .joy-speed-row select {
@@ -537,7 +537,7 @@ body {
     padding: 3px 6px;
     outline: none;
 }
-.joy-speed-row .btn-glass { font-size: 0.65rem; padding: 3px 10px; }
+.joy-speed-row .btn-glass { font-size: 0.6rem; padding: 3px 8px; white-space: nowrap; }
 
 /* ── Capture panel ───────────────────────────────────────────── */
 
@@ -1004,9 +1004,35 @@ body {
 
 /* ── Status panel ───────────────────────────────────────────── */
 
-#applet-status .glass-panel {
-    padding: 10px 14px;
+/* ── Dashboard (mini status panel) ────────────────────────────── */
+
+.dash-toggle {
+    display: flex; gap: 2px; margin: 6px 0 4px;
+    background: rgba(0,0,0,0.3); border-radius: 4px; padding: 2px;
 }
+.dash-toggle-btn {
+    flex: 1; background: none; border: none; color: #666;
+    font-size: 0.8rem; padding: 4px 0; cursor: pointer;
+    border-radius: 3px; transition: all 0.15s; font-family: inherit;
+}
+.dash-toggle-btn.active {
+    color: #00ffcc; background: rgba(0,255,204,0.1);
+}
+.dash-toggle-btn:hover:not(.active) { color: #aaa; }
+
+#dash-canvas { display: block; width: 100%; }
+
+.dash-stats {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 2px 8px; margin-top: 4px;
+}
+.dash-stat {
+    display: flex; justify-content: space-between;
+    font-size: 0.9rem; padding: 1px 0;
+}
+.dash-stat-label { color: #888; }
+.dash-stat-value { color: #00ffcc; font-family: monospace; font-weight: bold; }
+
 .status-item {
     display: flex; justify-content: space-between;
     font-size: 0.7rem; padding: 2px 0;
@@ -1649,13 +1675,13 @@ body {
     .mode-btn { font-size: 0.55rem; padding: 3px 6px; }
     #applet-connection { top: 6px; padding: 6px 10px; gap: 3px; font-size: 0.6rem; }
     #applet-connection input, #applet-connection select { font-size: 0.6rem; padding: 2px 5px; max-width: 80px; }
-    #applet-pilotage { top: 55px; right: 8px; width: 160px; }
+    #applet-pilotage { top: 55px; right: 8px; width: 180px; }
     .joy-grid { width: 120px; gap: 4px; }
     .joy-btn { padding: 8px 0; font-size: 1.2rem; }
-    #applet-status { top: 260px; left: 8px; min-width: 140px; }
+    #applet-status { top: 8px; left: 8px; min-width: 220px; }
     #applet-hud { left: 8px; bottom: 8px; min-width: 200px; }
-    #applet-legend { right: 8px; bottom: 8px; min-width: 140px; }
-    #applet-log { left: 8px; bottom: 220px; width: calc(100vw - 16px); }
+    #applet-legend { right: 8px; bottom: 8px; min-width: 130px; }
+    #applet-log { right: 8px; bottom: 8px; left: 8px; width: auto; max-height: 150px; }
     #applet-props { right: 8px; width: 260px; }
 }
 
