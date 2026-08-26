@@ -15,6 +15,7 @@
     <script src="/i18n.fr.js"></script>
     <script src="/i18n.en.js"></script>
     <script src="/i18n.js"></script>
+    <script src="/theme.js"></script>
     <script src="/utils.js"></script>
     <script src="/state.js"></script>
     <script src="/hub.js"></script>
@@ -70,6 +71,10 @@
                 <span class="mode-icon">📷</span>
                 <span class="mode-label" data-i18n="mode.capture">Capture</span>
             </button>
+            <button class="mode-btn" data-mode="sequencer" title="Séquenceur" data-i18n-title="mode.sequencer.title">
+                <span class="mode-icon">📋</span>
+                <span class="mode-label" data-i18n="mode.sequencer">Séquence</span>
+            </button>
             <button class="mode-btn" data-mode="astrometry" title="Astrométrie" data-i18n-title="mode.astrometry.title">
                 <span class="mode-icon">⭐</span>
                 <span class="mode-label" data-i18n="mode.astrometry">Astro</span>
@@ -90,6 +95,10 @@
                 <select id="i18n-lang" title="Langue" style="margin-left:4px; font-size:0.55rem;">
                     <option value="fr">FR</option>
                     <option value="en">EN</option>
+                </select>
+                <select id="theme-select" title="Thème" style="margin-left:4px; font-size:0.55rem;">
+                    <option value="noctua">Noctua</option>
+                    <option value="sober">Sobre</option>
                 </select>
             </div>
             <div id="conn-row-attach" style="display:none;">
@@ -875,6 +884,67 @@
         </div>
 
         <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLET MODE: SÉQUENCEUR (Nina-like)                   -->
+        <!-- ══════════════════════════════════════════════════════ -->
+
+        <div id="applet-sequencer" class="glass-panel applet mode-specific" data-modes="sequencer" style="display:none; top:80px; left:50%; transform:translateX(-50%); width:780px; max-height:calc(100vh - 120px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="seq.title">📋 SÉQUENCEUR — plan d'acquisition</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+
+            <div style="display:flex; gap:10px; max-height:calc(100vh - 180px); overflow:hidden;">
+                <!-- Colonne gauche : liste des cibles -->
+                <div style="flex:1; min-width:0; display:flex; flex-direction:column; overflow:hidden;">
+                    <div class="hw-section-title" style="display:flex; justify-content:space-between; align-items:center;">
+                        <span data-i18n="seq.targets">Cibles</span>
+                        <div>
+                            <button id="seq-add-target" class="btn-glass" style="font-size:0.6rem; padding:2px 6px;" title="Ajouter une cible">＋</button>
+                            <button id="seq-dup-target" class="btn-glass" style="font-size:0.6rem; padding:2px 6px;" title="Dupliquer la cible sélectionnée">⧉</button>
+                            <button id="seq-del-target" class="btn-glass danger" style="font-size:0.6rem; padding:2px 6px;" title="Supprimer la cible sélectionnée">✕</button>
+                        </div>
+                    </div>
+                    <div id="seq-target-list" class="seq-target-list"></div>
+
+                    <div class="hw-section-title" style="margin-top:8px;" data-i18n="seq.global_options">Options globales</div>
+                    <div class="hw-row">
+                        <label class="seq-chk">
+                            <input type="checkbox" id="seq-dith-enabled"> <span data-i18n="seq.dither">Dither</span>
+                        </label>
+                        <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="seq.save_in">Sauver dans :</span>
+                        <input type="text" id="seq-save-dir" class="cap-input" style="flex:1; min-width:0;" placeholder="~/captures/">
+                    </div>
+                </div>
+
+                <!-- Colonne droite : détails de la cible sélectionnée -->
+                <div style="flex:1.2; min-width:0; display:flex; flex-direction:column; overflow:hidden; border-left:1px solid var(--border-subtle); padding-left:10px;">
+                    <div id="seq-target-detail" class="seq-target-detail">
+                        <div style="color:var(--text-muted); font-size:0.65rem; padding:20px; text-align:center;">
+                            Sélectionnez une cible ou ajoutez-en une nouvelle.
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Barre d'actions -->
+            <div style="display:flex; gap:6px; margin-top:8px; padding-top:8px; border-top:1px solid var(--border-subtle); align-items:center;">
+                <button id="seq-start" class="btn-glass success" style="flex:0 0 auto; padding:4px 12px;" data-i18n="seq.start">▶ DÉMARRER</button>
+                <button id="seq-pause" class="btn-glass" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="seq.pause">⏸ Pauser</button>
+                <button id="seq-stop" class="btn-glass danger" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="seq.stop">⏹ STOP</button>
+                <button id="seq-reset" class="btn-glass" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="common.reset">⟲ Reset</button>
+                <div style="flex:1;"></div>
+                <span id="seq-progress-text" style="font-size:0.65rem; color:var(--text-secondary);">0 / 0</span>
+            </div>
+            <div class="cap-progress-bar" id="seq-progress-bar" style="margin-top:4px;">
+                <div class="cap-progress-fill" id="seq-progress-fill" style="width:0%"></div>
+            </div>
+            <div id="seq-current" class="seq-current">—</div>
+            <div id="seq-dither-status" class="seq-dither-status" style="display:none;"></div>
+            <div id="seq-last-saved" class="seq-last-saved" style="display:none;"></div>
+            <div id="seq-error" class="seq-error" style="display:none;"></div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
         <!-- APPLETS MODE: ASTROMÉTRIE (placeholder)               -->
         <!-- ══════════════════════════════════════════════════════ -->
 
@@ -1026,6 +1096,13 @@
                     <button id="target-set-btn" class="btn-glass solver-action-btn" title="Définir la cible (overlay)" data-i18n-title="tgt.set.title" data-i18n="tgt.set">◎ Définir</button>
                     <button id="target-goto-btn" class="btn-glass success solver-action-btn" title="Envoyer la monture vers la cible" data-i18n-title="tgt.goto_btn.title" data-i18n="tgt.goto_btn">GOTO</button>
                 </div>
+            </div>
+
+            <!-- Catalogue -->
+            <div class="solver-section">
+                <div class="solver-label">Catalogue</div>
+                <input type="text" id="target-catalog-search" class="solver-input" placeholder="Rechercher (M31, NGC7000…)" autocomplete="off" style="width:100%; margin-bottom:4px;">
+                <div id="target-catalog-tree" class="seq-catalog-tree" style="max-height:150px;"></div>
             </div>
 
             <!-- Offset display -->
@@ -1251,7 +1328,8 @@
             </div>
             <div class="popup-body">
                 <input type="text" id="obj-select-search" class="prop-input" placeholder="Filtrer (M1, NGC 7000, Véga...)" data-i18n-placeholder="objsel.placeholder" autocomplete="off" style="width:100%; margin-bottom:6px;">
-                <div id="obj-select-results" class="obj-select-results"></div>
+                <div id="obj-select-catalog" class="seq-catalog-tree" style="max-height:300px;"></div>
+                <div id="obj-select-results" class="obj-select-results" style="display:none;"></div>
             </div>
             <div class="popup-footer">
                 <button id="obj-select-goto" class="btn-glass success" title="Pointer l'objet sélectionné" data-i18n-title="objsel.goto" data-i18n="common.goto">➤ GOTO</button>

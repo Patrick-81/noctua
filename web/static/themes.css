@@ -1,0 +1,109 @@
+/* ═══════════════════════════════════════════════════════════════
+   Noctua — Thèmes CSS (Variables)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Thème par défaut (Noctua) — Cyan/Teal vif ──────────────── */
+:root, [data-theme="noctua"] {
+    /* Background */
+    --bg-primary: #020205;
+    --bg-secondary: #010103;
+    --bg-panel: rgba(8, 8, 25, 0.65);
+    --bg-panel-solid: rgba(10, 10, 30, 0.8);
+    --bg-input: rgba(10, 10, 30, 0.8);
+    --bg-hover: rgba(0, 255, 204, 0.08);
+    --bg-active: rgba(0, 255, 204, 0.15);
+
+    /* Accent - Primary (Cyan) */
+    --accent: #00ffcc;
+    --accent-rgb: 0, 255, 204;
+    --accent-dim: rgba(0, 255, 204, 0.4);
+    --accent-subtle: rgba(0, 255, 204, 0.15);
+    --accent-faint: rgba(0, 255, 204, 0.08);
+
+    /* Text */
+    --text-primary: #fff;
+    --text-secondary: #ccc;
+    --text-muted: #888;
+    --text-dim: #666;
+
+    /* Status */
+    --status-online: #88ff88;
+    --status-offline: #ff5555;
+    --status-warning: #ffcc00;
+    --status-error: #ff5577;
+
+    /* Borders */
+    --border-subtle: rgba(0, 255, 204, 0.08);
+    --border-default: rgba(0, 255, 204, 0.15);
+    --border-strong: rgba(0, 255, 204, 0.3);
+    --border-active: #00ffcc;
+
+    /* Shadows */
+    --shadow-panel: 0 8px 32px rgba(0, 0, 0, 0.6);
+    --shadow-glow: 0 0 12px rgba(0, 255, 204, 0.2);
+
+    /* Specific elements */
+    --pinned-border: rgba(0, 255, 204, 0.5);
+    --drag-handle-bg: rgba(0, 255, 204, 0.08);
+    --btn-success: #88ff88;
+    --btn-warning: #ffcc00;
+    --btn-danger: #ff5577;
+    --slider-track: rgba(0, 255, 204, 0.15);
+    --slider-thumb: rgba(0, 255, 204, 0.6);
+    --checkbox-accent: #00ffcc;
+    --mode-btn-active-bg: var(--accent);
+    --mode-btn-active-fg: #020205;
+}
+
+/* ── Thème sobre — Bleu-gris doux, sans flash ────────────────── */
+[data-theme="sober"] {
+    /* Background — léger voile bleuté, pas plus sombre */
+    --bg-primary: #080b10;
+    --bg-secondary: #060810;
+    --bg-panel: rgba(16, 20, 32, 0.70);
+    --bg-panel-solid: rgba(20, 26, 40, 0.82);
+    --bg-input: rgba(14, 18, 28, 0.85);
+    --bg-hover: rgba(120, 150, 180, 0.06);
+    --bg-active: rgba(120, 150, 180, 0.12);
+
+    /* Accent — bleu-gris discret, pas criard */
+    --accent: #7a9ab0;
+    --accent-rgb: 122, 154, 176;
+    --accent-dim: rgba(122, 154, 176, 0.45);
+    --accent-subtle: rgba(122, 154, 176, 0.18);
+    --accent-faint: rgba(122, 154, 176, 0.08);
+
+    /* Text — légèrement adouci, pas blanc pur */
+    --text-primary: #d8dce2;
+    --text-secondary: #a0a8b4;
+    --text-muted: #6a7280;
+    --text-dim: #484f58;
+
+    /* Status — teintés pour rester dans la palette */
+    --status-online: #7aaa82;
+    --status-offline: #a06060;
+    --status-warning: #b8a060;
+    --status-error: #b06870;
+
+    /* Borders — contours gris-bleu fins */
+    --border-subtle: rgba(110, 130, 155, 0.08);
+    --border-default: rgba(110, 130, 155, 0.16);
+    --border-strong: rgba(110, 130, 155, 0.30);
+    --border-active: #7a9ab0;
+
+    /* Shadows — plus douces */
+    --shadow-panel: 0 8px 32px rgba(0, 4, 12, 0.55);
+    --shadow-glow: 0 0 10px rgba(100, 140, 180, 0.10);
+
+    /* Specific elements */
+    --pinned-border: rgba(110, 145, 180, 0.40);
+    --drag-handle-bg: rgba(110, 130, 155, 0.06);
+    --btn-success: #7aaa82;
+    --btn-warning: #b8a060;
+    --btn-danger: #b06870;
+    --slider-track: rgba(110, 130, 155, 0.18);
+    --slider-thumb: rgba(122, 154, 176, 0.55);
+    --checkbox-accent: #7a9ab0;
+    --mode-btn-active-bg: #7a9ab0;
+    --mode-btn-active-fg: #0e1220;
+}

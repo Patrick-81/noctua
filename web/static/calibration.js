@@ -138,12 +138,12 @@ function _calDrawCalCrosshair() {
         const last = hist[hist.length - 1];
         const cx = midX + (last.drift_arcsec_x || 0) * scale;
         const cy = midY - (last.drift_arcsec_y || 0) * scale;
-        ctx.strokeStyle = '#00ffcc';
+        ctx.strokeStyle = cssVar('--accent');
         ctx.lineWidth = 2.5 * dpr;
         const ch = 10 * dpr;
         ctx.beginPath(); ctx.moveTo(cx - ch, cy); ctx.lineTo(cx + ch, cy); ctx.stroke();
         ctx.beginPath(); ctx.moveTo(cx, cy - ch); ctx.lineTo(cx, cy + ch); ctx.stroke();
-        ctx.fillStyle = '#00ffcc';
+        ctx.fillStyle = cssVar('--accent');
         ctx.beginPath(); ctx.arc(cx, cy, 3 * dpr, 0, Math.PI * 2); ctx.fill();
         // Readout
         ctx.fillStyle = '#fff';
@@ -402,7 +402,7 @@ function _calibrateDrawGraph(status) {
         // Legend entry
         ctx.fillStyle = 'rgba(0,0,0,0.5)';
         const lx = pad + 2 * dpr;
-        const ly = pad + 2 * dpr + (['#44cc44','#4488ff'].indexOf(color) * 12 * dpr);
+        const ly = pad + 2 * dpr + ([cssVar('--status-online'),'#4488ff'].indexOf(color) * 12 * dpr);
         ctx.fillRect(lx, ly, 70 * dpr, 10 * dpr);
         ctx.fillStyle = color;
         ctx.font = `${8 * dpr}px monospace`;
@@ -413,8 +413,8 @@ function _calibrateDrawGraph(status) {
         ctx.fillText(label, lx + 14 * dpr, ly + 1 * dpr);
     }
 
-    drawSteps(west, '#44cc44', 'WEST (RA)', true);
-    drawSteps(east, '#44cc44', 'EAST (RA)', false);
+    drawSteps(west, cssVar('--status-online'), 'WEST (RA)', true);
+    drawSteps(east, cssVar('--status-online'), 'EAST (RA)', false);
     drawSteps(north, '#4488ff', 'NORTH (DEC)', true);
     drawSteps(south, '#4488ff', 'SOUTH (DEC)', false);
 }

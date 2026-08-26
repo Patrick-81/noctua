@@ -101,9 +101,9 @@ function _sessionSetStatus(phase, text) {
     const el = document.getElementById('session-status');
     if (el) {
         el.textContent = _sessionStatusText;
-        el.style.color = phase === 'error' ? '#ff5577'
-            : (phase === 'monitor' && _sessionStatusText.includes('⚠')) ? '#ffaa00'
-            : phase === 'done' ? '#44cc44' : '#888';
+        el.style.color = phase === 'error' ? cssVar('--status-error')
+            : (phase === 'monitor' && _sessionStatusText.includes('⚠')) ? cssVar('--status-warning')
+            : phase === 'done' ? cssVar('--status-online') : '#888';
     }
 }
 

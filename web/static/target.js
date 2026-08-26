@@ -47,6 +47,18 @@ function initTargetPanel() {
 
     // Fill RA/DEC from mount position if available
     _targetAutoFillFromMount();
+
+    // Catalogue tree
+    const catSearch = document.getElementById('target-catalog-search');
+    const catTree = document.getElementById('target-catalog-tree');
+    if (catSearch && catTree) {
+        renderCatalogTree(catSearch, catTree, (o) => {
+            const raEl = document.getElementById('target-ra');
+            const decEl = document.getElementById('target-dec');
+            if (raEl) raEl.value = decToSexa(o.ra / 15, true);
+            if (decEl) decEl.value = decToSexa(o.dec, false);
+        });
+    }
 }
 
 function _targetAutoFillFromMount() {
@@ -131,15 +143,15 @@ function updateTargetOffset() {
 
     if (draEl) {
         draEl.textContent = `${deltaRA > 0 ? '+' : ''}${deltaRA.toFixed(1)}'`;
-        draEl.style.color = Math.abs(deltaRA) < _centeringThresholdArcmin ? '#00ff88' : '#00ffcc';
+        draEl.style.color = Math.abs(deltaRA) < _centeringThresholdArcmin ? cssVar('--status-online') : cssVar('--accent');
     }
     if (ddecEl) {
         ddecEl.textContent = `${deltaDEC > 0 ? '+' : ''}${deltaDEC.toFixed(1)}'`;
-        ddecEl.style.color = Math.abs(deltaDEC) < _centeringThresholdArcmin ? '#00ff88' : '#00ffcc';
+        ddecEl.style.color = Math.abs(deltaDEC) < _centeringThresholdArcmin ? cssVar('--status-online') : cssVar('--accent');
     }
     if (distEl) {
         distEl.textContent = dist < 10 ? dist.toFixed(1) + "'" : dist.toFixed(0) + "'";
-        distEl.style.color = dist < _centeringThresholdArcmin ? '#00ff88' : dist < 5 ? '#ffcc00' : '#ff5577';
+        distEl.style.color = dist < _centeringThresholdArcmin ? cssVar('--status-online') : dist < 5 ? cssVar('--status-warning') : cssVar('--status-error');
     }
 
     // Direction (compass bearing)

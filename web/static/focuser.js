@@ -80,7 +80,7 @@ function renderFocuserPanel() {
             const range = max - min || 1;
             const pct = Math.abs(f.dev.position - f.dev.target_position) / range * 100;
             barEl.style.width = (f.dev.is_moving ? pct : 0) + '%';
-            barEl.style.background = f.dev.is_moving ? '#00ffcc' : 'rgba(0,255,204,0.3)';
+            barEl.style.background = f.dev.is_moving ? cssVar('--accent') : ('rgba(' + cssVar('--accent-rgb') + ',0.3)');
         } else {
             barEl.style.width = '0%';
         }
@@ -169,7 +169,7 @@ function _focDrawHfrChart() {
     if (_focHfrData.length >= 2) {
         const xStep = plotW / (_focHfrData.length - 1);
         ctx.beginPath();
-        ctx.strokeStyle = '#00ffcc';
+        ctx.strokeStyle = cssVar('--accent');
         ctx.lineWidth = 1.5;
         for (let i = 0; i < _focHfrData.length; i++) {
             const x = pad + i * xStep;
@@ -187,7 +187,7 @@ function _focDrawHfrChart() {
 
         if (i === bestIdx) {
             // Best point: filled cyan diamond
-            ctx.fillStyle = '#00ffcc';
+            ctx.fillStyle = cssVar('--accent');
             ctx.beginPath();
             ctx.moveTo(x, y - 5);
             ctx.lineTo(x + 5, y);
@@ -483,7 +483,7 @@ function _autofocusDrawVcurve() {
     }
 
     // Data points
-    ctx.strokeStyle = '#00ccff';
+    ctx.strokeStyle = cssVar('--accent');
     ctx.lineWidth = 2;
     ctx.beginPath();
     for (let i = 0; i < _afResults.length; i++) {
@@ -497,7 +497,7 @@ function _autofocusDrawVcurve() {
     for (let i = 0; i < _afResults.length; i++) {
         const x = pad + ((positions[i] - minPos) / posRange) * (w - 2 * pad);
         const y = pad + ((hfrs[i] - minHfr) / hfrRange) * (h - 2 * pad);
-        ctx.fillStyle = '#00ffcc';
+        ctx.fillStyle = cssVar('--accent');
         ctx.beginPath(); ctx.arc(x, y, 3, 0, Math.PI * 2); ctx.fill();
     }
 
@@ -509,10 +509,10 @@ function _autofocusDrawVcurve() {
         }
         const bx = pad + ((positions[bestI] - minPos) / posRange) * (w - 2 * pad);
         const by = pad + ((hfrs[bestI] - minHfr) / hfrRange) * (h - 2 * pad);
-        ctx.strokeStyle = '#ff4444';
+        ctx.strokeStyle = cssVar('--status-error');
         ctx.lineWidth = 2;
         ctx.beginPath(); ctx.arc(bx, by, 7, 0, Math.PI * 2); ctx.stroke();
-        ctx.fillStyle = '#ff4444';
+        ctx.fillStyle = cssVar('--status-error');
         ctx.font = '9px monospace';
         ctx.textAlign = 'center';
         ctx.fillText(positions[bestI], bx, by - 10);

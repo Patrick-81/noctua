@@ -93,7 +93,7 @@ function _guideDetectStars(w, h) {
         const py = offY + (h - 1 - s.y) * scale;
         const selected = _guideSelectedStar && _guideSelectedStar.x === s.x && _guideSelectedStar.y === s.y;
         const radius = selected ? 8 * dpr : 5 * dpr;
-        ovCtx.strokeStyle = selected ? '#ff6600' : 'rgba(0,255,204,0.8)';
+        ovCtx.strokeStyle = selected ? cssVar('--status-warning') : ('rgba(' + cssVar('--accent-rgb') + ',0.8)');
         ovCtx.lineWidth = selected ? 2.5 * dpr : 1.5 * dpr;
         ovCtx.beginPath(); ovCtx.arc(px, py, radius, 0, Math.PI * 2); ovCtx.stroke();
 
@@ -104,14 +104,14 @@ function _guideDetectStars(w, h) {
 
         // Dimmest stars: smaller, fainter markers
         if (i >= 5 && !selected) {
-            ovCtx.strokeStyle = 'rgba(0,255,204,0.3)';
+            ovCtx.strokeStyle = ('rgba(' + cssVar('--accent-rgb') + ',0.3)');
             ovCtx.lineWidth = 1 * dpr;
             ovCtx.beginPath(); ovCtx.arc(px, py, 3 * dpr, 0, Math.PI * 2); ovCtx.stroke();
         }
 
         // Label top 5 or selected
         if (i < 5 || selected) {
-            ovCtx.fillStyle = selected ? '#ff6600' : '#aaa';
+            ovCtx.fillStyle = selected ? cssVar('--status-warning') : '#aaa';
             ovCtx.font = `${selected ? 9 : 7}px monospace`;
             ovCtx.textAlign = 'left';
             ovCtx.fillText(`#${i + 1}`, px + radius + 4 * dpr, py + 3 * dpr);
@@ -124,13 +124,13 @@ function _guideDetectStars(w, h) {
         if (_guideSelectedStar) {
             const idx = _guideStarList.indexOf(_guideSelectedStar) + 1;
             statusEl.textContent = i18nFmt('preview.star_selected', { idx, x: _guideSelectedStar.x, y: _guideSelectedStar.y });
-            statusEl.style.color = '#00ffcc';
+            statusEl.style.color = cssVar('--accent');
         } else if (_guideStarList.length > 0) {
             statusEl.textContent = i18nFmt('preview.star_list', { n: _guideStarList.length });
-            statusEl.style.color = '#ffaa00';
+            statusEl.style.color = cssVar('--status-warning');
         } else {
             statusEl.textContent = i18n('preview.no_star');
-            statusEl.style.color = '#ff4444';
+            statusEl.style.color = cssVar('--status-error');
         }
     }
 }
@@ -146,7 +146,7 @@ function _guideSetStar(star) {
         if (statusEl) {
             const idx = _guideStarList.indexOf(star) + 1;
             statusEl.textContent = `⭐ Étoile #${idx} (${star.x}, ${star.y}) — Prêt pour guidage`;
-            statusEl.style.color = '#00ffcc';
+            statusEl.style.color = cssVar('--accent');
         }
     }
     if (_guideCap()) _guideDetectStars(_guideCap().width, _guideCap().height);
@@ -171,7 +171,7 @@ function _guideAutoSelect() {
         const statusEl = document.getElementById('guide-preview-status');
         if (statusEl) {
             statusEl.textContent = `⭐ Auto: étoile (${best.x}, ${best.y}) qualité=${best.gaussian_quality} — Prêt`;
-            statusEl.style.color = '#00ffcc';
+            statusEl.style.color = cssVar('--accent');
         }
         if (_guideCap()) _guideDetectStars(_guideCap().width, _guideCap().height);
         addLog('info', 'guide', i18nFmt('log.guide.star_selected', { x: best.x, y: best.y, q: best.gaussian_quality }));
@@ -407,7 +407,7 @@ function drawFocusOverlay() {
         ctx.lineTo(star.x + 2, star.y);
         ctx.moveTo(star.x, star.y - 2);
         ctx.lineTo(star.x, star.y + 2);
-        ctx.strokeStyle = 'rgba(0,255,204,0.8)';
+        ctx.strokeStyle = ('rgba(' + cssVar('--accent-rgb') + ',0.8)');
         ctx.lineWidth = 0.5;
         ctx.stroke();
     }
@@ -525,7 +525,7 @@ function drawOffsetVector() {
     // ── Dessiner le vecteur ──
 
     // Ligne principale
-    ctx.strokeStyle = '#00ffcc';
+    ctx.strokeStyle = cssVar('--accent');
     ctx.lineWidth = 2.5;
     ctx.setLineDash([]);
     ctx.beginPath();
@@ -536,7 +536,7 @@ function drawOffsetVector() {
     // Flèche (tête)
     const arrowLen = 14;
     const arrowAngle = Math.atan2(drawY2 - y1, drawX2 - x1);
-    ctx.fillStyle = '#00ffcc';
+    ctx.fillStyle = cssVar('--accent');
     ctx.beginPath();
     ctx.moveTo(drawX2, drawY2);
     ctx.lineTo(
@@ -551,7 +551,7 @@ function drawOffsetVector() {
     ctx.fill();
 
     // Point origine (position résolue)
-    ctx.fillStyle = '#00ffcc';
+    ctx.fillStyle = cssVar('--accent');
     ctx.beginPath();
     ctx.arc(x1, y1, 5, 0, Math.PI * 2);
     ctx.fill();
@@ -562,7 +562,7 @@ function drawOffsetVector() {
     // Réticule cible (à la pointe du vecteur)
     const tgtX = drawX2, tgtY = drawY2;
     const tgtR = 10;
-    ctx.strokeStyle = '#ff8800';
+    ctx.strokeStyle = cssVar('--status-warning');
     ctx.lineWidth = 1.5;
     ctx.setLineDash([4, 3]);
     // Cercle
@@ -599,7 +599,7 @@ function drawOffsetVector() {
     const tw = ctx.measureText(distLabel).width;
     ctx.fillRect(labelX - 3, labelY - 12, tw + 6, 15);
 
-    ctx.fillStyle = '#00ffcc';
+    ctx.fillStyle = cssVar('--accent');
     ctx.fillText(distLabel, labelX, labelY);
 
     // Flèches cardinales (si rotation connue)

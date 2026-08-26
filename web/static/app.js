@@ -85,7 +85,7 @@ Hub.subscribe('calibration:done', 'app', (env) => {
     const status = env.payload;
     const quality = status.quality || '';
     const bad = (quality === 'poor' || quality === 'insufficient_data');
-    const toastColor = bad ? '#ff5577' : '#4a4';
+    const toastColor = bad ? cssVar('--status-error') : '#4a4';
     const msg = i18nFmt('cal.toast_done', { quality });
     showToast(msg, {
         color: toastColor,
@@ -114,7 +114,7 @@ Hub.subscribe('capture:progress', 'app', (env) => {
     const was = _appCaptureRunning;
     _appCaptureRunning = !!p.running;
     if (was && !_appCaptureRunning && !p.aborted && p.total > 0 && p.done >= p.total) {
-        showToast(i18nFmt('toast.capture_done', { done: p.done, total: p.total }), { color: '#44cc44', duration: 3000 });
+        showToast(i18nFmt('toast.capture_done', { done: p.done, total: p.total }), { color: cssVar('--status-online'), duration: 3000 });
     }
 });
 
@@ -295,7 +295,7 @@ function initDraggableApplets() {
         if (isPinned) {
             panel.dataset.pinned = 'true';
             pinBtn.textContent = '🔒';
-            pinBtn.style.color = '#00ffcc';
+            pinBtn.style.color = cssVar('--accent');
             pinBtn.title = i18n('app.unpin');
         } else {
             pinBtn.textContent = '📌';
@@ -314,7 +314,7 @@ function initDraggableApplets() {
             } else {
                 panel.dataset.pinned = 'true';
                 pinBtn.textContent = '🔒';
-                pinBtn.style.color = '#00ffcc';
+                pinBtn.style.color = cssVar('--accent');
                 pinBtn.title = i18n('app.unpin');
                 modeCfg.pinned[panel.id] = true;
             }
@@ -396,6 +396,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     captureViewer.initZoomPan();
     initCapturePanel();
     initSequencePanel();
+    seqInitSequencer();
     initStackingPanel();
     initPreviewResize();
     initSaveImage();

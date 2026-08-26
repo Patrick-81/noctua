@@ -123,7 +123,7 @@ async function _guideCapHandler() {
     if (!cam) { addLog('warn', 'guide', i18n('log.guide.select_camera')); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
     const statusEl = document.getElementById('guide-preview-status');
-    if (statusEl) { statusEl.textContent = i18n('guide.capturing'); statusEl.style.color = '#ffaa00'; }
+    if (statusEl) { statusEl.textContent = i18n('guide.capturing'); statusEl.style.color = cssVar('--status-warning'); }
     addLog('info', 'guide', i18nFmt('log.guide.capture_preview', { exposure }));
     const res = await fetch('/api/camera/expose', {
         method: 'POST',
@@ -132,7 +132,7 @@ async function _guideCapHandler() {
     }).then(r => r.json()).catch(() => null);
     if (!res?.ok) {
         const msg = res?.error || i18n('guide.capture_fail');
-        if (statusEl) { statusEl.textContent = `❌ ${msg}`; statusEl.style.color = '#ff4444'; }
+        if (statusEl) { statusEl.textContent = `❌ ${msg}`; statusEl.style.color = cssVar('--status-error'); }
         addLog('error', 'guide', msg);
     }
 }
@@ -391,7 +391,7 @@ function _guideRenderStarMedallion() {
         ctx.setLineDash([]);
 
         // Repère orange à la position courante
-        ctx.strokeStyle = '#ff6600';
+        ctx.strokeStyle = cssVar('--status-warning');
         ctx.lineWidth = 2 * dpr;
         const dl = 6 * dpr;
         ctx.beginPath();
@@ -399,7 +399,7 @@ function _guideRenderStarMedallion() {
         ctx.moveTo(clampX, clampY - dl); ctx.lineTo(clampX, clampY + dl);
         ctx.stroke();
 
-        ctx.fillStyle = '#ff6600';
+        ctx.fillStyle = cssVar('--status-warning');
         ctx.beginPath();
         ctx.arc(clampX, clampY, 2.5 * dpr, 0, Math.PI * 2);
         ctx.fill();
@@ -455,7 +455,7 @@ function _guideDrawDrift() {
     const tol = tolArcsec / yMax * (midY - pad);
     ctx.fillStyle = 'rgba(255,68,68,0.12)';
     ctx.fillRect(pad, midY - tol, w - 2 * pad, tol * 2);
-    ctx.strokeStyle = '#ff4444';
+    ctx.strokeStyle = cssVar('--status-error');
     ctx.lineWidth = 1.5 * dpr;
     ctx.setLineDash([6 * dpr, 4 * dpr]);
     ctx.beginPath(); ctx.moveTo(pad, midY - tol); ctx.lineTo(w - pad, midY - tol); ctx.stroke();
@@ -463,7 +463,7 @@ function _guideDrawDrift() {
     ctx.setLineDash([]);
 
     // Tolerance label
-    ctx.fillStyle = '#ff6666';
+    ctx.fillStyle = cssVar('--status-error');
     ctx.font = `${9 * dpr}px monospace`;
     ctx.textAlign = 'left';
     ctx.fillText(`±${tolArcsec}″`, pad + 2 * dpr, midY - tol - 4 * dpr);
@@ -531,7 +531,7 @@ function _guideDrawDrift() {
         }
     }
 
-    drawLine(d => d.drift_arcsec_x, '#44cc44');
+    drawLine(d => d.drift_arcsec_x, cssVar('--status-online'));
     drawLine(d => d.drift_arcsec_y, '#4488ff');
 
     // ── Pulse overlay bars (semi-transparent, signed, from baseline) ──
@@ -582,7 +582,7 @@ function _guideDrawDrift() {
         ctx.strokeStyle = 'rgba(255,170,0,0.45)';
         ctx.lineWidth = 1 * dpr;
         ctx.beginPath(); ctx.moveTo(w - pad, snrTop); ctx.lineTo(w - pad, snrBottom); ctx.stroke();
-        ctx.fillStyle = '#ffaa00';
+        ctx.fillStyle = cssVar('--status-warning');
         ctx.font = `${7.5 * dpr}px monospace`;
         ctx.textAlign = 'right';
         ctx.textBaseline = 'middle';
@@ -590,15 +590,15 @@ function _guideDrawDrift() {
             const y = snrY(t);
             ctx.strokeStyle = 'rgba(255,170,0,0.18)';
             ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(w - pad, y); ctx.stroke();
-            ctx.fillStyle = '#ffaa00';
+            ctx.fillStyle = cssVar('--status-warning');
             ctx.fillText(t.toString(), w - pad - 3 * dpr, y + 3 * dpr);
         }
-        ctx.fillStyle = '#ffaa00';
+        ctx.fillStyle = cssVar('--status-warning');
         ctx.font = `${7 * dpr}px monospace`;
         ctx.textAlign = 'right';
         ctx.fillText('SNR', w - pad - 3 * dpr, snrTop - 6 * dpr);
         // Curve
-        ctx.strokeStyle = '#ffaa00';
+        ctx.strokeStyle = cssVar('--status-warning');
         ctx.lineWidth = 1.5 * dpr;
         ctx.beginPath();
         let started = false;
@@ -615,11 +615,11 @@ function _guideDrawDrift() {
         let ls = null, li = -1;
         for (let i = sLast; i >= sFirst; i--) { const d = slots[i]; if (d && d.snr != null) { ls = d.snr; li = i; break; } }
         if (ls != null) {
-            ctx.fillStyle = '#ffaa00';
+            ctx.fillStyle = cssVar('--status-warning');
             ctx.beginPath(); ctx.arc(pad + li * xStep, snrY(ls), 3.5 * dpr, 0, Math.PI * 2); ctx.fill();
             ctx.font = `bold ${9 * dpr}px monospace`;
             ctx.textAlign = 'left';
-            ctx.fillStyle = '#ffcc66';
+            ctx.fillStyle = cssVar('--status-warning');
             ctx.fillText(`${ls.toFixed(1)}`, pad + li * xStep + 6 * dpr, snrY(ls) - 4 * dpr);
         }
     }

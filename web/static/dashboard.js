@@ -76,13 +76,13 @@ function _dashUpdateStats(seqSt) {
             const elapsed = (Date.now() - _dashSeqStart) / 1000;
             const remaining = Math.max(0, (st.total - st.done) * _dashFrameDuration - elapsed);
             countdownEl.textContent = _fmtDuration(remaining);
-            countdownEl.style.color = remaining < 60 ? '#ff5577' : '#00ffcc';
+            countdownEl.style.color = remaining < 60 ? cssVar('--status-error') : cssVar('--accent');
         } else if (st && st.done > 0 && !st.running) {
             countdownEl.textContent = '✓';
-            countdownEl.style.color = '#88ff88';
+            countdownEl.style.color = cssVar('--status-online');
         } else {
             countdownEl.textContent = '—';
-            countdownEl.style.color = '#00ffcc';
+            countdownEl.style.color = cssVar('--accent');
         }
     }
 
@@ -93,7 +93,7 @@ function _dashUpdateStats(seqSt) {
         if (st?.current?.filter) filter = st.current.filter;
         else if (typeof _captureFilter !== 'undefined') filter = _captureFilter;
         filterEl.textContent = filter || '—';
-        filterEl.style.color = filter ? '#ffcc00' : '#666';
+        filterEl.style.color = filter ? cssVar('--status-warning') : '#666';
     }
 
     // RMS (from guide drift history)
@@ -110,7 +110,7 @@ function _dashUpdateStats(seqSt) {
             rmsRA.textContent = fmt(Math.sqrt(raSq / n));
             rmsDEC.textContent = fmt(Math.sqrt(decSq / n));
             rmsTOT.textContent = fmt(Math.sqrt((raSq + decSq) / n));
-            rmsRA.style.color = rmsDEC.style.color = rmsTOT.style.color = '#ffcc00';
+            rmsRA.style.color = rmsDEC.style.color = rmsTOT.style.color = cssVar('--status-warning');
         } else {
             rmsRA.textContent = rmsDEC.textContent = rmsTOT.textContent = '—';
             rmsRA.style.color = rmsDEC.style.color = rmsTOT.style.color = '#666';
@@ -215,7 +215,7 @@ function _dashDrawDrift(ctx, bw, bh, dpr) {
         }
     }
 
-    drawMini(d => d.drift_arcsec_x, '#44cc44');
+    drawMini(d => d.drift_arcsec_x, cssVar('--status-online'));
     drawMini(d => d.drift_arcsec_y, '#4488ff');
 
     // Y-axis labels
@@ -320,7 +320,7 @@ function _dashDrawMedallion(ctx, bw, bh, dpr) {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        ctx.strokeStyle = '#ff6600';
+        ctx.strokeStyle = cssVar('--status-warning');
         ctx.lineWidth = 2.5 * dpr;
         const dl = 7 * dpr;
         ctx.beginPath();

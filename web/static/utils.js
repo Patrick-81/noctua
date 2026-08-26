@@ -1,5 +1,10 @@
 // Pure helpers extracted from app.js — no DOM/state deps (except i18n loaded as global)
 
+// ── CSS variable helper ──
+function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
 // ── Traduction (délègue à I18N, global défini par i18n.js) ──
 function i18n(key) {
     return (typeof I18N !== 'undefined' && typeof I18N.t === 'function') ? I18N.t(key) : key;

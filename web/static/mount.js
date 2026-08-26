@@ -31,7 +31,7 @@ function renderMountPanel() {
     if (slewingEl) {
         slewingEl.textContent = d.slewing ? '● ACTIVE' : '● IDLE';
         slewingEl.className = 'value ' + (d.slewing ? 'status-slewing' : '');
-        slewingEl.style.color = d.slewing ? '#ffcc00' : '#666';
+        slewingEl.style.color = d.slewing ? cssVar('--status-warning') : '#666';
     }
 
     const parkingEl = document.getElementById('status-parking');
@@ -39,14 +39,14 @@ function renderMountPanel() {
         const parking = d.park_state === 'Busy';
         parkingEl.textContent = parking ? '● ACTIVE' : '● IDLE';
         parkingEl.className = 'value ' + (parking ? 'status-parking' : '');
-        parkingEl.style.color = parking ? '#ff8800' : '#666';
+        parkingEl.style.color = parking ? cssVar('--status-warning') : '#666';
     }
 
     const homingEl = document.getElementById('status-homing');
     if (homingEl) {
         homingEl.textContent = d.homing ? '● ACTIVE' : '● IDLE';
         homingEl.className = 'value ' + (d.homing ? 'status-parking' : '');
-        homingEl.style.color = d.homing ? '#ff8800' : '#666';
+        homingEl.style.color = d.homing ? cssVar('--status-warning') : '#666';
     }
 
     const busy = d.park_state === 'Busy' || d.slewing || d.homing;
@@ -111,7 +111,7 @@ function renderFlipPanel(d) {
         const ttf = flip.time_to_flip_fmt || '---';
         if (flip.flip_due) {
             statusEl.textContent = `⚠ FLIP DUE (${flip.flip_side || ''}) — HA ${ha}`;
-            statusEl.style.color = '#ff5555';
+            statusEl.style.color = cssVar('--status-offline');
             statusEl.style.fontWeight = 'bold';
             statusEl.classList.add('flip-due');
         } else {

@@ -34,8 +34,8 @@ class ChecklistPanel {
             el.item.checked = checked;
             if (checked) {
                 el.cb.textContent = '✓';
-                el.cb.style.background = '#00cc88';
-                el.cb.style.borderColor = '#00cc88';
+                el.cb.style.background = cssVar('--accent');
+                el.cb.style.borderColor = cssVar('--accent');
                 el.cb.style.color = '#000';
                 el.label.style.color = '#888';
             } else {
@@ -43,7 +43,7 @@ class ChecklistPanel {
                 el.cb.style.background = 'transparent';
                 el.cb.style.borderColor = '#555';
                 el.cb.style.color = '#ccc';
-                el.label.style.color = '#ff6644';
+                el.label.style.color = cssVar('--status-warning');
             }
         }
     }

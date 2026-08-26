@@ -400,17 +400,17 @@ function polarCompute() {
     if (errAltEl) {
         const sign = errDec > 0 ? '↑' : '↓';
         errAltEl.textContent = `${errDec > 0 ? '+' : ''}${(errDec * 60).toFixed(1)}'`;
-        errAltEl.style.color = Math.abs(errDec * 60) < 2 ? '#00ff88' : '#ffcc00';
+        errAltEl.style.color = Math.abs(errDec * 60) < 2 ? cssVar('--status-online') : cssVar('--status-warning');
     }
     if (arrowAlt) arrowAlt.textContent = errDec > 0 ? '↑ trop bas' : '↓ trop haut';
     if (errAzEl) {
         errAzEl.textContent = `${errAz > 0 ? '+' : ''}${(errAz * 60).toFixed(1)}'`;
-        errAzEl.style.color = Math.abs(errAz * 60) < 2 ? '#00ff88' : '#ffcc00';
+        errAzEl.style.color = Math.abs(errAz * 60) < 2 ? cssVar('--status-online') : cssVar('--status-warning');
     }
     if (arrowAz) arrowAz.textContent = errAz > 0 ? '→ droite' : '← gauche';
     if (errTotalEl) {
         errTotalEl.textContent = `${errTotal.toFixed(1)}'`;
-        errTotalEl.style.color = errTotal < 2 ? '#00ff88' : errTotal < 10 ? '#ffcc00' : '#ff5577';
+        errTotalEl.style.color = errTotal < 2 ? cssVar('--status-online') : errTotal < 10 ? cssVar('--status-warning') : cssVar('--status-error');
     }
     if (poleRAEl) poleRAEl.textContent = _polarRaToSexa(poleRA);
     if (poleDecEl) poleDecEl.textContent = _polarDecToSexa(poleDEC);
@@ -437,7 +437,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     const maxErr = Math.max(Math.abs(errAltArcmin), Math.abs(errAzArcmin), 10);
 
     // Draw crosshairs (true pole)
-    ctx.strokeStyle = 'rgba(0,255,204,0.3)';
+    ctx.strokeStyle = ('rgba(' + cssVar('--accent-rgb') + ',0.3)');
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -462,7 +462,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     const poleY = cy + dy;
 
     // Line from true to found
-    ctx.strokeStyle = '#ffcc00';
+    ctx.strokeStyle = cssVar('--status-warning');
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(cx, cy);
@@ -472,7 +472,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     // Arrow head
     const angle = Math.atan2(poleY - cy, poleX - cx);
     const arrowLen = 10;
-    ctx.fillStyle = '#ffcc00';
+    ctx.fillStyle = cssVar('--status-warning');
     ctx.beginPath();
     ctx.moveTo(poleX, poleY);
     ctx.lineTo(poleX - arrowLen * Math.cos(angle - 0.4), poleY - arrowLen * Math.sin(angle - 0.4));
@@ -481,7 +481,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     ctx.fill();
 
     // Found pole dot
-    ctx.fillStyle = '#ff5577';
+    ctx.fillStyle = cssVar('--status-error');
     ctx.beginPath();
     ctx.arc(poleX, poleY, 4, 0, Math.PI * 2);
     ctx.fill();
@@ -492,7 +492,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
     const corrAz = -errAzArcmin * scale;
 
     if (Math.abs(corrAlt) > 3) {
-        ctx.strokeStyle = '#00ff88';
+        ctx.strokeStyle = cssVar('--status-online');
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 2]);
         ctx.beginPath();
@@ -500,13 +500,13 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
         ctx.lineTo(poleX, poleY + corrAlt);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = cssVar('--status-online');
         ctx.font = '9px monospace';
         ctx.textAlign = 'left';
         ctx.fillText('↑ Alt', poleX + 6, poleY + corrAlt / 2);
     }
     if (Math.abs(corrAz) > 3) {
-        ctx.strokeStyle = '#00ff88';
+        ctx.strokeStyle = cssVar('--status-online');
         ctx.lineWidth = 2;
         ctx.setLineDash([4, 2]);
         ctx.beginPath();
@@ -514,7 +514,7 @@ function _polarDrawDiagram(errAltArcmin, errAzArcmin) {
         ctx.lineTo(poleX + corrAz, poleY);
         ctx.stroke();
         ctx.setLineDash([]);
-        ctx.fillStyle = '#00ff88';
+        ctx.fillStyle = cssVar('--status-online');
         ctx.font = '9px monospace';
         ctx.textAlign = 'center';
         ctx.fillText('Az →', poleX + corrAz / 2, poleY - 8);

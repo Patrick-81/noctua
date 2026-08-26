@@ -79,58 +79,17 @@ function initObjectSearch() {
 function initObjectSelector() {
     const overlay = document.getElementById('obj-select-overlay');
     const search = document.getElementById('obj-select-search');
-    const results = document.getElementById('obj-select-results');
+    const catalog = document.getElementById('obj-select-catalog');
     const closeBtn = document.getElementById('obj-select-close');
     const cancelBtn = document.getElementById('obj-select-cancel');
     const gotoBtn = document.getElementById('obj-select-goto');
     const openBtn = document.getElementById('btn-obj-select');
-    if (!overlay || !search || !results) return;
+    if (!overlay || !search || !catalog) return;
 
-    let allObjects = [];
-    let filtered = [];
-    let activeIdx = -1;
-    let activeObj = null;
-
-    function sourceObjects() {
-        if (allObjects.length) return allObjects;
-        allObjects = (skyEngine && Array.isArray(skyEngine._objects)) ? skyEngine._objects : [];
-        return allObjects;
-    }
-
-    function renderList() {
-        results.innerHTML = '';
-        const q = search.value.trim().toLowerCase();
-        filtered = sourceObjects();
-        if (q) {
-            filtered = filtered.filter(o =>
-                String(o.id || '').toLowerCase().includes(q) ||
-                String(o.name || '').toLowerCase().includes(q) ||
-                String(o.catalog || '').toLowerCase().includes(q) ||
-                (o._aliases || []).some(a => String(a || '').toLowerCase().includes(q)));
-        }
-        if (!filtered.length) {
-            results.innerHTML = `<div class="obj-select-empty">${i18n('objects.no_results')}</div>`;
-            return;
-        }
-        const shown = filtered.slice(0, 300);
-        shown.forEach((o, i) => {
-            const div = document.createElement('div');
-            div.className = 'obj-select-item' + (i === activeIdx ? ' active' : '');
-            div.innerHTML = `<span class="obj-id">${escapeHTML(o.id)}</span><span class="obj-name">${escapeHTML(o.name || '')}</span><span class="obj-catalog">${escapeHTML(o.catalog || '')}</span>`;
-            div.addEventListener('mouseenter', () => setActive(i));
-            div.addEventListener('click', () => { selectObject(o); close(); });
-            results.appendChild(div);
-        });
-        activeIdx = Math.min(activeIdx, shown.length - 1);
-    }
-
-    function setActive(i) {
-        activeIdx = i;
-        activeObj = filtered.slice(0, 300)[i] || null;
-        results.querySelectorAll('.obj-select-item').forEach((el, idx) => el.classList.toggle('active', idx === i));
-    }
+    let selectedObj = null;
 
     function selectObject(o) {
+        selectedObj = o;
         setTargetObject(o);
         if (skyEngine) {
             skyEngine.centerOnObject(o.ra, o.dec);
@@ -139,12 +98,11 @@ function initObjectSelector() {
     }
 
     function open() {
-        activeIdx = -1;
-        activeObj = null;
         search.value = '';
-        renderList();
+        selectedObj = null;
         overlay.style.display = 'flex';
         search.focus();
+        renderCatalogTree(search, catalog, (o) => { selectObject(o); close(); });
     }
 
     function close() {
@@ -155,21 +113,12 @@ function initObjectSelector() {
     if (closeBtn) closeBtn.addEventListener('click', close);
     if (cancelBtn) cancelBtn.addEventListener('click', close);
     overlay.addEventListener('mousedown', (e) => { if (e.target === overlay) close(); });
-    search.addEventListener('input', () => { activeIdx = -1; activeObj = null; renderList(); });
     search.addEventListener('keydown', (e) => {
-        const count = results.querySelectorAll('.obj-select-item').length;
-        if (!count) return;
-        if (e.key === 'ArrowDown') { e.preventDefault(); setActive((activeIdx + 1) % count); }
-        else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((activeIdx - 1 + count) % count); }
-        else if (e.key === 'Enter') {
-            e.preventDefault();
-            if (activeObj) { selectObject(activeObj); close(); }
-        } else if (e.key === 'Escape') { close(); }
+        if (e.key === 'Escape') close();
     });
     if (gotoBtn) gotoBtn.addEventListener('click', () => {
-        const o = activeObj || filtered.slice(0, 300)[0];
-        if (!o) { addLog('warning', 'mount', i18n('log.mount.no_object')); return; }
-        selectObject(o);
+        if (!selectedObj) { addLog('warning', 'mount', i18n('log.mount.no_object')); return; }
+        selectObject(selectedObj);
         mountGoto();
     });
 }
@@ -422,5 +371,76 @@ function initTimeControls() {
     }
 
     fillManualFields(new Date());
+}
+
+// ── Catalogue arborescent réutilisable ────────────────────────
+
+const _catTreeState = {};
+
+function renderCatalogTree(searchEl, treeEl, onSelect) {
+    if (!searchEl || !treeEl) return;
+
+    const allObjects = (skyEngine && Array.isArray(skyEngine._objects)) ? skyEngine._objects : [];
+    const catalogs = {};
+    allObjects.forEach(o => {
+        const cat = o.catalog || 'Autre';
+        if (!catalogs[cat]) catalogs[cat] = [];
+        catalogs[cat].push(o);
+    });
+
+    function render(query) {
+        const q = (query || '').trim().toLowerCase();
+        treeEl.innerHTML = '';
+        const catNames = Object.keys(catalogs).sort();
+        catNames.forEach(cat => {
+            let items = catalogs[cat];
+            if (q) {
+                items = items.filter(o =>
+                    String(o.id || '').toLowerCase().includes(q) ||
+                    String(o.name || '').toLowerCase().includes(q));
+            }
+            if (!items.length) return;
+
+            const expanded = _catTreeState[cat] || false;
+            const folder = document.createElement('div');
+            folder.className = 'seq-catalog-folder';
+
+            const header = document.createElement('div');
+            header.className = 'seq-catalog-header';
+            header.innerHTML = `<span class="seq-catalog-arrow">${expanded ? '▾' : '▸'}</span><span class="seq-catalog-name">${escapeHTML(cat)}</span><span class="seq-catalog-count">${items.length}</span>`;
+            header.addEventListener('click', () => {
+                _catTreeState[cat] = !expanded;
+                render(searchEl.value);
+            });
+            folder.appendChild(header);
+
+            if (expanded) {
+                const list = document.createElement('div');
+                list.className = 'seq-catalog-list';
+                const shown = items.slice(0, 200);
+                shown.forEach(o => {
+                    const el = document.createElement('div');
+                    el.className = 'seq-catalog-item';
+                    el.innerHTML = `<span class="seq-catalog-id">${escapeHTML(o.id)}</span><span class="seq-catalog-label">${escapeHTML(o.name || '')}</span>`;
+                    el.addEventListener('click', () => onSelect(o));
+                    list.appendChild(el);
+                });
+                if (items.length > 200) {
+                    const more = document.createElement('div');
+                    more.className = 'seq-catalog-more';
+                    more.textContent = `… et ${items.length - 200} autres`;
+                    list.appendChild(more);
+                }
+                folder.appendChild(list);
+            }
+            treeEl.appendChild(folder);
+        });
+        if (!catNames.length) {
+            treeEl.innerHTML = '<div style="color:var(--text-muted); font-size:0.6rem; padding:6px;">Aucun catalogue chargé. Attendez le chargement de la carte.</div>';
+        }
+    }
+
+    render('');
+    searchEl.addEventListener('input', () => render(searchEl.value));
 }
 
