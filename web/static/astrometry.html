@@ -1,0 +1,192 @@
+<div id="applet-solver" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none;">
+  <!-- Header -->
+  <div class="applet-drag">
+    <span class="drag-icon">⣿⣿</span>
+    <span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">◎ ASTROMÉTRIE — Solver</span>
+    <button class="applet-minimize" title="Réduire / étendre"></button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       MAIN LAYOUT — 3-column grid, responsive
+       ═══════════════════════════════════════════════════════════ -->
+  <div class="solver-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:10px;">
+
+    <!-- ── LEFT COLUMN — Connection & Controls ── -->
+    <div class="solver-left">
+
+      <!-- Connection -->
+      <div class="solver-section">
+        <div class="solver-row" style="justify-content:space-between; align-items:flex-start;">
+          <div style="display:flex; align-items:center; gap:6px;">
+            <span class="solver-status-indicator" id="solver-status-indicator" style="width:8px; height:8px; border-radius:50%; background:#666;"></span>
+            <span class="solver-status-text" id="solver-status-text" style="font-size:0.7rem; color:#888;">Déconnecté</span>
+          </div>
+          <button class="solver-btn btn-connect" id="solver-connect" title="Connecter au serveur">
+            🔌 Connecter
+          </button>
+        </div>
+      </div>
+
+      <!-- Mode Selection -->
+      <div class="solver-section">
+        <div class="solver-section-header">Mode</div>
+        <div class="solver-mode-group" style="display:flex; gap:6px;">
+          <button class="solver-mode-btn active" data-mode="mount" onclick="solverToggleMode('mount')">
+            🎯 Mode Monture
+          </button>
+          <button class="solver-mode-btn" data-mode="blind" onclick="solverToggleMode('blind')">
+            👁 Mode Aveugle
+          </button>
+        </div>
+      </div>
+
+      <!-- Parameters (Mount mode) -->
+      <div class="solver-section" id="solver-mount-params" style="display:block;">
+        <div class="solver-section-header">Position approximative (Mode Monture)</div>
+        <div class="solver-row">
+          <label style="color:#aaa; font-size:0.65rem; min-width:70px;">RA (°) :</label>
+          <input type="number" class="solver-input" id="solver-ra" placeholder="180.0" step="0.01" value="180.0">
+        </div>
+        <div class="solver-row">
+          <label style="color:#aaa; font-size:0.65rem; min-width:70px;">DEC (°) :</label>
+          <input type="number" class="solver-input" id="solver-dec" placeholder="30.0" step="0.01" value="30.0">
+        </div>
+        <div class="solver-row">
+          <label style="color:#aaa; font-size:0.65rem; min-width:70px;">Échelle (arcsec/pix) :</label>
+          <input type="number" class="solver-input" id="solver-scale" placeholder="0.25" step="0.01" value="0.25">
+        </div>
+      </div>
+
+      <!-- Threshold -->
+      <div class="solver-section">
+        <div class="solver-section-header">Seuil de détection</div>
+        <div class="solver-row">
+          <label style="color:#aaa; font-size:0.65rem; min-width:70px;">Flux (e⁻) :</label>
+          <input type="number" class="solver-input" id="solver-threshold" placeholder="100" value="100" min="1">
+        </div>
+      </div>
+
+      <!-- Solve Button -->
+      <div class="solver-section">
+        <div class="solver-section-header">Résolution</div>
+        <div class="solver-row">
+          <button class="solver-btn btn-solve" id="solver-solve" title="Lancer le plate solving" style="font-size:0.8rem; padding:8px 24px; flex:1;">
+            🚀 Résoudre
+          </button>
+        </div>
+        <div id="solver-progress" style="display:none; margin-top:6px;">
+          <div class="solver-progress-bar" id="solver-progress-bar" style="width:0%;"></div>
+          <div class="solver-progress-text" id="solver-progress-text">0%</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── RIGHT COLUMN — Image & Results ── -->
+    <div class="solver-right">
+
+      <!-- Image Selection -->
+      <div class="solver-section">
+        <div class="solver-section-header">Image</div>
+        <div class="solver-row">
+          <select class="solver-select" id="solver-image-select" onchange="solverSelectImage(this.value)" style="flex:1;">
+            <option value="">— Sélectionner une image —</option>
+          </select>
+          <button class="solver-btn btn-generate" id="solver-generate" title="Générer une image de test">
+            ✨ Générer
+          </button>
+        </div>
+        <div class="solver-row">
+          <span style="color:#888; font-size:0.6rem;">ou charger:</span>
+          <input type="file" id="solver-file-input" accept="image/*,*.fits" onchange="solverSelectFile(this)" style="flex:1; font-size:0.6rem;">
+        </div>
+      </div>
+
+      <!-- Results Summary -->
+      <div class="solver-section" id="solver-results" style="display:none;">
+        <div class="solver-section-header">Résultats</div>
+        <div class="solver-summary" id="solver-summary"></div>
+      </div>
+
+      <!-- Star Matches Table -->
+      <div class="solver-section" id="solver-star-matches" style="display:none;">
+        <div class="solver-section-header">Étoiles matchées</div>
+        <div style="overflow-x:auto;">
+          <table class="solver-table" id="solver-star-table">
+            <thead>
+              <tr>
+                <th>Id</th>
+                <th>Catalogue</th>
+                <th>RA (h)</th>
+                <th>DEC (°)</th>
+                <th>Flux</th>
+                <th>Écart (arcsec)</th>
+              </tr>
+            </thead>
+            <tbody id="solver-star-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- WCS Header -->
+      <div class="solver-section" id="solver-wcs" style="display:none;">
+        <div class="solver-section-header">En-tête WCS</div>
+        <pre class="solver-wcs" id="solver-wcs-header"></pre>
+      </div>
+
+      <!-- Footprint -->
+      <div class="solver-section" id="solver-footprint" style="display:none;">
+        <div class="solver-section-header">Coin de la vue (Footprint)</div>
+        <table class="solver-table" id="solver-footprint-table">
+          <thead>
+            <tr>
+              <th>Coin</th>
+              <th>RA (h:mm:ss)</th>
+              <th>DEC (°:mm:ss)</th>
+            </tr>
+          </thead>
+          <tbody id="solver-footprint-tbody"></tbody>
+        </table>
+      </div>
+
+      <!-- RMS Quality -->
+      <div class="solver-section" id="solver-rms" style="display:none;">
+        <div class="solver-section-header">Qualité de la résolution</div>
+        <div class="solver-rms" style="display:grid; gap:4px;">
+          <div class="solver-row">
+            <label>RMS (arcsec) :</label>
+            <span class="solver-value" id="solver-rms-value">—</span>
+          </div>
+          <div class="solver-row">
+            <label>Échelle (arcsec/pix) :</label>
+            <span class="solver-value" id="solver-scale-value">—</span>
+          </div>
+          <div class="solver-row">
+            <label>Rotation (°) :</label>
+            <span class="solver-value" id="solver-rotation-value">—</span>
+          </div>
+          <div class="solver-row">
+            <label>Centre (RA, DEC) :</label>
+            <span class="solver-value" id="solver-center-value">—</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Canvas Preview -->
+      <div class="solver-section" id="solver-preview" style="display:none;">
+        <div class="solver-section-header">Aperçu de l'image</div>
+        <canvas id="solver-preview-canvas" style="width:100%; border-radius:4px;"></canvas>
+        <div class="solver-preview-info" id="solver-preview-info" style="font-size:0.6rem; color:#888; text-align:center; margin-top:4px;"></div>
+      </div>
+
+      <!-- Log -->
+      <div class="solver-section" id="solver-log" style="display:none;">
+        <div class="solver-section-header">Journal</div>
+        <div class="solver-log-container" id="solver-log-container" style="height:120px; overflow-y:auto; font-size:0.65rem;"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+</div>
