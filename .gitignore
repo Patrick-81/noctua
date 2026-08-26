@@ -10,7 +10,6 @@ simple_test.*
 **/__pycache__/
 *.pyc
 *.pyo
-.git/
 /tmp/
 *.log
 *.parquet
@@ -22,3 +21,15 @@ backups/
 # État runtime auto-sauvegardé par l'application (positions de panneaux, profil actif)
 ui.yaml
 profiles.yaml
+# Fichiers de config personnels
+config.yaml
+.opencode/
+.code-review-graph/
+.codebuddy/
+.cursorrules
+.gemini/
+.kiro/
+.qoder/
+.windsurfrules
+opencode.jsonc
+package-lock.json

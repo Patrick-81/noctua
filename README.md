@@ -168,7 +168,7 @@ PLAN.md, CHECKPOINT.md, TODO_LIST.md, TESTS.md
 
 ## Licence
 
-Projet personnel — code source sous licence open-source MIT (à définir).
+[MIT](LICENSE) — cadeau à la communauté des astronomes amateurs.
 
 ## Avertissement
 
