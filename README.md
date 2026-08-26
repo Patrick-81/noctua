@@ -37,6 +37,62 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 - **Frontend** : JS vanilla (scripts classiques, pas de build step), Canvas, CSS glassmorphisme
 - **Protocole** : INDIGO/INDI XML via TCP (le client parlé INDI au serveur ; le navigateur rejoint le serveur web via WebSocket pour l'état temps réel)
 
+## Compatibilité matérielle — INDIGO comme passerelle universelle
+
+Noctua communique avec **un seul protocole** : INDIGO/INDI (TCP XML sur le port 7624). Ce choix est architectural et délibéré.
+
+### Comment ça fonctionne
+
+```
+┌──────────────┐     TCP/INDIGO      ┌─────────────────┐
+│   Noctua     │ ◄──────────────────► │  indigo_server   │
+│  (navigateur)│                      │  (port 7624)     │
+└──────────────┘                      └────────┬─────────┘
+                                               │
+                              ┌─────────────────┼─────────────────┐
+                              │                 │                 │
+                     ┌────────▼──────┐ ┌────────▼──────┐ ┌───────▼───────┐
+                     │ Drivers natifs│ │ Drivers ASCOM │ │ Drivers INDI  │
+                     │   INDIGO      │ │  (Windows)    │ │  (legacy)     │
+                     └───────────────┘ └───────────────┘ └───────────────┘
+```
+
+**INDIGO est le middleware unique** qui abstraît la couche matérielle. Noctua n'a pas besoin de savoir si un driver est natif INDIGO, ASCOM ou INDI — il parle toujours le même langage.
+
+### Écosystème supporté
+
+| Plateforme | Driver utilisé | Fonctionne avec Noctua ? |
+|---|---|---|
+| **INDIGO natif** (Linux, macOS, Windows) | Drivers CCD/ mount/ focuser INDIGO | **Oui** — natif |
+| **INDIGO + ASCOM** (Windows) | `indigo_server` charge les drivers ASCOM | **Oui** — via INDIGO |
+| **INDIGO + INDI** (Linux) | `indigo_server` charge les drivers INDI | **Oui** — via INDIGO |
+| **ASCOM pur** (Windows, sans INDIGO) | ASCOM COM direct | **Non** — nécessite `indigo_server` |
+| **INDI pur** (Linux, sans INDIGO) | indiserver direct | **Non** — nécessite `indigo_server` |
+
+### Pour les utilisateurs ASCOM
+
+Si vous utilisez des drivers ASCOM (ZWO ASI, QHY, etc.) sur Windows :
+
+1. Installez [INDIGO](https://www.indigo-astronomy.org/) — il inclut un serveur INDIGO qui charge automatiquement vos drivers ASCOM existants
+2. Lancez `indigo_server` avec vos drivers ASCOM
+3. Noctua se connecte au serveur INDIGO et contrôle vos équipements ASCOM normalement
+
+**Rien ne change** — vos drivers ASCOM fonctionnent, Noctua les voit comme des appareils INDIGO.
+
+### Pour les utilisateurs INDI (legacy)
+
+Si vous avez un serveur INDI (`indiserver`) existant :
+
+1. INDIGO est compatible INDI v2 — `indigo_server` peut charger les drivers INDI
+2. Migrez progressivement vers les drivers INDIGO natifs (meilleure stabilité)
+
+### Pourquoi ce choix ?
+
+- **Un seul protocole** = un seul client, un seul code, moins de bugs
+- **Cross-platform** — INDIGO tourne sur Linux, macOS, Windows. ASCOM COM est Windows-only.
+- **Futur-proof** — INDIGO est activement développé et remplace INDI
+- **Communauté** — L'écosystème INDIGO grandit et intègre nativement les drivers ASCOM
+
 ## Démarrage
 
 ```bash
