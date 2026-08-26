@@ -14,7 +14,7 @@ const ROOT = path.resolve(__dirname, '..');
 const MOCK_PORT = 17636;
 const WEB_PORT = 18096;
 const BASE_URL = `http://127.0.0.1:${WEB_PORT}`;
-const PYTHON = path.join(ROOT, 'venv', 'bin', 'python');
+const PYTHON = path.join(ROOT, '.venv', 'bin', 'python');
 let mockProc, webProc, webLog;
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'session-ui-'));
 const SAVE_DIR = path.join(TMP, 'captures');

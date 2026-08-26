@@ -16,9 +16,9 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 
 ## Stack
 - **Backend** : Python 3.10, FastAPI, uvicorn, WebSocket, PyYAML
-- **Frontend** : Vanilla JS (ES modules), HTML5 Canvas, CSS glassmorphisme
+- **Frontend** : Vanilla JS (scripts classiques, pas de build step), HTML5 Canvas, CSS glassmorphisme
 - **Protocole** : INDIGO/INDI XML over TCP (pas WebSocket côté serveur)
-- **Dépendances Python** : fastapi, uvicorn, pyyaml, Pillow
+- **Dépendances Python** : fastapi, uvicorn, websockets, pyyaml, Pillow, seiza, numpy
 
 ## Modules Python
 
@@ -45,7 +45,6 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 | `web/server.py` | Câblage FastAPI : registres, solver, séquence, stacking, broadcast WS, statiques |
 | `web/routers/*.py` | Routes REST découpées par domaine (chacune expose `register(app, server)`) |
 | `web/weblog.py` | Handler Python → WebSocket (logs temps réel) |
-| `web/sky_chart.py` | **Obsolète** — gardé comme archive (ancien renderer starplot) |
 
 ## Modules Frontend
 
@@ -134,25 +133,21 @@ unitaires + produits scalaires, sans d3 par étoile) — parité vérifiée cont
 
 | Suite | Commande | État |
 |---|---|---|
-| Unitaires pytest | `python -m pytest tests/ -q` | 117/117 |
+| Unitaires pytest | `python -m pytest tests/ -q` | 134/134 |
 | Flow guide | `python tests/test_guide_flow.py` | vert |
 | Flow séquence | `python tests/test_sequence_flow.py` | 27/27 |
 | Flow live-stack | `python tests/test_live_stack_flow.py` | 65/65 |
 | Flow autofocus | `python tests/test_autofocus_flow.py` | vert |
 | Flow focus | `python tests/test_focus_flow.py` | vert |
 | Flow hardware | `python tests/test_hardware_flow.py` | 45/45 |
-| UI Playwright | `npx playwright test` | 43/44* |
+| UI Playwright | `npx playwright test` | 48 specs (10 fichiers) |
 | À blanc simulateurs | `python tests/test_blanc_indigo.py` | voir TODO 6 |
-
-\* hors `session-ui.spec.js` « panel renders… » (flake **pré-existant**, dépendant de
-l'heure : le flip méridien réel ne se déclenche que selon le HA courant ; reproductible
-sur arbre propre).
 
 ## Démarrage
 ```bash
 ./start.sh                    # Relance le serveur (tue le précédent)
 # ou
-source venv/bin/activate && python3 run.py
+source .venv/bin/activate && python3 run.py
 ```
 
 ## Serveur INDIGO

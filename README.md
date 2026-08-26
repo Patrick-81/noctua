@@ -34,7 +34,7 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 ## Stack
 
 - **Backend** : Python 3.10+, FastAPI, uvicorn, PyYAML
-- **Frontend** : JS vanilla (ES modules), Canvas, CSS glassmorphisme
+- **Frontend** : JS vanilla (scripts classiques, pas de build step), Canvas, CSS glassmorphisme
 - **Protocole** : INDIGO/INDI XML via TCP (le client parlé INDI au serveur ; le navigateur rejoint le serveur web via WebSocket pour l'état temps réel)
 
 ## Démarrage

@@ -56,8 +56,8 @@ L'autoguidage est orchestré par le frontend : expose guide camera → mesure ce
 
 ### Validation
 - `node --check` sur les 8 fichiers touchés (events, ws, api, preview, mount, capture, focuser, solver, target, guide, hardware, app, calibration, sequence, stacking, i18n).
-- Playwright **36/36** (4.0m) — inclut toast « Calibration terminée », auto-population gains RA/DEC, guidage réel, panneau SÉQUENCE.
-- pytest **105/105** ; smoke headless : 0 erreur console, 0 warning `Bus:`, panneau matériel alimenté par `ws:state`.
+- Playwright **48 specs** (4.0m) — inclut toast « Calibration terminée », auto-population gains RA/DEC, guidage réel, panneau SÉQUENCE.
+- pytest **134/134** ; smoke headless : 0 erreur console, 0 warning `Bus:`, panneau matériel alimenté par `ws:state`.
 
 ## Session 2026-08-15 — Schéma du bus de messages : checkpoint à tenir à jour
 
@@ -119,7 +119,7 @@ Documentation vivante de l'architecture des échanges entre modules frontend (vo
 
 ### Validation
 - `node --check` OK sur tous les fichiers.
-- **Playwright : 36/36** ✓ (viewer, polar, hardware, sequence, guide-validation).
+- **Playwright : 48 specs** ✓ (viewer, polar, hardware, sequence, guide-validation).
 
 ### Fichiers
 - Nouveaux : `state.js`, `viewer.js`, `api.js`, `mount.js`, `controls.js`, `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` (dans `web/static/`).
@@ -154,7 +154,7 @@ Résidu de la section « À tester » de `TODO_LIST.md` : 4 items live-stacking 
 
 ### TODO + suites
 - `TODO_LIST.md` : les 11 items de « À tester » cochés (avec références de test), section 100 % validée.
-- **Playwright complet : 36/36** (viewer 11 + polar 10 + hardware 3 + sequence 3 + guide-validation 2… ; specs existantes non régressées). `node --check web/static/app.js` ✓.
+- **Playwright complet : 48 specs** (viewer 11 + polar 10 + hardware 3 + sequence 3 + guide-validation 2… ; specs existantes non régressées). `node --check web/static/app.js` ✓.
 
 ### Fichiers modifiés / ajoutés
 - `web/static/app.js` : fix dbl-click guide (`initZoomPan`).
@@ -190,7 +190,7 @@ Avant : le stacking n'était pilotable que via `sequence.stack.enabled` (poussé
 - `tests/test_live_stack.py` : +`test_max_frames_completes`, `test_max_frames_zero_is_continuous` (+9 checks).
 - `tests/test_live_stack_flow.py` : session auto-stacking (démarrage, `livestack_TS/`, auto-complete à 3, master sauvegardé dans la session dir).
 - `tests/test_sequence_flow.py` : fichiers vérifiés sous `capture_TS/L/`.
-- Suites complètes : **pytest 105** ✓, flow séquence **27** ✓, flow live-stack **23** ✓, **Playwright 34** ✓, `node --check app.js` ✓.
+- Suites complètes : **pytest 134** ✓, flow séquence **26** ✓, flow live-stack **23** ✓, **Playwright 48 specs** ✓, `node --check app.js` ✓.
 
 ### Fichiers modifiés
 - `indigo/devices/live_stack.py` : `max_frames`, `complete`, `_maybe_complete`, configure/reset/status étendus, fix lock.
@@ -393,9 +393,9 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - `web/static/style.css` : classes .guide-star-marker
 
 ## État des tests
-- **Via pytest** : 52/52
+- **Via pytest** : 134/134
 - **Polar math JS** : 53/53
-- **Playwright** : à jour via `npx playwright test` (specs viewer-ui + polar-ui)
+- **Playwright** : 48 specs (10 fichiers)
 
 ## Session 2026-08-05 — Panneau Matériel + profils + roue à filtres (P1)
 
@@ -451,7 +451,7 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - `tests/test_sequence.py` (10 unitaires) : totaux, validation, groupement de paths, états du runner (ordre, pause/resume, stop, erreurs, reset).
 - `tests/test_sequence_flow.py` (26 checks, `python tests/test_sequence_flow.py`) : mock INDIGO, run 2 poses jusqu'au bout, FITS sur disque, dither, pause/resume/reset, stop en cours.
 - `tests/sequence-ui.spec.js` (3 Playwright) : rendu panel, run 2 poses avec progression + sauvegarde + log, stop en cours.
-- Suites complètes : pytest **91**, Playwright **32**, flow séquence **26**.
+- Suites complètes : pytest **134**, Playwright **48 specs**, flow séquence **26**.
 
 ### Préparation — Test à blanc avec `indigo_server` (devices simulateurs)
 - `indigo_server` v2.0-374 est installé ; les drivers simulateurs sont présents dans `/usr/bin/`.

@@ -10,7 +10,7 @@ const ROOT = path.resolve(__dirname, '..');
 const MOCK_PORT = 17634;
 const WEB_PORT = 18094;
 const BASE_URL = `http://127.0.0.1:${WEB_PORT}`;
-const PYTHON = path.join(ROOT, 'venv', 'bin', 'python');
+const PYTHON = path.join(ROOT, '.venv', 'bin', 'python');
 let mockProc, webProc, webLog;
 const SAVE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'seq-ui-'));
 
