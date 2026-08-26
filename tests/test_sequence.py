@@ -45,14 +45,14 @@ def test_validate_frames():
 
 def test_build_path_groups_by_filter():
     p = build_path("/tmp/seq", {"frame_type": "LIGHT", "filter": "L"}, 1)
-    assert p.startswith("/tmp/seq/L/light_L_001_")
+    assert p.startswith("/tmp/seq/lights/light_L_001_")
     assert p.endswith(".fits")
-    assert "L" in os.path.dirname(p)
+    assert "lights" in os.path.dirname(p)
 
 
 def test_build_path_falls_back_to_group():
     p = build_path("~/seq", {"frame_type": "DARK"}, 2)
-    assert p.startswith(os.path.expanduser("~/seq") + "/dark/dark_dark_002_")
+    assert p.startswith(os.path.expanduser("~/seq") + "/darks/dark_002_")
     assert p.endswith(".fits")
 
 

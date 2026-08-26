@@ -38,6 +38,10 @@ const MODES = {
         applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence', 'applet-session'],
         driverType: 'ccd'
     },
+    sequencer: {
+        applets: ['applet-sequencer'],
+        driverType: 'ccd'
+    },
     astrometry: {
         applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-capture-preview'],
         driverType: 'ccd'
@@ -53,6 +57,19 @@ let skyEngine = null;
 let currentMode = 'mount';
 let uiConfig = {};
 let _initDone = false;
+
+// ── Séquenceur (modèle Nina-like) ─────────────────────────────
+
+let seqData = {
+    targets: [],
+    dither: { enabled: false, amount: 2.0 },
+    save_dir: '',
+    stacking: { enabled: false },
+};
+let seqTargetIdCounter = 0;
+let seqSelectedTargetId = null;
+let seqStatus = { running: false, paused: false, done: 0, total: 0, current: null };
+let seqQuickCapture = null;
 
 async function loadUiConfig() {
     try {

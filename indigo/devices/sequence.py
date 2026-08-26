@@ -212,10 +212,18 @@ def validate_frames(frames: list[dict]) -> str | None:
 
 
 def build_path(save_dir: str, frame: dict, index: int) -> str:
-    """Build a FITS filename grouped by filter."""
+    """Build a FITS filename grouped by frame type (lights/, darks/, flats/, biases/)."""
     safe_dir = os.path.expanduser(save_dir or "")
-    group = (frame.get("frame_type") or "LIGHT").lower()
-    sub = frame.get("filter") or group
-    subdir = os.path.join(safe_dir, sub)
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return os.path.join(subdir, f"{group}_{sub}_{index:03d}_{ts}.fits")
+    frame_type = (frame.get("frame_type") or "LIGHT").lower()
+    frametype_dir = {
+        "light": "lights", "dark": "darks",
+        "flat": "flats", "bias": "biases",
+    }.get(frame_type, f"{frame_type}s")
+    filt = frame.get("filter") or ""
+    name_parts = [frame_type]
+    if filt:
+        name_parts.append(filt)
+    name_parts.append(f"{index:03d}")
+    name_parts.append(datetime.now().strftime("%Y%m%d_%H%M%S"))
+    subdir = os.path.join(safe_dir, frametype_dir)
+    return os.path.join(subdir, "_".join(name_parts) + ".fits")
