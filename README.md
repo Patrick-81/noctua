@@ -93,15 +93,42 @@ Si vous avez un serveur INDI (`indiserver`) existant :
 - **Futur-proof** — INDIGO est activement développé et remplace INDI
 - **Communauté** — L'écosystème INDIGO grandit et intègre nativement les drivers ASCOM
 
-## Démarrage
+## Installation et démarrage
+
+### Prérequis
+
+- Python **3.10 ou plus récent** (Python 3.12 recommandé)
+- Un serveur [INDIGO](https://www.indigo-astronomy.org/) accessible sur le réseau, par défaut sur `192.168.1.25:7624`
+- `git`
+
+### Installation
+
+```bash
+git clone <url-du-depot>
+cd noctua
+
+# Créer l'environnement virtuel avec Python 3.10+
+python3 -m venv .venv
+source .venv/bin/activate       # macOS/Linux
+# .venv\\Scripts\\activate      # Windows PowerShell
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+
+# Créer la configuration locale si nécessaire
+cp config.example.yaml config.yaml
+```
+
+Adaptez ensuite `config.yaml`, notamment `indigo.host`, `indigo.port` et le
+port web. Le fichier `config.yaml` local n'est pas destiné à être versionné.
+
+### Lancer l'application
 
 ```bash
 # D'un terminal, côté serveur INDIGO réel ou simulateurs :
 indigo_server -p 7624 indigo_mount_simulator indigo_ccd_simulator ...
 
 # Côté client :
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
 ./start.sh                    # lit config.yaml (INDIGO + web)
 ./start.sh 192.168.1.100:7624 # surcharge l'adresse du serveur
 ./start.sh --port 8080        # surcharge le port web
