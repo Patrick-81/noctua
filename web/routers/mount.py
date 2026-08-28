@@ -3,7 +3,7 @@
 import asyncio
 from typing import TYPE_CHECKING
 
-from .common import SanitizedJSONResponse, log
+from .common import SanitizedJSONResponse
 
 if TYPE_CHECKING:
     from ..server import WebServer
@@ -123,59 +123,4 @@ def register(app, server: "WebServer") -> None:
     @app.post("/api/mount/flip")
     async def mount_flip():
         """Execute a manual meridian flip sequence."""
-        m = server.registry.get_mount()
-        if not m:
-            return {"error": "no mount"}
-        if not m.connected:
-            return {"ok": False, "error": "mount not connected"}
-        phases = []
-
-        # 1. Stop any in-progress camera exposure cleanly
-        for cam in server.registry._devices.values():
-            if getattr(cam, "DEVICE_TYPE", None) == "camera" and getattr(cam, "is_ready", False):
-                try:
-                    await cam.abort()
-                    phases.append(f"capture abort ({cam.name})")
-                except Exception as e:
-                    log.warning("flip: cam abort failed for %s: %s", cam.name, e)
-
-        # 2. Stop guiding if active
-        try:
-            if hasattr(server, "_guide") and hasattr(server._guide, "stop"):
-                st = server._guide.status()
-                if str(st.get("state", "")).lower() in ("guiding", "starting"):
-                    server._guide.stop()
-                    phases.append("guiding stopped")
-        except Exception as e:
-            log.warning("flip: guide stop failed: %s", e)
-
-        # 3. Capture current target before aborting the slew
-        ra = m.ra_hours
-        dec = m.dec_deg
-        if ra is None or dec is None:
-            return {"ok": False, "error": "mount has no coordinates to flip back to",
-                    "phases": phases}
-
-        # 4. Abort current motion, then slew to the same target (the flip itself)
-        try:
-            await m.abort()
-            phases.append("motion aborted")
-        except Exception as e:
-            log.warning("flip: abort failed: %s", e)
-        await asyncio.sleep(1.0)
-
-        # Set a centering slew rate so the flip doesn't run at max speed
-        rate = server.telescope.get("flip_slew_rate", "Centering")
-        try:
-            await m.set_slew_rate(rate)
-        except Exception:
-            pass
-
-        await m.slew_to(ra, dec)
-        phases.append(f"slew to RA={ra:.4f}h DEC={dec:.4f}°")
-
-        # 5. Optional: recenter via plate solve on the same target
-        if server.telescope.get("recenter_after_flip", True):
-            phases.append("recenter pending (solve)")
-
-        return {"ok": True, "phases": phases, "target": {"ra_hours": ra, "dec_deg": dec}}
+        return await server._do_meridian_flip()

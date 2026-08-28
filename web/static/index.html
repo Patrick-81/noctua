@@ -40,6 +40,9 @@
     <script src="/dashboard.js"></script>
     <script src="/calibration.js"></script>
     <script src="/session.js"></script>
+    <script src="/flatwizard.js"></script>
+    <script src="/pointing.js"></script>
+    <script src="/visibility.js"></script>
 </head>
 <body>
 
@@ -88,7 +91,7 @@
                     <option value="connect">Connect</option>
                     <option value="attach">Attach</option>
                 </select>
-                <input id="indigo-ip" placeholder="Hôte" value="192.168.1.25" style="width:110px;" data-i18n-placeholder="conn.host">
+                <input id="indigo-ip" placeholder="Hôte" value="127.0.0.1" style="width:110px;" data-i18n-placeholder="conn.host">
                 <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;" data-i18n-placeholder="conn.port">
                 <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
                 <span id="indigo-status" class="status-offline">● Hors ligne</span>
@@ -263,7 +266,7 @@
                 <div id="flip-status" style="font-size:0.62rem; color:#888; margin-top:4px;">HA --- (calcul en attente)</div>
                 <div class="joy-speed-row" style="margin-top:6px;">
                     <label style="font-size:0.55rem; color:#777; flex:1;" data-i18n="pil.flip_margin">Marge HA (h)</label>
-                    <input type="number" id="flip-margin" step="0.1" min="-2" max="6" value="0" style="width:52px;">
+                    <input type="number" id="flip-margin" step="0.1" min="-2" max="6" value="0.2" style="width:52px;">
                 </div>
                 <div class="joy-speed-row" style="margin-top:4px;">
                     <label style="font-size:0.55rem; color:#777; flex:1;" data-i18n="pil.flip_min_alt">Alt min (°)</label>
@@ -618,7 +621,7 @@
         <!-- APPLETS MODE: CAPTURE (placeholder)                   -->
         <!-- ══════════════════════════════════════════════════════ -->
 
-        <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:260px;">
+        <div id="applet-capture-settings" class="glass-panel applet mode-specific" data-modes="capture" style="display:none; top:80px; right:16px; width:320px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="cap.title">◎ CAPTURE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
 
             <!-- Camera status indicator -->
@@ -764,6 +767,57 @@
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
                 <button id="cap-stacking-toggle" class="btn-glass" style="width:100%; font-size:0.6rem; padding:4px 8px;" data-i18n="cap.stacking_toggle">◈ Live stacking</button>
             </div>
+
+            <!-- Flat wizard toggle (foldable section inside the capture panel) -->
+            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
+                <button id="fw-config-toggle" class="btn-glass" style="width:100%; font-size:0.6rem; padding:4px 8px;" data-i18n="fw.toggle">◈ FLAT WIZARD</button>
+                <div id="fw-body" style="display:none; margin-top:6px;">
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.adu">ADU cible</span>
+                        <input type="number" id="fw-adu" class="cap-input" value="22000" min="1000" step="500" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.tol">Tolérance %</span>
+                        <input type="number" id="fw-tolerance" class="cap-input" value="5" min="1" step="1" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.start">Durée départ (s)</span>
+                        <input type="number" id="fw-start" class="cap-input" value="1" min="0.05" step="0.1" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.min">Durée min (s)</span>
+                        <input type="number" id="fw-min" class="cap-input" value="0" min="0" step="0.1" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.max">Durée max (s)</span>
+                        <input type="number" id="fw-max" class="cap-input" value="30" min="0.1" step="0.5" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.filter">Filtre</span>
+                        <input type="text" id="fw-filter" class="cap-input" placeholder="L, R, Ha…" style="flex:1; min-width:0;">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" data-i18n="fw.binning">Binning</span>
+                        <input type="text" id="fw-binning" class="cap-input" value="1x1" placeholder="1x1, 2x2…" style="flex:1; min-width:0;">
+                    </div>
+
+                    <div class="seq-actions" style="margin-top:6px;">
+                        <button id="fw-configure" class="btn-glass" style="flex:1;" data-i18n="fw.configure">⚙ Configurer</button>
+                    </div>
+                    <div class="seq-actions" style="margin-top:4px;">
+                        <button id="fw-step" class="btn-glass success" style="flex:1;" data-i18n="fw.step">⏱ Poser & mesurer</button>
+                        <button id="fw-auto" class="btn-glass" style="flex:1;" data-i18n="fw.auto">⏵ AUTO</button>
+                        <button id="fw-reset" class="btn-glass" style="flex:1;" data-i18n="common.reset">⟲ Reset</button>
+                    </div>
+
+                    <div class="hw-row"><span class="hw-label" data-i18n="fw.state">État</span><span id="fw-st-toptext" class="stk-status">—</span></div>
+                    <div class="hw-row"><span class="hw-label" data-i18n="fw.dur">Durée</span><span id="fw-st-duration" class="stk-status">—</span></div>
+                    <div class="hw-row"><span class="hw-label" data-i18n="fw.lastadu">Dernier ADU</span><span id="fw-st-lastadu" class="stk-status">—</span></div>
+                    <div class="hw-row"><span class="hw-label" data-i18n="fw.step_l">Pas</span><span id="fw-st-step" class="stk-status">—</span></div>
+                    <div class="hw-row"><span class="hw-label" data-i18n="fw.conv">Convergé</span><span id="fw-st-done" class="stk-status">non</span></div>
+                    <div id="fw-status" class="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888; white-space:normal;"></div>
+                </div>
+            </div>
         </div>
 
         <!-- APPLET MODE: CAPTURE — Panneau SÉQUENCE -->
@@ -851,6 +905,56 @@
             <div class="stk-status" id="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888;">Ready</div>
             <div id="stk-session-dir" class="stk-session-dir" style="font-size:0.6rem; color:#00b3a0;"></div>
             <div id="stk-error" class="seq-error" style="display:none;"></div>
+        </div>
+
+        <!-- APPLET MODE: ASTROMETRY — Panneau POINTING MODEL -->
+        <div id="applet-pointing" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:16px; right:16px; left:auto; width:340px; max-height:calc(100vh - 140px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" data-i18n="pt.title">◈ POINTING MODEL</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+
+            <div class="control-grid" style="grid-template-columns:1fr auto; align-items:center;">
+                <span style="font-size:0.6rem; color:#aaa;" data-i18n="pt.apply_label">Appliquer la correction aux GOTO</span>
+                <label class="layer-cb" style="font-size:0.6rem;"><input type="checkbox" id="pt-apply-check"> <span>off/on</span></label>
+            </div>
+
+            <div class="hw-section-title" data-i18n="pt.add">Ajouter un échantillon (degrés)</div>
+            <div class="hw-row">
+                <span class="hw-label">RA</span><input type="number" id="pt-ra" class="cap-input" value="100" step="0.1" style="flex:1; min-width:0;">
+                <span class="hw-label">DEC</span><input type="number" id="pt-dec" class="cap-input" value="35" step="0.1" style="flex:1; min-width:0;">
+            </div>
+            <div class="hw-row">
+                <span class="hw-label">ΔRA</span><input type="number" id="pt-dra" class="cap-input" value="0" step="0.01" style="flex:1; min-width:0;">
+                <span class="hw-label">ΔDEC</span><input type="number" id="pt-ddec" class="cap-input" value="0" step="0.01" style="flex:1; min-width:0;">
+            </div>
+            <div class="seq-actions" style="margin-top:6px;">
+                <button id="pt-add" class="btn-glass" style="flex:1;" data-i18n="pt.add_btn">+ Ajouter</button>
+                <button id="pt-clear" class="btn-glass danger" style="flex:1;" data-i18n="pt.clear">⟲ Vider</button>
+            </div>
+
+            <div class="hw-section-title" style="margin-top:8px;" data-i18n="pt.correct">Correction interpolée</div>
+            <div class="hw-row">
+                <span class="hw-label">RA</span><input type="number" id="pt-c-ra" class="cap-input" value="100" step="0.1" style="flex:1; min-width:0;">
+                <span class="hw-label">DEC</span><input type="number" id="pt-c-dec" class="cap-input" value="35" step="0.1" style="flex:1; min-width:0;">
+            </div>
+            <div class="seq-actions" style="margin-top:6px;">
+                <button id="pt-correct" class="btn-glass success" style="flex:1;" data-i18n="pt.correct_btn">➤ Interpoler</button>
+            </div>
+            <div class="hw-row"><span class="hw-label">ΔRA</span><span id="pt-c-dra" class="stk-status">—</span><span class="hw-label">ΔDEC</span><span id="pt-c-ddec" class="stk-status">—</span></div>
+
+            <div class="hw-section-title" style="margin-top:8px;" data-i18n="pt.model">Modèle ajusté</div>
+            <div class="seq-actions" style="margin-top:6px;">
+                <button id="pt-fit" class="btn-glass success" style="flex:1;" data-i18n="pt.fit_btn">⌘ Ajuster le modèle</button>
+            </div>
+            <div id="pt-fit-info" class="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888; white-space:normal;">—</div>
+            <div id="pt-fit-coefs" style="margin-top:4px; font-size:0.55rem; color:#777; white-space:normal; display:none;"></div>
+
+            <div class="hw-section-title" style="margin-top:8px;" data-i18n="pt.samples">Échantillons (<span id="pt-count">0</span>)</div>
+            <div style="max-height:150px; overflow:auto; font-size:0.6rem;">
+                <table style="width:100%; border-collapse:collapse; text-align:right;">
+                    <thead><tr style="color:#888;"><th style="text-align:left;">RA</th><th>DEC</th><th>ΔRA</th><th>ΔDEC</th></tr></thead>
+                    <tbody id="pt-rows"><tr><td colspan="4" style="opacity:.5">Aucun échantillon</td></tr></tbody>
+                </table>
+            </div>
+            <div id="pt-status" class="stk-status" style="margin-top:6px; font-size:0.6rem; color:#888; white-space:normal;"></div>
         </div>
 
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px; height:420px;">
@@ -1334,6 +1438,31 @@
             <div class="popup-footer">
                 <button id="obj-select-goto" class="btn-glass success" title="Pointer l'objet sélectionné" data-i18n-title="objsel.goto" data-i18n="common.goto">➤ GOTO</button>
                 <button id="obj-select-cancel" class="btn-glass" data-i18n="objsel.close">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Target visibility popup -->
+    <div id="vis-overlay" class="popup-overlay" style="display:none">
+        <div class="popup-panel" style="width:560px; max-width:95vw;">
+            <div class="popup-header">
+                <h2><span data-i18n="vis.title">Visibilité 24h</span> — <span id="vis-obj-name"></span></h2>
+                <button id="vis-close" class="popup-close">&times;</button>
+            </div>
+            <div class="popup-body">
+                <div id="vis-object" class="vis-object"></div>
+                <div class="vis-metrics">
+                    <div class="vis-metric"><span class="vis-metric-label" data-i18n="vis.mag">Mag</span><span class="vis-metric-value" id="vis-mag">—</span></div>
+                    <div class="vis-metric"><span class="vis-metric-label" data-i18n="vis.sb">Mag surf.</span><span class="vis-metric-value" id="vis-sb">—</span></div>
+                    <div class="vis-metric"><span class="vis-metric-label" data-i18n="vis.size">Taille</span><span class="vis-metric-value" id="vis-size">—</span></div>
+                </div>
+                <svg id="vis-chart" viewBox="0 0 560 200" style="width:100%; height:auto; background:rgba(0,0,0,0.25); border-radius:6px;"></svg>
+                <div id="vis-times" class="vis-times"></div>
+                <div id="vis-window" class="vis-window"></div>
+            </div>
+            <div class="popup-footer">
+                <button id="vis-goto" class="btn-glass success" data-i18n="common.goto">➤ GOTO</button>
+                <button id="vis-cancel" class="btn-glass" data-i18n="vis.close">Fermer</button>
             </div>
         </div>
     </div>

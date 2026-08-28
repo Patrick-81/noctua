@@ -121,5 +121,5 @@ source .venv/bin/activate && python3 run.py
 
 ## Serveur INDIGO
 - `./start-mock-server.sh` pour le serveur mock (dev)
-- INDIGO réel : `192.168.1.25:7624`
+- INDIGO réel : `<indigo_host>:7624`
 - Serveur web : `http://0.0.0.0:8080`

@@ -1929,3 +1929,14 @@ body {
     padding: 3px 8px;
     font-style: italic;
 }
+
+/* ── Visibility popup ─────────────────────────────────────────── */
+.vis-object { margin-bottom: 8px; }
+.vis-metrics { display: flex; gap: 12px; flex-wrap: wrap; margin: 8px 0; }
+.vis-metric { display: flex; flex-direction: column; background: rgba(255,255,255,0.04); border-radius: 6px; padding: 6px 10px; min-width: 90px; }
+.vis-metric-label { font-size: 0.55rem; color: var(--text-dim); text-transform: uppercase; }
+.vis-metric-value { font-size: 0.78rem; color: var(--accent); font-weight: bold; margin-top: 2px; }
+.vis-times { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px; font-size: 0.62rem; }
+.vis-time { display: flex; flex-direction: column; }
+.vis-window { margin-top: 6px; font-size: 0.62rem; color: var(--text-muted); }
+.vis-window .vis-metric-label { margin-right: 6px; }

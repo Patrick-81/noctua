@@ -33,3 +33,7 @@ config.yaml
 .windsurfrules
 opencode.jsonc
 package-lock.json
+# Fichiers machine-spécifiques / scratch
+.mcp.json
+analyse-code.md
+_skyshot.js

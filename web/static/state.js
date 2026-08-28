@@ -43,7 +43,7 @@ const MODES = {
         driverType: 'ccd'
     },
     astrometry: {
-        applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-capture-preview'],
+        applets: ['applet-solver', 'applet-target', 'applet-polar', 'applet-pointing', 'applet-capture-preview'],
         driverType: 'ccd'
     },
     hardware: {

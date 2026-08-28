@@ -1,228 +1,219 @@
-"""Tests de la détection de crossing du méridien et du flip manuel."""
+"""Tests d'intégration du flip méridien via l'API réelle (web/routers/mount.py)."""
 
-import asyncio
 import pytest
-
 from fastapi.testclient import TestClient
-from indigo.client import IndigoClient
-from indigo.registry import DeviceRegistry
+
 from indigo.devices.mount import Mount
+from indigo.protocol import PropertyVector
+from indigo.registry import DeviceRegistry
 from web.server import WebServer
 
 
-class MockIndigoClient:
-    """Mock client pour les tests de meridian flip."""
-
-    def __init__(self):
-        self.connected = True
-        self._properties = {}
-
-    def send_get_properties(self, device_name, prop_name):
-        """Simule une réponse de coordonnées."""
-        pass
-
-    def send_switch(self, prop_name, items):
-        """Simule l'envoi d'un switch."""
-        pass
-
-    def send_number(self, prop_name, items):
-        """Simule l'envoi d'un nombre."""
-        pass
-
-    def on_property_def(self, pv):
-        """Renvoie un vecteur de propriétés mock."""
-        self._properties[pv.name] = pv
-
-    def on_property_set(self, pv):
-        """Renvoie un vecteur de propriétés mock."""
-        self._properties[pv.name] = pv
-
-    def on_property_new(self, pv):
-        """Renvoie un vecteur de propriétés mock."""
-        self._properties[pv.name] = pv
-
-    def on_property_del(self, pv):
-        """Renvoie un vecteur de propriétés mock."""
-        self._properties.pop(pv.name, None)
+def _dummy_client():
+    """Objet minimal acceptant les callbacks assignés par DeviceRegistry."""
+    return type("Client", (), {})()
 
 
 @pytest.fixture
-def mock_client():
-    """Crée un client mock."""
-    return MockIndigoClient()
-
-
-@pytest.fixture
-def registry(mock_client):
-    """Crée un registry avec une monture configurée."""
-    client = mock_client
-    registry = DeviceRegistry(client)
-
-    # Simuler une monture avec ses propriétés
-    mount = Mount("CGEM", client)
+def registry():
+    registry = DeviceRegistry(_dummy_client())
+    mount = Mount("CGEM", registry.client)
     mount.connected = True
-    mount._properties["MOUNT_EQUATORIAL_COORDINATES"] = PropertyVector(
-        "MOUNT_EQUATORIAL_COORDINATES", "Ok",
-        items=[
-            {"name": "RA", "value": 100.5, "unit": "hours"},
-            {"name": "DEC", "value": "-5.2", "unit": "degrees"},
-        ]
-    )
-    mount._properties["MOUNT_TRACKING"] = PropertyVector(
-        "MOUNT_TRACKING", "On",
-        items=[
-            {"name": "TRACK_ON", "value": True},
-            {"name": "TRACK_OFF", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_PARK"] = PropertyVector(
-        "MOUNT_PARK", "Ok",
-        items=[
-            {"name": "PARKED", "value": False},
-            {"name": "UNPARKED", "value": True},
-        ]
-    )
-    mount._properties["MOUNT_MOTION_DEC"] = PropertyVector(
-        "MOUNT_MOTION_DEC", "Ok",
-        items=[
-            {"name": "MOTION_NORTH", "value": False},
-            {"name": "MOTION_SOUTH", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_MOTION_RA"] = PropertyVector(
-        "MOUNT_MOTION_RA", "Ok",
-        items=[
-            {"name": "MOTION_EAST", "value": False},
-            {"name": "MOTION_WEST", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_ABORT_MOTION"] = PropertyVector(
-        "MOUNT_ABORT_MOTION", "Ok",
-        items=[
-            {"name": "ABORT_MOTION", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_ON_COORDINATES_SET"] = PropertyVector(
-        "MOUNT_ON_COORDINATES_SET", "Ok",
-        items=[
-            {"name": "SLEW", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_SLEW_RATE"] = PropertyVector(
-        "MOUNT_SLEW_RATE", "Centering",
-        items=[
-            {"name": "Guide", "value": False},
-            {"name": "Centering", "value": True},
-            {"name": "Find", "value": False},
-            {"name": "Max", "value": False},
-        ]
-    )
-    mount._properties["MOUNT_HOME"] = PropertyVector(
-        "MOUNT_HOME", "Ok",
-        items=[
-            {"name": "HOME", "value": False},
-        ]
-    )
-    registry.devices["CGEM"] = mount
-
+    mount.ra_hours = 5.0
+    mount.dec_deg = 30.0
+    mount.az_deg = 180.0
+    mount.alt_deg = 40.0
+    registry._devices["CGEM"] = mount
     return registry
 
 
 @pytest.fixture
 def client(registry):
-    """Crée un client de test avec un registry configuré."""
-    server = WebServer(registry)
-    test_client = TestClient(server.app)
-    return test_client
+    server = WebServer(
+        registry,
+        site_config={"longitude": 0.0},
+        telescope_config={
+            "flip_enabled": True,
+            "hour_angle_margin": 0.0,
+            "min_altitude": 5.0,
+        },
+    )
+    server.registry._devices["CGEM"].client = server.registry.client
+    return TestClient(server.app)
 
 
-class PropertyVector:
-    """Classe simple pour simuler un PropertyVector."""
-
-    def __init__(self, name, state, items=None):
-        self.name = name
-        self.state = state
-        self._items = items or []
-
-    def get_item(self, item_name):
-        for item in self._items:
-            if item["name"] == item_name:
-                return item
-        return None
-
-    @property
-    def items(self):
-        return self._items
+def _mount(server):
+    return server.registry.get_mount()
 
 
-@pytest.mark.parametrize("crossing, expected", [
-    # (prev_ha, curr_ha, expected_flip_side)
-    ((-0.2, 0.05), "east"),
-    ((-0.15, 0.0), "east"),
-    ((-0.1, 0.01), "east"),
-    ((0.0, 0.05), "west"),
-    ((0.05, 0.2), "west"),
-    ((-0.1, -0.05), None),  # pas de crossing
-    ((-0.05, -0.01), None),  # pas de crossing
-])
-def test_meridian_crossing_detection(client, crossing, expected):
-    """Test de la détection de crossing du méridien."""
-    # Mock de la monture
-    mount = type("MockMount", (), {
-        "get_property": lambda name, default=None: {
-            "RA": 100.5, "DEC": -5.2,
-            "RA_RATE": 15.041068, "DEC_RATE": 15.041068,
-            "MOUNT_MODE": "SLEW", "GUIDING": "OFF",
-            "MOUNT_NAME": "CGEM", "RA_DEC_ERROR": 0.1,
-        }.get(name, default),
-        "get_item_value": lambda name, default=None: {
-            "RA": 100.5, "DEC": -5.2,
-            "RA_RATE": 15.041068, "DEC_RATE": 15.041068,
-            "MOUNT_MODE": "SLEW", "GUIDING": "OFF",
-            "MOUNT_NAME": "CGEM", "RA_DEC_ERROR": 0.1,
-        }.get(name, default),
-    })()
-
-    # Injecter le mock dans le registry
-    server = client.app.state.server
-    server.registry.devices["CGEM"] = mount
-
-    response = client.get("/api/mount/flip/detection")
-    assert response.status_code == 200
-    data = response.json()
-    assert "flip_due" in data
-    assert "time_to_flip_fmt" in data
-
-    if expected:
-        assert data["flip_due"] == expected
-    else:
-        assert data["flip_due"] is None
+def test_no_mount_returns_error():
+    reg = DeviceRegistry(_dummy_client())
+    server = WebServer(reg, site_config={"longitude": 0.0}, telescope_config={})
+    tc = TestClient(server.app)
+    resp = tc.get("/api/mount/flip/status")
+    assert resp.status_code == 200
+    assert resp.json()["error"] == "no mount"
 
 
-def test_meridian_crossing_no_crossing(client):
-    """Aucun crossing détecté."""
-    response = client.get("/api/mount/flip/detection")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["flip_due"] is None
+def test_mount_flip_status_shape(client):
+    """La route /api/mount/flip/status renvoie bien l'objet flip structuré."""
+    resp = client.get("/api/mount/flip/status")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert isinstance(data["flip_due"], bool)
+    assert data["flip_side"] in ("est", "ouest", "meridien", "inconnu")
+    assert isinstance(data["time_to_flip_fmt"], str)
+    assert isinstance(data["ha_fmt"], str)
+    assert data["enabled"] is True
+    assert "hour_angle_margin" in data
+    assert "min_altitude" in data
 
 
-@pytest.mark.parametrize("flip_side, time_to_flip, expected_fmt", [
-    ("east", 3600, "1:00:00"),
-    ("west", 7200, "2:00:00"),
-    ("east", 900, "0:15:00"),
-    ("west", 0, "0:00:00"),
-])
-def test_time_to_flip_format(client, flip_side, time_to_flip, expected_fmt):
-    """Formatage du temps restant avant le flip."""
-    response = client.get("/api/mount/flip/detection")
-    assert response.status_code == 200
-    data = response.json()
+def test_mount_status_embeds_flip(client):
+    """La route /api/mount intègre les figures de flip dans le dict de la monture."""
+    resp = client.get("/api/mount")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["type"] == "mount"
+    assert "flip" in data
+    assert "flip_due" in data["flip"]
+    assert "flip_side" in data["flip"]
+    assert "time_to_flip_fmt" in data["flip"]
 
-    # On simule un crossing détecté
-    data["flip_due"] = flip_side
-    expected_hours = time_to_flip / 3600
-    expected_mins = int((time_to_flip % 3600) / 60)
-    expected_secs = time_to_flip % 60
-    expected = f"{expected_hours}:{expected_mins:02d}:{expected_secs:02d}"
-    assert data["time_to_flip_fmt"] == expected
+
+def test_mount_without_coordinates_yields_null_ha():
+    """Sans RA, le flip doit renvoyer ha_hours à None sans planter."""
+    reg = DeviceRegistry(_dummy_client())
+    mount = Mount("CGEM", reg.client)
+    mount.connected = True
+    mount.ra_hours = None
+    reg._devices["CGEM"] = mount
+    server = WebServer(reg, site_config={"longitude": 0.0}, telescope_config={})
+    tc = TestClient(server.app)
+    data = tc.get("/api/mount/flip/status").json()
+    assert data["ha_hours"] is None
+    assert data["flip_due"] is False
+
+
+def test_flip_auto_recenters_by_solve():
+    """_do_meridian_flip exécute un recentrage par solve itératif et renvoie
+    flipped=True + recenter.done (le flip auto est bloquant et se recadre)."""
+    import asyncio
+    import types
+
+    from indigo.devices.camera import Camera
+
+    reg = DeviceRegistry(_dummy_client())
+    mount = Mount("CGEM", reg.client)
+    mount.connected = True
+    mount.ra_hours = 5.0
+    mount.dec_deg = 30.0
+
+    server = WebServer(
+        reg, site_config={"longitude": 0.0},
+        telescope_config={"flip_enabled": True, "recenter_after_flip": True},
+    )
+    reg._devices["CGEM"] = mount
+    server.registry._devices["CGEM"] = mount
+
+    # Mock camera (a real Camera subclass) so the recenter can take a short
+    # exposure and have a plate scale hint.
+    class Cam(Camera):
+        def __init__(self, *a, **k):
+            super().__init__(*a, **k)
+            self._snap = 0
+
+        async def expose(self, dur, typ):  # noqa: D102
+            self._snap += 1
+            self.exposing = True
+            await asyncio.sleep(0.01)
+            self.exposing = False
+            # Unique image per exposure so the recenter detects a new frame.
+            server._camera_images[self.name] = b"FAKE-%d" % self._snap
+
+        async def abort(self):  # noqa: D102
+            pass
+
+    cam = Cam("MainCam", reg.client)
+    cam._properties["CCD_EXPOSURE"] = {}
+    cam.pixel_size_um = 3.76
+    cam.focal_length_mm = 500.0
+    reg._devices["MainCam"] = cam
+    server.registry._devices["MainCam"] = cam
+
+    # Mount motion methods are coroutines on the real device; stub them.
+    slew_calls = []
+
+    async def _abort():
+        pass
+
+    async def _slew(ra, dec):
+        slew_calls.append((ra, dec))
+
+    async def _set_rate(rate):
+        pass
+
+    mount.abort = _abort
+    mount.slew_to = _slew
+    mount.set_slew_rate = _set_rate
+
+    # Fake plate solver: first pass off by ~6' in DEC (just over the 1'
+    # tolerance) so it must nudge, second pass centered → converged.
+    passes = {"n": 0}
+
+    def fake_solve(img, fmt="fits", ra_hint=None, dec_hint=None, scale_hint=None, **kw):
+        passes["n"] += 1
+        if passes["n"] == 1:
+            return {"ok": True, "ra": ra_hint, "dec": dec_hint + 0.1}
+        return {"ok": True, "ra": ra_hint, "dec": dec_hint}
+
+    server.solver = types.SimpleNamespace(solve_image=fake_solve)
+
+    res = asyncio.run(server._do_meridian_flip())
+
+    assert res["ok"] is True
+    assert res["flipped"] is True
+    assert res["recenter"]["done"] is True
+    assert res["recenter"]["passes"] == 2
+    assert res["target"]["ra_hours"] == 5.0
+    # The flip slew + at least one corrective nudge happened.
+    assert len(slew_calls) >= 2
+    # The nudge slew moved the mount south because pass 1 overshot north.
+    assert all(abs(ra) < 24 for ra, _ in slew_calls)
+
+
+def test_flip_auto_recenter_skips_without_recenter_flag(monkeypatch):
+    """Sans recenter_after_flip, aucun recentrage/solve n'est tenté."""
+    import asyncio
+
+    reg = DeviceRegistry(_dummy_client())
+    mount = Mount("CGEM", reg.client)
+    mount.connected = True
+    mount.ra_hours = 5.0
+    mount.dec_deg = 30.0
+
+    server = WebServer(
+        reg, site_config={"longitude": 0.0},
+        telescope_config={"flip_enabled": True, "recenter_after_flip": False},
+    )
+    reg._devices["CGEM"] = mount
+    server.registry._devices["CGEM"] = mount
+
+    called = {"recenter": 0}
+
+    async def spy(*a, **k):
+        called["recenter"] += 1
+        return {"done": True, "passes": 0, "error": None}
+
+    server._recenter_by_solve = spy
+
+    async def _abort(): pass
+    async def _slew(ra, dec): pass
+    async def _set_rate(rate): pass
+    mount.abort = _abort; mount.slew_to = _slew; mount.set_slew_rate = _set_rate
+
+    res = asyncio.run(server._do_meridian_flip())
+    assert called["recenter"] == 0
+    assert res["ok"] is True
+    assert res["flipped"] is True
+    assert res["recenter"]["done"] is False

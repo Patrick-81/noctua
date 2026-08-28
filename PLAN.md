@@ -5,7 +5,7 @@ Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtre
 
 ## Architecture
 ```
-[INDIGO Server — indigo_server (réel 192.168.1.25:7624 ou simulateurs)]
+[INDIGO Server — indigo_server (réel <indigo_host>:7624 ou simulateurs)]
         ↕ TCP/XML (INDI legacy)
 [Python indigo_devices]
   indigo/    → client, registry, devices
@@ -152,5 +152,5 @@ source .venv/bin/activate && python3 run.py
 
 ## Serveur INDIGO
 - `./start-mock-server.sh` pour le serveur mock (dev)
-- INDIGO réel : `192.168.1.25:7624`
+- INDIGO réel : `<indigo_host>:7624`
 - Serveur web : `http://0.0.0.0:8080`

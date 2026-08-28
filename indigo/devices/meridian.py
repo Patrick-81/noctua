@@ -133,3 +133,97 @@ def ha_from_altaz(ra_hours: float, dec_deg: float,
         h_deg = -h_deg
     ha = h_deg / 15.0
     return (ha + 12.0) % 24.0 - 12.0
+
+
+# ── Visibility (altitude over time) ─────────────────────────────
+
+def altitude_deg(lat_deg: float, dec_deg: float, ha_hours: float) -> float:
+    """Terrestrial altitude (°) of a target given its declination and hour angle.
+
+    ``sin(alt) = sin(lat)·sin(dec) + cos(lat)·cos(dec)·cos(HA)``
+    """
+    lat = math.radians(lat_deg)
+    dec = math.radians(dec_deg)
+    ha = math.radians(ha_hours * 15.0)
+    sin_alt = math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec) * math.cos(ha)
+    sin_alt = max(-1.0, min(1.0, sin_alt))
+    return math.degrees(math.asin(sin_alt))
+
+
+def _rise_set_ha(lat_deg: float, dec_deg: float, horizon_deg: float) -> float | None:
+    """Hour angle (positive hours) at which the target crosses ``horizon``.
+
+    Returns None when the target never rises/sets at that altitude (is either
+    always above or always below the horizon at this latitude).
+    """
+    lat = math.radians(lat_deg)
+    dec = math.radians(dec_deg)
+    hz = math.sin(math.radians(horizon_deg))
+    denom = math.cos(lat) * math.cos(dec)
+    if abs(denom) < 1e-9:
+        return None
+    cos_h = (hz - math.sin(lat) * math.sin(dec)) / denom
+    if cos_h < -1.0 or cos_h > 1.0:
+        return None  # circumpolar
+    return math.degrees(math.acos(cos_h)) / 15.0  # hours
+
+
+def visibility_24h(ra_hours: float, dec_deg: float, lat_deg: float,
+                   lon_deg: float, now: datetime | None = None,
+                   steps: int = 48, horizon_deg: float = 0.0,
+                   min_alt_deg: float = 0.0) -> dict:
+    """Compute the 24h visibility window starting at ``now`` for a target.
+
+    Returns the altitude curve (sampled points, UTC-timestamped), the rise /
+    transit / set instants (UTC epoch seconds) and the best-observability
+    window above ``min_alt_deg``.  ``now`` defaults to the current instant.
+    """
+    now = now or datetime.now()
+    start_epoch = now.timestamp()
+    curve: list[dict] = []
+    for i in range(steps + 1):
+        dt = start_epoch + i * (86400.0 / steps)
+        dt_dt = datetime.fromtimestamp(dt)
+        lst = local_sidereal_time_deg(lon_deg, dt_dt)
+        ha = hour_angle_hours(ra_hours, lst)
+        alt = altitude_deg(lat_deg, dec_deg, ha)
+        curve.append({"epoch": round(dt), "ha_hours": round(ha, 4),
+                      "alt_deg": round(alt, 4)})
+
+    # Find the current transit (LST == RA) within the window.
+    lst_now = local_sidereal_time_deg(lon_deg, now)
+    ha_now = hour_angle_hours(ra_hours, lst_now)
+    to_transit = (-ha_now) % 24.0
+    transit_epoch = start_epoch + to_transit * 3600.0
+
+    # Rise/set in hour-angle relative to transit (LST == RA).
+    ha_rs = _rise_set_ha(lat_deg, dec_deg, horizon_deg)
+    rise_epoch = set_epoch = None
+    if ha_rs is not None:
+        rise_epoch = transit_epoch - ha_rs * 3600.0
+        set_epoch = transit_epoch + ha_rs * 3600.0
+
+    # Observability window: contiguous above min_alt_deg.
+    best_night: dict | None = None
+    above = [p for p in curve if p["alt_deg"] >= min_alt_deg]
+    if above:
+        best_night = {
+            "start_epoch": above[0]["epoch"],
+            "end_epoch": above[-1]["epoch"],
+            "max_alt_deg": max(p["alt_deg"] for p in above),
+        }
+
+    return {
+        "ra_hours": float(ra_hours),
+        "dec_deg": float(dec_deg),
+        "horizon_deg": float(horizon_deg),
+        "min_alt_deg": float(min_alt_deg),
+        "start_epoch": round(start_epoch),
+        "steps": steps,
+        "curve": curve,
+        "rise_epoch": rise_epoch,
+        "transit_epoch": transit_epoch,
+        "set_epoch": set_epoch,
+        "best_observable": best_night,
+    }
+

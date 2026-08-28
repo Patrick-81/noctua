@@ -219,6 +219,30 @@ def test_runner_reset_clears_state():
     asyncio.run(main())
 
 
+def test_runner_calls_before_frame_between_poses():
+    """before_frame hook runs before each pose and doesn't block execution."""
+    async def main():
+        r = SequenceRunner()
+        hooks, calls = _hook()
+        flips = {"count": 0}
+
+        async def before_frame(frame):
+            flips["count"] += 1
+            if flips["count"] == 1:
+                return {"ok": True, "flipped": True, "phases": ["slew"]}
+            return None
+
+        hooks["before_frame"] = before_frame
+        r.start(TWO_FRAMES)
+        await r.run(hooks)
+
+        assert flips["count"] == 3          # one call per pose
+        assert calls["expose"] == [(30.0, "LIGHT"), (30.0, "LIGHT"), (10.0, "DARK")]
+        assert r.status()["done"] == 3      # flip didn't abort the run
+
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

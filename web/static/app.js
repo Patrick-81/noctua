@@ -398,12 +398,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     initSequencePanel();
     seqInitSequencer();
     initStackingPanel();
+    initFlatWizard();
     initPreviewResize();
     initSaveImage();
     captureViewer.initHistogramControls();
     initSolverPanel();
     initTargetPanel();
     initPolarPanel();
+    initPointingPanel();
+    initVisibilityPanel();
     initFocuserPanel();
     initGuidePanel();
     initDashboard();

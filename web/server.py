@@ -50,10 +50,14 @@ class WebServer:
         self.exposure_cfg = dict(exposure_config or {})
         # Defaults for meridian flip
         self.telescope.setdefault("flip_enabled", False)
-        self.telescope.setdefault("hour_angle_margin", 0.0)
+        self.telescope.setdefault("hour_angle_margin", 0.2)
         self.telescope.setdefault("min_altitude", 0.0)
         self.telescope.setdefault("flip_slew_rate", "Centering")
         self.telescope.setdefault("recenter_after_flip", True)
+        # State: whether the automatic flip has already fired for the current
+        # west-of-meridian pass (avoids re-flipping on every frame post-meridian).
+        # Re-armed once the mount goes back east of the meridian.
+        self._meridian_flipped = False
         self.config_path = config_path
         self.ui_path = ui_path
         self.profiles = ProfileStore(profiles_path)
@@ -91,6 +95,14 @@ class WebServer:
         self._autofocus = AutoFocus()
         self._guide = Guide()
         self._guide_cal = GuideCalibration()
+        # Flat-field capture wizard
+        from indigo.devices.flat_wizard import FlatWizard
+        self._flat_wizard = FlatWizard()
+        self._flat_filter: str | None = None
+        self._flat_binning: str | None = None
+        # Pointing error model (interpolated corrections)
+        from indigo.devices.pointing import PointingModel
+        self._pointing = PointingModel()
 
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
@@ -202,9 +214,9 @@ class WebServer:
         # ── REST API + WebSocket + test endpoints ────────────────
         # Routes moved to web/routers/*.py — each exposes register(app, server).
         from .routers import (camera, config, focuser, guide, hardware,
-                              mount, sequence, stacking, ws_test)
+                              mount, pointing, sequence, stacking, visibility, ws_test)
         for router in (hardware, config, mount, camera, focuser, guide,
-                       sequence, stacking, ws_test):
+                       sequence, stacking, pointing, visibility, ws_test):
             router.register(app, self)
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────
@@ -254,6 +266,216 @@ class WebServer:
     def _mount_flip_status(self, state: dict) -> dict:
         """Augment a mount state dict with meridian flip figures."""
         return _mount_flip_status(state, self.site, self.telescope)
+
+    async def _do_meridian_flip(self) -> dict:
+        """Execute a manual meridian flip sequence.
+
+        Shared by the ``/api/mount/flip`` route and the sequence auto-flip
+        hook.  Returns a dict with ``ok`` and, when ok, the completed phases.
+        """
+        m = self.registry.get_mount()
+        if not m:
+            return {"ok": False, "error": "no mount"}
+        if not m.connected:
+            return {"ok": False, "error": "mount not connected"}
+        phases = []
+
+        # 1. Stop any in-progress camera exposure cleanly
+        for cam in self.registry._devices.values():
+            if getattr(cam, "DEVICE_TYPE", None) == "camera" and getattr(cam, "is_ready", False):
+                try:
+                    await cam.abort()
+                    phases.append(f"capture abort ({cam.name})")
+                except Exception as e:  # noqa: BLE001
+                    log.warning("flip: cam abort failed for %s: %s", cam.name, e)
+
+        # 2. Stop guiding if active
+        try:
+            if hasattr(self, "_guide") and hasattr(self._guide, "stop"):
+                st = self._guide.status()
+                if str(st.get("state", "")).lower() in ("guiding", "starting"):
+                    self._guide.stop()
+                    phases.append("guiding stopped")
+        except Exception as e:  # noqa: BLE001
+            log.warning("flip: guide stop failed: %s", e)
+
+        # 3. Capture current target before aborting the slew
+        ra = m.ra_hours
+        dec = m.dec_deg
+        if ra is None or dec is None:
+            return {"ok": False, "error": "mount has no coordinates to flip back to",
+                    "phases": phases}
+
+        # 4. Abort current motion, then slew to the same target (the flip itself)
+        try:
+            await m.abort()
+            phases.append("motion aborted")
+        except Exception as e:  # noqa: BLE001
+            log.warning("flip: abort failed: %s", e)
+        await asyncio.sleep(1.0)
+
+        rate = self.telescope.get("flip_slew_rate", "Centering")
+        try:
+            await m.set_slew_rate(rate)
+        except Exception:  # noqa: BLE001
+            pass
+
+        await m.slew_to(ra, dec)
+        phases.append(f"slew to RA={ra:.4f}h DEC={dec:.4f}°")
+
+        # 5. Recenter via plate solve on the same target (blocks until the
+        #    mount is stable again, so the sequence can resume safely).
+        recenter = {"done": False, "passes": 0, "error": None}
+        if self.telescope.get("recenter_after_flip", True):
+            recenter = await self._recenter_by_solve(ra, dec)
+            if recenter.get("done"):
+                phases.append(
+                    f"recenter (solve) OK in {recenter.get('passes', 0)} pass(es)")
+            else:
+                phases.append(
+                    f"recenter (solve) {recenter.get('error') or 'failed'}")
+        _recenter = recenter
+
+        # Mark that a flip already fired for this west-of-meridian pass so the
+        # sequence hook does not re-flip on every subsequent frame.
+        self._meridian_flipped = True
+
+        return {
+            "ok": True,
+            "flipped": True,
+            "phases": phases,
+            "target": {"ra_hours": ra, "dec_deg": dec},
+            "recenter": {
+                "done": _recenter.get("done", False),
+                "passes": _recenter.get("passes", 0),
+                "error": _recenter.get("error"),
+            },
+        }
+
+    def _camera_scale_hint(self, camera) -> float | None:
+        """Pixel scale (arcsec/px) derived from the camera, or None."""
+        try:
+            if (camera and camera.pixel_size_um and camera.focal_length_mm):
+                return (camera.pixel_size_um / 1000.0) / (camera.focal_length_mm / 1000.0) * 206.265
+        except Exception:  # noqa: BLE001
+            pass
+        return None
+
+    async def _recenter_by_solve(self, ra_hours: float, dec_deg: float,
+                                 max_passes: int = 3, settle_s: float = 2.0,
+                                 tolerance_arcmin: float = 1.0) -> dict:
+        """Iteratively re-center the mount on ``(ra_hours, dec_deg)``.
+
+        After a meridian flip the tube is on the other side of the pier, so the
+        pointing can drift.  This takes a short exposure, plate-solves it, nudges
+        the mount by the measured error and iterates until the target is centered
+        (or a max number of passes is reached).  Every successful solve also feeds
+        the pointing model so future slews improve.
+
+        Returns ``{"done", "passes", "error", "phases"}``.
+        """
+        import asyncio as _aio
+        loop = _aio.get_event_loop()
+        m = self.registry.get_mount()
+        cam = self.registry.get_camera()
+        if not m or not m.connected:
+            return {"done": False, "passes": 0, "error": "no mount"}
+        if not cam or not cam.is_ready:
+            return {"done": False, "passes": 0, "error": "no ready camera"}
+        scale_hint = self._camera_scale_hint(cam)
+        if scale_hint is None:
+            return {"done": False, "passes": 0, "error": "no plate scale hint"}
+
+        ra_deg_target = (float(ra_hours) * 15.0) % 360.0
+        dec_target = float(dec_deg)
+        phases: list[str] = []
+        exp_s = float(self.exposure_cfg.get("recenter_duration", 2.0))
+
+        for i in range(int(max_passes)):
+            await _aio.sleep(settle_s)
+            base = self._camera_images.get(cam.name, b"")
+            try:
+                await cam.expose(exp_s, "LIGHT")
+                deadline = loop.time() + 35.0
+                while loop.time() < deadline and cam.exposing:
+                    await _aio.sleep(0.1)
+                while loop.time() < deadline:
+                    cur = self._camera_images.get(cam.name, b"")
+                    if cur and cur != base:
+                        break
+                    await _aio.sleep(0.1)
+                img = self._camera_images.get(cam.name, b"")
+            except Exception as e:  # noqa: BLE001
+                return {"done": False, "passes": i, "error": f"expose failed: {e}",
+                        "phases": phases}
+            if not img:
+                return {"done": False, "passes": i, "error": "no image from camera",
+                        "phases": phases}
+
+            result = await loop.run_in_executor(
+                None,
+                lambda: self.solver.solve_image(
+                    img, fmt="fits",
+                    ra_hint=ra_deg_target, dec_hint=dec_target,
+                    scale_hint=scale_hint,
+                ),
+            )
+            if not result.get("ok"):
+                # Can't plate-solve (dark/blurry/few stars). Re-trying would
+                # only waste time — stop best-effort and let the sequence resume.
+                phases.append(f"pass {i + 1}: solve failed ({result.get('error', '?')})")
+                return {"done": False, "passes": i + 1,
+                        "error": result.get("error") or "solve failed",
+                        "phases": phases}
+
+            solved_ra = result["ra"]
+            solved_dec = result["dec"]
+
+            # RA error across the wrap (deg).
+            dra = solved_ra - ra_deg_target
+            if dra > 180.0:
+                dra -= 360.0
+            elif dra < -180.0:
+                dra += 360.0
+            ddec = solved_dec - dec_target
+            dist_arcmin = (abs(dra) ** 2 + abs(ddec) ** 2) ** 0.5 * 60.0
+
+            # Feed the pointing model.
+            try:
+                correction_ra = -dra
+                if correction_ra > 180.0:
+                    correction_ra -= 360.0
+                elif correction_ra < -180.0:
+                    correction_ra += 360.0
+                self._pointing.add_sample(ra_deg_target, dec_target,
+                                          correction_ra, -ddec)
+            except Exception:  # noqa: BLE001
+                pass
+
+            if dist_arcmin <= tolerance_arcmin:
+                phases.append(f"pass {i + 1}: centered ({dist_arcmin:.2f}')")
+                return {"done": True, "passes": i + 1, "error": None,
+                        "phases": phases, "final_error_arcmin": round(dist_arcmin, 3)}
+
+            # Nudge: slew to the corrected position (apply the error in reverse).
+            nudge_ra = (ra_deg_target - dra) % 360.0
+            nudge_dec = max(-90.0, min(90.0, dec_target - ddec))
+            try:
+                await m.set_slew_rate(self.telescope.get("flip_slew_rate", "Centering"))
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                await m.slew_to(nudge_ra / 15.0, nudge_dec)
+            except Exception as e:  # noqa: BLE001
+                return {"done": False, "passes": i + 1, "error": f"slew failed: {e}",
+                        "phases": phases}
+            phases.append(
+                f"pass {i + 1}: error {dist_arcmin:.1f}' → slew to "
+                f"RA={nudge_ra / 15.0:.4f}h DEC={nudge_dec:.2f}°")
+
+        return {"done": False, "passes": max_passes,
+                "error": f"not centered after {max_passes} passes",
+                "phases": phases}
 
     def _broadcast_state(self, state: dict) -> None:
         """Send state update to all connected WebSocket clients."""
@@ -323,14 +545,24 @@ class WebServer:
         """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""
         import aiohttp
         try:
-            # The INDIGO server runs on the same host as the INDIGO TCP connection
-            # URL may be relative like /blob/0x... or absolute http://host:port/blob/...
+            # The INDIGO server runs on the same host as the INDIGO TCP connection.
+            # Only accept BLOB paths from the INDIGO server itself to avoid SSRF.
+            allowed_host = self.registry.client._host
+            allowed_port = 7624
             if url.startswith("/"):
-                fetch_url = f"http://{self.registry.client._host}:7624{url}"
-            elif not url.startswith("http"):
-                fetch_url = f"http://{self.registry.client._host}:7624/{url}"
+                path = url
+            elif url.startswith(f"http://{allowed_host}:{allowed_port}"):
+                path = url[len(f"http://{allowed_host}:{allowed_port}"):]
+                if not path.startswith("/"):
+                    path = "/" + path
             else:
-                fetch_url = url
+                log.error("Refusing BLOB fetch for disallowed URL: %s", url)
+                return
+
+            if ".." in path.split("/"):
+                log.error("Refusing BLOB fetch with path traversal: %s", path)
+                return
+            fetch_url = f"http://{allowed_host}:{allowed_port}{path}"
 
             log.debug("Fetching BLOB from: %s", fetch_url)
             async with aiohttp.ClientSession() as session:

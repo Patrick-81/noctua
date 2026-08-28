@@ -91,6 +91,48 @@ function targetSetFromInputs() {
     updateTargetOffset();
 }
 
+// ── Pointing-model integration ─────────────────────────────────
+
+// Record one pointing error sample from a recenter solve (fire-and-forget).
+function _recordPointingSample() {
+    if (typeof _offsetTargetRA !== 'number' || typeof _offsetSolvedRA !== 'number') return;
+    const raT = _offsetTargetRA, decT = _offsetTargetDEC;
+    const raS = _offsetSolvedRA, decS = _offsetSolvedDEC;
+    if (raT == null || raS == null) return;
+    fetch('/api/pointing/record-solve', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            ra_hours: raT / 15.0,
+            dec_deg: decT,
+            solved_ra_deg: raS,
+            solved_dec_deg: decS,
+        }),
+    }).catch(() => {});
+}
+
+// Apply the interpolated pointing correction to a requested target (deg).
+// Returns the (possibly adjusted) [ra_deg, dec_deg]. No-op when the model is
+// empty or the "apply" option is disabled.
+async function _applyPointingCorrection(raDeg, decDeg) {
+    const applyEl = document.getElementById('pt-apply-check');
+    if (!applyEl || !applyEl.checked) return [raDeg, decDeg];
+    try {
+        const r = await fetch('/api/pointing/correct', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ra_deg: raDeg, dec_deg: decDeg }),
+        }).then(x => x.json());
+        if (r.ok === false) return [raDeg, decDeg];
+        let ra = raDeg + r.delta_ra;
+        ra = ((ra % 360) + 360) % 360;
+        const dec = Math.max(-90, Math.min(90, decDeg + r.delta_dec));
+        addLog('info', 'target', i18nFmt('log.target.pointing_apply',
+            { dra: r.delta_ra.toFixed(3), ddec: r.delta_dec.toFixed(3) }));
+        return [ra, dec];
+    } catch (e) {
+        return [raDeg, decDeg];
+    }
+}
+
 function targetGoto() {
     const raStr = document.getElementById('target-ra')?.value;
     const decStr = document.getElementById('target-dec')?.value;
@@ -103,8 +145,16 @@ function targetGoto() {
         return;
     }
 
-    apiPost('/api/mount/slew', { ra_hours: raH, dec_deg: decD });
-    addLog('info', 'target', i18nFmt('log.target.goto', { ra: raH.toFixed(4), dec: decD.toFixed(4) }));
+    const raDeg = raH * 15;
+    _applyPointingCorrection(raDeg, decD).then(([corrRA, corrDEC]) => {
+        const raHC = corrRA / 15;
+        const label = (corrRA !== raDeg || Math.abs(corrDEC - decD) > 1e-9)
+            ? '→ pointé corrigé'
+            : '→ allumage direct';
+        apiPost('/api/mount/slew', { ra_hours: raHC, dec_deg: corrDEC });
+        addLog('info', 'target', i18nFmt('log.target.goto',
+            { ra: raHC.toFixed(4), dec: corrDEC.toFixed(4) }) + ` ${label}`);
+    });
 
     // Also set as offset target
     setOffsetTarget(raH * 15, decD);
@@ -227,6 +277,10 @@ function _centeringStep(result) {
     }
 
     updateTargetOffset();
+
+    // Feed the pointing model (background, non-blocking): compare the
+    // commanded position vs the solved center and record the error.
+    _recordPointingSample();
 
     // Check if close enough
     if (_offsetTargetRA != null && _offsetSolvedRA != null) {

@@ -115,6 +115,16 @@ class SequenceRunner:
                             f"filtre={frame.get('filter','') or '—'} "
                             f"(pose {k + 1}/{frame.get('count',1)})")
 
+        # Optional per-frame hook (e.g. automatic meridian flip between poses).
+        # Runs before exposure so the flip happens when no frame is exposing.
+        bf = h.get("before_frame")
+        if bf:
+            flip = await bf(frame)
+            if flip is not None and flip.get("flipped"):
+                if fl:
+                    await fl("info", f"meridian flip effectué avant pose "
+                                     f"({flip.get('phases', [])})")
+
         sf = h.get("set_filter")
         if sf and frame.get("filter"):
             await sf(frame["filter"])

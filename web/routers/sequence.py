@@ -124,12 +124,47 @@ def register(app, server: "WebServer") -> None:
         async def on_progress() -> None:
             server._broadcast_sequence_status()
 
+        async def before_frame(frame: dict) -> dict | None:
+            """Trigger an automatic meridian flip between poses when due.
+
+            Only considered for LIGHT frames and only when flip automation is
+            enabled in the telescope config.  Uses the same flip logic as the
+            manual ``/api/mount/flip`` route.
+            """
+            if frame.get("frame_type", "LIGHT").upper() != "LIGHT":
+                return None
+            if not server.telescope.get("flip_enabled", False):
+                return None
+            m = server.registry.get_mount()
+            if not m or not m.connected:
+                return None
+            try:
+                status = server._mount_flip_status(m.state_dict())
+                flip = status.get("flip", {})
+                due = flip.get("flip_due", False)
+                ha = flip.get("ha_hours")
+            except Exception as e:  # noqa: BLE001
+                await log("warning", f"flip check skipped: {e}")
+                return None
+
+            # Re-arm when the object is back east of the meridian (HA < 0),
+            # so the flip fires once per west-of-meridian pass.
+            if ha is not None and ha < 0 and server._meridian_flipped:
+                server._meridian_flipped = False
+
+            # Do not re-flip if we already flipped for this pass.
+            if not due or server._meridian_flipped:
+                return None
+            await log("warning", "Méridien passé — flip automatique avant pose")
+            return await server._do_meridian_flip()
+
         return {
             "expose": expose, "wait_exposure": wait_exposure,
             "set_filter": set_filter, "save": save,
             "stack": stack,
             "dither": dither, "delay": delay, "log": log,
             "on_progress": on_progress,
+            "before_frame": before_frame,
         }
 
     @app.get("/api/sequence/status")

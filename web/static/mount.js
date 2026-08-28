@@ -161,6 +161,10 @@ function setTargetObject(obj) {
         skyEngine.clearHighlight();
         skyEngine.highlightObject(_targetObject.ra, _targetObject.dec, _targetObject.id);
     }
+    // Show the 24h visibility popup for the chosen target.
+    if (typeof showVisibility === 'function') {
+        showVisibility(_targetObject);
+    }
 }
 
 function mountGoto() {

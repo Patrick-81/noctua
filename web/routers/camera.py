@@ -189,6 +189,87 @@ def register(app, server: "WebServer") -> None:
             log.error("Exposure estimate error: %s", e)
             return {"ok": False, "error": str(e)}
 
+    # ── Flat-field Wizard ────────────────────────────────────
+
+    @app.get("/api/camera/flat-wizard/status")
+    async def flat_wizard_status():
+        return SanitizedJSONResponse(server._flat_wizard.status())
+
+    @app.post("/api/camera/flat-wizard/configure")
+    async def flat_wizard_configure(body: dict = {}):
+        st = server._flat_wizard.configure(
+            target_adu=body.get("target_adu"),
+            tolerance=body.get("tolerance"),
+            start_duration=body.get("start_duration"),
+            min_duration=body.get("min_duration"),
+            max_duration=body.get("max_duration"),
+        )
+        server._flat_filter = body.get("filter")
+        server._flat_binning = body.get("binning")
+        return SanitizedJSONResponse({**st, "filter": server._flat_filter,
+                                      "binning": server._flat_binning})
+
+    @app.post("/api/camera/flat-wizard/step")
+    async def flat_wizard_step(body: dict = {}):
+        """Take one test flat exposure, measure its ADU, suggest next duration."""
+        c = server.registry.get_camera(body.get("device"))
+        if not c:
+            return {"error": "no camera"}
+        if not c.is_ready:
+            return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
+
+        wz = server._flat_wizard
+        if wz.done:
+            return SanitizedJSONResponse({**wz.status(), "ok": True,
+                                          "already_done": True})
+
+        duration = float(body.get("duration", wz.duration))
+        if body.get("binning"):
+            b = str(body["binning"])
+            x, y = b.split("x") if "x" in b else (b, b)
+            await c.set_binning(int(x), int(y))
+
+        from indigo.devices.exposure import _measure_frame
+
+        base = server._camera_images.get(c.name, b"")
+        await c.expose(duration, "FLAT")
+        deadline = asyncio.get_running_loop().time() + duration + 30.0
+        while asyncio.get_running_loop().time() < deadline and c.exposing:
+            await asyncio.sleep(0.1)
+        while asyncio.get_running_loop().time() < deadline:
+            cur = server._camera_images.get(c.name, b"")
+            if cur and cur != base:
+                break
+            await asyncio.sleep(0.1)
+        img = server._camera_images.get(c.name, b"")
+        if not img:
+            return {"ok": False, "error": "flat test exposure produced no image"}
+
+        full_scale = float(server.exposure_cfg.get("full_scale", 65535))
+        frame = _measure_frame(img, full_scale)
+        if frame is None:
+            return {"ok": False, "error": "failed to parse flat test image"}
+
+        adu = max(frame["sky_adu"], 0.0)
+        st = wz.record_measurement(adu)
+        return SanitizedJSONResponse({
+            **st,
+            "ok": True,
+            "measured_adu": round(adu, 1),
+            "bg_median": round(frame["bg_median"], 1),
+            "bzero": round(frame["bzero"], 1),
+            "saturation_pct": round(frame["peak_frac"] * 100.0, 1),
+            "filter": server._flat_filter,
+            "binning": server._flat_binning,
+        })
+
+    @app.post("/api/camera/flat-wizard/reset")
+    async def flat_wizard_reset(body: dict = {}):
+        st = server._flat_wizard.reset()
+        server._flat_filter = None
+        server._flat_binning = None
+        return SanitizedJSONResponse(st)
+
     # ── Plate Solver ─────────────────────────────────────────
 
     @app.get("/api/solver/status")

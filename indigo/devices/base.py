@@ -143,9 +143,11 @@ class BaseDevice:
         """Return the actual item name from the stored def, trying candidates in order."""
         pv = self.get_prop(prop_name)
         if pv and pv.items:
+            names = {it.name for it in pv.items}
+            for c in candidates:
+                if c in names:
+                    return c
             return pv.items[0].name
-        for c in candidates:
-            return c
         return candidates[0] if candidates else ""
 
     def get_item_value(self, prop_name: str, item_name: str, default=None):
