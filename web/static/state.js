@@ -63,6 +63,7 @@ let _initDone = false;
 let seqData = {
     targets: [],
     dither: { enabled: false, amount: 2.0, settle_rms: 1.0, settle_timeout: 20.0, settle_stable: 3 },
+    refocus: { enabled: false, interval_min: 20, alt_trigger_deg: 3.0 },
     save_dir: '',
     stacking: { enabled: false },
 };

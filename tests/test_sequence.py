@@ -17,6 +17,10 @@ sys.path.insert(0, ROOT)
 from indigo.devices.sequence import (  # noqa: E402
     SequenceRunner,
     build_path,
+    build_session_dir,
+    load_journal,
+    save_journal,
+    slugify,
     total_frames,
     validate_frames,
 )
@@ -293,6 +297,142 @@ def test_runner_series_done_complete():
         await r.run(hooks)
 
         assert ends == [(3, 3, True)]
+
+    asyncio.run(main())
+
+
+# ── Lot C2 : helpers cible/date + journal ─────────────────────
+
+def test_slugify():
+    assert slugify("M31 Andromeda") == "M31-Andromeda"
+    assert slugify("  NGC 7000 — North America  ") == "NGC-7000-North-America"
+    assert slugify("!@#$%") == "cible"
+    assert slugify("") == ""
+
+
+def test_build_session_dir_layout():
+    from datetime import datetime
+    now = datetime(2026, 8, 28, 21, 30, 5)
+    # cible/date : strictly nested under root, with date + time subdirs
+    d = build_session_dir("/data/caps", "M31 Andromeda", now=now)
+    assert d == "/data/caps/M31-Andromeda/2026-08-28/213005"
+    # legacy sans cible : capture_TS
+    d2 = build_session_dir("/data/caps", "", now=now)
+    assert d2 == "/data/caps/capture_20260828_213005"
+    # expension ~ et slug vide
+    assert build_session_dir("~/x", "!", now=now) == os.path.join(
+        os.path.expanduser("~/x"), "cible", "2026-08-28", "213005")
+
+
+def test_journal_roundtrip_preserves_created_at():
+    import shutil
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="seq-journal-")
+    try:
+        session = os.path.join(tmp, "M31", "2026-08-28", "213005")
+        p1 = save_journal(
+            session,
+            frames=[{"duration": 30.0, "frame_type": "LIGHT", "count": 2}],
+            target="M31 Andromeda", done=1, total=2, running=True)
+        assert p1.endswith("journal.json")
+        j = load_journal(session)
+        assert j["done"] == 1 and j["total"] == 2
+        assert j["target"] == "M31 Andromeda"
+        assert j["running"] is True
+        # réécriture (pose suivante) : created_at conservé, done progressé
+        save_journal(session, frames=j["frames"], target=j["target"],
+                     done=2, total=2, running=False, complete=True)
+        j2 = load_journal(session)
+        assert j2["created_at"] == j["created_at"]
+        assert j2["done"] == 2 and j2["complete"] is True
+        # répertoire inexistant / journal corrompu → None
+        assert load_journal(os.path.join(tmp, "nope")) is None
+        junk = os.path.join(tmp, "corrupt")
+        os.makedirs(junk, exist_ok=True)
+        with open(os.path.join(junk, "journal.json"), "w") as f:
+            f.write("{invalid json")
+        assert load_journal(junk) is None
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _tmp_journal(tmp, frames, done, total, complete=False, target="T"):
+    session = os.path.join(tmp, "sess")
+    os.makedirs(session, exist_ok=True)
+    path = os.path.join(session, "journal.json")
+    import json
+    json.dump({"session_dir": session, "target": target, "frames": frames,
+               "done": done, "total": total, "complete": complete}, open(path, "w"))
+    return session, frames, path
+
+
+def test_journal_resume_progress_helpers():
+    """Le journal doit refléter la progression pour pouvoir reprendre."""
+    import tempfile
+    tmp = tempfile.mkdtemp(prefix="seq-journal2-")
+    try:
+        session, frames, path = _tmp_journal(tmp, TWO_FRAMES, 2, 3,
+                                             complete=False, target="M31")
+        j = load_journal(session)
+        assert j is not None
+        assert j["done"] == 2 and j["total"] == 3
+        assert j["complete"] is False
+        assert j["frames"] == frames
+    finally:
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
+# ── Lot C2 : reprise du SequenceRunner ────────────────────────
+
+def test_runner_resume_skips_already_done_poses():
+    """resume_from=N saute les N premières poses et continue les index."""
+    async def main():
+        r = SequenceRunner()
+        hooks, calls = _hook()
+        r.start(TWO_FRAMES, resume_from=2)   # LIGHT×2 déjà faites, il reste la DARK
+        await r.run(hooks)
+
+        st = r.status()
+        assert st["done"] == 3                 # compteur cumulatif conservé
+        assert st["total"] == 3
+        assert calls["expose"] == [(10.0, "DARK")]  # seulement la pose restante
+        assert calls["save"] == [3]            # index continue à 3 (pas d'écrasement)
+        assert calls["set_filter"] == []
+
+    asyncio.run(main())
+
+
+def test_runner_resume_full_restart_without_offset():
+    async def main():
+        r = SequenceRunner()
+        hooks, calls = _hook()
+        r.start(TWO_FRAMES, resume_from=0)
+        await r.run(hooks)
+        assert r.status()["done"] == 3
+        assert calls["save"] == [1, 2, 3]
+
+    asyncio.run(main())
+
+
+def test_runner_calls_journal_after_save():
+    """Le hook journal est appelé après chaque pose sauvée avec l'index."""
+    async def main():
+        r = SequenceRunner()
+        hooks, _ = _hook()
+        journals = []
+
+        async def journal(path, frame, index):
+            journals.append((index, os.path.basename(path)))
+
+        hooks["journal"] = journal
+        r.start(TWO_FRAMES)
+        await r.run(hooks)
+
+        assert len(journals) == 3
+        assert [j[0] for j in journals] == [1, 2, 3]
+        assert all(j[1].startswith("light_") or j[1].startswith("dark_")
+                   for j in journals)
 
     asyncio.run(main())
 

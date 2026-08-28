@@ -197,6 +197,78 @@ def test_stop_mid_run():
     check(st["done"] < 10, f"stops early (done={st['done']}, expected < 10)")
 
 
+def test_mid_target_session_layout_and_journal():
+    print("\n=== Test: session cible/date + journal (Lot C2) ===")
+    frames = [{"duration": 0.28, "frame_type": "LIGHT", "filter": "L", "count": 2, "delay": 0.1}]
+    r = api_post("/api/sequence/start", {"frames": frames, "target": "M31 Andromeda"})
+    check(r.get("ok") is True, "start ok (target M31)")
+    session = r.get("session_dir") or ""
+    check("/M31-Andromeda/" in session, f"layout cible/date (got {session})")
+    check(session.startswith(os.path.join(SAVE_DIR, "M31-Andromeda")), "sous save_dir/M31-Andromeda")
+    parts = session.replace(os.sep, "/").split("/")
+    check(parts[-2][:10] == time.strftime("%Y-%m-%d"), f"répertoire date ({parts[-2]})")
+    check(len(parts[-1]) == 6 and parts[-1].isdigit(), f"répertoire heure HHMMSS ({parts[-1]})")
+
+    ok = wait_until(lambda: api_get("/api/sequence/status").get("running") is False,
+                    timeout=30)
+    check(ok, "run fini")
+
+    jp = os.path.join(session, "journal.json")
+    check(os.path.isfile(jp), "journal.json écrit")
+    with open(jp) as f:
+        j = json.load(f)
+    check(j.get("done") == 2 and j.get("total") == 2, "journal done/total")
+    check(j.get("complete") is True, "journal complete")
+    check(j.get("target") == "M31 Andromeda", "journal target")
+    lights = sorted(glob.glob(os.path.join(session, "lights", "light_L_*.fits")))
+    check(len(lights) == 2, f"2 lights sous session cible/date (found {len(lights)})")
+
+    st = api_get("/api/sequence/status")
+    check(st.get("session_dir") == session, "status expose session_dir")
+    check(st.get("resumable") is False, "session terminée → non resumable")
+
+
+def test_resume_interrupted_session():
+    print("\n=== Test: reprise d'une session interrompue (Lot C2) ===")
+    frames = [{"duration": 0.3, "frame_type": "LIGHT", "filter": "", "count": 5, "delay": 0.1}]
+    r = api_post("/api/sequence/start", {"frames": frames, "target": "NGC"})
+    check(r.get("ok") is True, "start ok")
+    session = r.get("session_dir") or ""
+    time.sleep(1.2)
+    api_post("/api/sequence/stop")
+    ok = wait_until(lambda: api_get("/api/sequence/status").get("running") is False,
+                    timeout=15)
+    check(ok, "stop ok")
+    st = api_get("/api/sequence/status")
+    done1 = st["done"]
+    check(0 < done1 < 5, f"interrompue à done={done1}")
+    check(st.get("resumable") is True, "session interrompue → resumable")
+    check(st.get("session_dir") == session, "session_dir conservé")
+
+    files_before = sorted(glob.glob(os.path.join(session, "lights", "light_*.fits")))
+    r2 = api_post("/api/sequence/resume-session", {"session_dir": session})
+    check(r2.get("ok") is True, f"resume ok (got {r2.get('error')})")
+    check(r2.get("resumed_from") == done1, "resume repart de done journalisé")
+    ok = wait_until(lambda: api_get("/api/sequence/status").get("running") is False,
+                    timeout=40)
+    check(ok, "run repris terminé")
+    st = api_get("/api/sequence/status")
+    check(st["done"] == 5 and st["total"] == 5, f"reprise complète (done={st['done']}/5)")
+
+    with open(os.path.join(session, "journal.json")) as f:
+        j = json.load(f)
+    check(j.get("complete") is True, "journal final complet")
+    check(j.get("done") == 5, "journal done=5")
+
+    # index de fichiers continus sur toute la session (aucun écrasement)
+    files_after = sorted(glob.glob(os.path.join(session, "lights", "light_*.fits")))
+    indexes = [int(f.split("_")[1]) for f in files_after]
+    check(len(files_after) == 5, f"5 fichiers au total (found {len(files_after)})")
+    check(indexes == list(range(1, 6)), f"index continus 1..5 (got {indexes})")
+    check(all(f in files_after for f in files_before), "les fichiers d'avant sont conservés (pas d'écrasement)")
+    check(st.get("last_saved", "").startswith(session), "dernier fichier dans la session")
+
+
 # ── Main ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -285,6 +357,8 @@ sequence:
         test_files_written()
         test_pause_resume_reset()
         test_stop_mid_run()
+        test_mid_target_session_layout_and_journal()
+        test_resume_interrupted_session()
     finally:
         print("\n\nShutting down...")
         kill_proc(web_proc)

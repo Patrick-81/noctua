@@ -183,20 +183,36 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot B — Supervision & sécurité
 
-- **B1. Gestion météo** — drivers INDIGO weather (pluie, vent, nuages), seuils,
-  arrêt propre de la séquence + alerte.
-- **B2. Alertes push** — webhook / Telegram / email sur erreur et fin de nuit
-  (branché sur le Trigger Manager).
-- **B3. Refocus auto** — politique temps / variation d'altitude (réutilise
-  l'autofocus HFR existant, hook dans la séquence).
+- **B1. Gestion météo** — **ÉCARTÉ** : le tour de contrôle Noctua n'a pas
+  vocation à communiquer sur internet (décision au 28/08). Pas de drivers
+  weather ni d'arrêt météo automatique.
+- **B2. Alertes push** — **ÉCARTÉ** (idem B1 : rien ne sort vers internet —
+  webhook/Telegram/email sans objet).
+- ~~**B3. Refocus auto**~~ — **FAIT (28/08)** : `indigo/devices/refocus.py`.
+  Politique `RefocusPolicy` (`sequence.refocus` : `interval_min`,
+  `alt_trigger_deg` — 0 = dimension désactivée) déclenchant aux poses LIGHT,
+  entre deux poses, un refocus **entièrement côté serveur** : V-curve HFR via
+  `run_autofocus()` (move focuser → pose courte → `focus_metrics` → `AutoFocus`
+  machine → retour au meilleur point). La 1re pose enregistre la ligne de base
+  (jamais de refocus surprise au départ) ; un échec (HFR non mesurable, timeout
+  focuser) ne casse pas la séquence et retente après 5 min de cooldown. Brutal
+  in-app : cases `seq-ref-*`, statut dans le panneau. Tests
+  `tests/test_refocus.py` (11) → 230 pytest OK. **Suite → Lot C.**
 
 ### Lot C — Qualité & organisation
 
 - **C1. Bibliothèque de masters** — association auto dark/flat par
   filtre/binning/température (complète le Flat Wizard ; le master livestack
   existe déjà).
-- **C2. Planification cible/date + reprise** — structure `target/date/`,
-  journal de progression, reprise d'une séquence interrompue.
+- ~~**C2. Planification cible/date + reprise**~~ — **FAIT (28/08)** : structure
+  `<save_dir>/<slug-cible>/<YYYY-MM-DD>/<HHMMSS>` (sans cible → legacy
+  `capture_<TS>`), journal `journal.json` (écriture atomique, `created_at`
+  préservé) mis à jour à chaque pose ; bouton **Reprendre** (caché si session
+  terminée) → `POST /api/sequence/resume-session` → le runner saute les poses
+  faites (`start(frames, resume_from=done)`) et **continue les index de
+  fichiers** (aucun écrasement), journal marqué `complete` à la fin. Helpers
+  `slugify`/`build_session_dir`/`save_journal`/`load_journal` (unitaires) +
+  flux cible/date et reprise → **237 pytest OK, flux séquence 55 OK**.
 - **C3. Templates de séquence nommés** — plans réutilisables (L, RGB, Ha) et
   partageables.
 - **C4. Journaling par cible** — métadonnées par pose (settle, seeing/HFR,
@@ -211,7 +227,8 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Ordre recommandé
 
-A1 → A2 → B2 (peut se faire tôt grâce à A2) → B1 → B3 → C1 → C2 → C3 → C4 → Lot D.
+A1 → A2 → B3 → ~~C2~~ → C3 → C4 → C1 → Lot D.
+(B1 météo et B2 alertes écartés — pas de communication internet.)
 
 ---
 

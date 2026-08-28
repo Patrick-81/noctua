@@ -29,12 +29,29 @@ exposure:
   saturation_frac: 0.6       # les pics d'étoiles restent sous cette fraction du plein-échelle
 sequence:
   save_dir: ~/asteo/captures/
+  # Layout (Lot C2) : avec une cible nommée → <save_dir>/<cible>/<YYYY-MM-DD>/<HHMMSS>/
+  # sinon → <save_dir>/capture_<YYYYMMDD_HHMMSS>/  (legacy).
+  # Chaque session persiste sa progression dans journal.json (reprise possible :
+  # seules les poses non sauvegardées sont reprises, index de fichiers continus).
   dither:
     enabled: true
     amount: 2.0                  # σ du décalage gaussien (px)
     settle_rms: 1.0              # seuil de stabilisation du guidage (″) — 0 = pas d'attente
     settle_timeout: 20.0         # temps max d'attente du settle (s)
     settle_stable: 3             # échantillons consécutifs sous le seuil pour considérer le settle OK
+  # ── Refocus automatique (Lot B3) ──────────────────────────────
+  # Refocalisation HFR (V-curve) entièrement côté serveur entre deux poses,
+  # déclenchée dès que l'une des conditions est atteinte :
+  #   - intervalle de temps écoulé depuis le dernier refocus (> 0),
+  #   - variation d'altitude de la monture depuis le dernier refocus (> 0).
+  # La première pose ne déclenche jamais (ligne de base enregistrée au départ).
+  refocus:
+    enabled: false
+    interval_min: 20             # refocus toutes les N minutes (0 = désactivé)
+    alt_trigger_deg: 3.0         # refocus après un Δ d'altitude de N ° (0 = désactivé)
+    exposure_sec: 1.0            # exposition de mesure du HFR (s)
+    range: 2000                  # demi-plage de recherche de la V-curve (steps)
+    points: 25                   # nombre de points de mesure
   stack:
     enabled: false
     max_frames: 0

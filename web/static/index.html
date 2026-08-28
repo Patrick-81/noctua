@@ -1022,8 +1022,22 @@
                         <span style="font-size:0.6rem;">s max</span>
                     </div>
                     <div class="hw-row">
+                        <label class="seq-chk" title="Refocalisation automatique entre les poses : après N minutes et/ou un Δ d'altitude">
+                            <input type="checkbox" id="seq-ref-enabled"> <span data-i18n="seq.refocus">Refocus auto</span>
+                        </label>
+                        <input type="number" id="seq-ref-interval" class="cap-input" min="0" step="5" value="20" style="width:64px;" title="Refocus après N minutes (0 = désactivé)">
+                        <span style="font-size:0.6rem; margin-right:8px;">min</span>
+                        <input type="number" id="seq-ref-alt" class="cap-input" min="0" step="0.5" value="3" style="width:64px;" title="Refocus après un Δ d'altitude de N ° (0 = désactivé)">
+                        <span style="font-size:0.6rem; margin-right:8px;">° alt</span>
+                    </div>
+                    <div id="seq-refocus-status" style="font-size:0.6rem; color:var(--text-muted); margin-bottom:4px;"></div>
+                    <div class="hw-row">
                         <span class="hw-label" data-i18n="seq.save_in">Sauver dans :</span>
                         <input type="text" id="seq-save-dir" class="cap-input" style="flex:1; min-width:0;" placeholder="~/captures/">
+                    </div>
+                    <div class="hw-row">
+                        <span class="hw-label" title="Nom de la cible — organise les sessions en <cible>/<date>/">Cible</span>
+                        <input type="text" id="seq-target" class="cap-input" style="flex:1; min-width:0;" placeholder="M31 Andromeda, NGC 7000, …">
                     </div>
                 </div>
 
@@ -1043,6 +1057,8 @@
                 <button id="seq-pause" class="btn-glass" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="seq.pause">⏸ Pauser</button>
                 <button id="seq-stop" class="btn-glass danger" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="seq.stop">⏹ STOP</button>
                 <button id="seq-reset" class="btn-glass" style="flex:0 0 auto; padding:4px 12px;" disabled data-i18n="common.reset">⟲ Reset</button>
+                <button id="seq-resume" class="btn-glass" style="flex:0 0 auto; padding:4px 12px; display:none;"
+                        title="Reprendre la dernière session interrompue">↻ Reprendre</button>
                 <div style="flex:1;"></div>
                 <span id="seq-progress-text" style="font-size:0.65rem; color:var(--text-secondary);">0 / 0</span>
             </div>

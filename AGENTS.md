@@ -6,7 +6,7 @@
 
 - **Backend Python** : client INDIGO natif (XML/INDI sur TCP, port 7624) + FastAPI/uvicorn + WebSocket temps réel vers le navigateur.
 - **Frontend Vanilla JS** : pas de framework, pas de build step. La majorité des scripts sont des scripts classiques chargés dans l'ordre dans `index.html`. Exceptions : la couche "sky map" (`app.js`, `sky-engine.js`, `sky-projection.js`) est constituée de vrais modules ES (`import`/`export`), chargés via `<script type="module" src="/app.js">`. Ces modules communiquent avec les scripts classiques via des globales exposées sur `window` (ex. `window.setOffsetTarget` défini par `preview.js`, appelé optionnellement dans `sky-engine.js`).
-- **Fonctionnalités** : monture, caméras, focuser, roue à filtres, autoguidage, dithering piloté par le guide (shift de référence + settle), autofocus HFR, calibration, séquences d'acquisition, stacking live, mise en station polaire, sky map D3, résolution d'astrométrie.
+- **Fonctionnalités** : monture, caméras, focuser, roue à filtres, autoguidage, dithering piloté par le guide (shift de référence + settle), autofocus HFR (+ refocus automatique temps/altitude côté serveur), calibration, séquences d'acquisition, stacking live, mise en station polaire, sky map D3, résolution d'astrométrie.
 - Python 3.10+, dépendances : `fastapi`, `uvicorn`, `PyYAML`, `Pillow`, `seiza`, `numpy`.
 
 ## 2. Structure des répertoires
@@ -25,7 +25,8 @@ indigo/
     mount.py camera.py focuser.py filterwheel.py guide.py
     guide_calibration.py autofocus.py exposure.py focus_metrics.py
     meridian.py         # Détection/anticipation du flip méridien (marge, anti-re-flip)
-    sequence.py live_stack.py solver.py triggers.py   # Trigger Manager (Lot A2)
+    sequence.py live_stack.py solver.py triggers.py   # Trigger Manager (Lot A2) ; séquences cible/date + reprise (Lot C2)
+    refocus.py          # Refocus auto temps/altitude (Lot B3), V-curve serveur
     flat_wizard.py      # Machine à états du Flat Wizard (série de flat, ADU cible, AUTO)
     pointing.py         # Modèle d'erreur de pointage (fit paramétrique + résidu IDW)
 web/
@@ -40,7 +41,7 @@ web/
     api.js              # addLog() journal + consommateurs Hub (ws:log, ws:image)
     ...                 # panneaux : mount, capture, sequence, guide, solver, target, calibration, preview, ...
 tests/
-  test_*.py             # pytest unitaires/intégration (219 tests)
+  test_*.py             # pytest unitaires/intégration (237 tests)
   test_*_flow.py        # tests de flux : LANCÉS DIRECTEMENT (pas par pytest)
   test_*_*.js           # tests unitaires node lancés directement (ex. test_hub.js, test_polar_math.js)
   *.spec.js             # specs Playwright (UI)
@@ -58,7 +59,7 @@ Un seul venv est présent : `.venv` (dépendances OK). **`start.sh` préfère `.
 |-------|----------|
 | Lancer le serveur | `./start.sh` ou `python run.py [indigo_host:port] [--port 8080]` |
 | Lancer le mock INDIGO | `./start-mock-server.sh` (mock INDIGO, port 17624) |
-| Tests pytest | `.venv/bin/python -m pytest tests/ -q` (219 tests, ~64 s) |
+| Tests pytest | `.venv/bin/python -m pytest tests/ -q` (237 tests, ~82 s) |
 | Tests flux (directement) | `python tests/test_exposure.py`, `python tests/test_guide_flow.py`, `python tests/test_sequence_flow.py` |
 | Tests unitaires JS | `node tests/test_hub.js` (39 tests), `node tests/test_polar_math.js` |
 | Tests UI (Playwright) | `npx playwright test` (specs `tests/*.spec.js`) |

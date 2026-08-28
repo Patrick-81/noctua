@@ -13,7 +13,9 @@ receives progress through ``status()`` (optionally pushed over WS).
 from __future__ import annotations
 
 import asyncio
+import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 
@@ -37,6 +39,7 @@ class SequenceRunner:
         self._plan_index = 0
         self._frame_index = 0
         self._done = 0
+        self._resume_from = 0
         self._total = 0
         self._current: dict | None = None
         self._last_error: str | None = None
@@ -46,14 +49,21 @@ class SequenceRunner:
 
     # ── Public control ─────────────────────────────────────────
 
-    def start(self, frames: list[dict]) -> None:
-        """Validate + start a run. Returns immediately; the loop is async."""
+    def start(self, frames: list[dict], resume_from: int = 0) -> None:
+        """Validate + start a run. Returns immediately; the loop is async.
+
+        ``resume_from`` (Lot C2) skips the first N poses already saved in a
+        previous session: ``done`` starts at N and file indexes continue at
+        N+1 instead of overwriting.
+        """
         if self._running:
             raise RuntimeError("Sequence is already running")
         if not frames:
             raise ValueError("Sequence plan is empty")
         self._frames = [dict(f) for f in frames]
         self._reset_state()
+        self._resume_from = max(0, int(resume_from or 0))
+        self._done = self._resume_from
         self._total = _plan_total(self._frames)
         self._running = True
         self._paused = False
@@ -76,12 +86,16 @@ class SequenceRunner:
         h = hooks or {}
         self._running = True
         try:
+            pose = 0  # numéro global de pose dans le plan (reprise : on saute les ≤ resume_from)
             for fi, frame in enumerate(self._frames):
                 if self._stop_requested:
                     break
                 self._current = frame
                 self._frame_index = fi
                 for k in range(int(frame.get("count", 1))):
+                    pose += 1
+                    if pose <= self._resume_from:
+                        continue  # déjà sauvegardée dans une session précédente
                     if self._stop_requested:
                         break
                     while self._paused and not self._stop_requested:
@@ -126,15 +140,18 @@ class SequenceRunner:
                             f"filtre={frame.get('filter','') or '—'} "
                             f"(pose {k + 1}/{frame.get('count',1)})")
 
-        # Optional per-frame hook (e.g. automatic meridian flip between poses).
-        # Runs before exposure so the flip happens when no frame is exposing.
+        # Optional per-frame hook (e.g. automatic meridian flip / refocus between
+        # poses). Runs before exposure so the maintenance happens when no frame
+        # is exposing. Returns {'flipped': …} and/or {'refocused': …}.
         bf = h.get("before_frame")
         if bf:
-            flip = await bf(frame)
-            if flip is not None and flip.get("flipped"):
+            act = await bf(frame)
+            if act is not None and (act.get("flipped") or act.get("refocused")):
                 if fl:
-                    await fl("info", f"meridian flip effectué avant pose "
-                                     f"({flip.get('phases', [])})")
+                    what = ("flip méridien" if act.get("flipped")
+                            else "refocus automatique")
+                    detail = act.get("detail") or act.get("phases") or ""
+                    await fl("info", f"{what} effectué avant pose ({detail})")
 
         ofs = h.get("on_frame_start")
         if ofs:
@@ -158,6 +175,15 @@ class SequenceRunner:
             self._save_saved = path
             if fl:
                 await fl("info", f"sauvé → {path}")
+
+            # Optional persistence of the run progress (Lot C2, journal).
+            jl = h.get("journal")
+            if jl:
+                try:
+                    await jl(path, frame, self._done + 1)
+                except Exception as e:  # noqa: BLE001
+                    if fl:
+                        await fl("warning", f"journal non écrit : {e}")
 
             # Optional live stacking of the freshly saved frame
             st = h.get("stack")
@@ -252,3 +278,91 @@ def build_path(save_dir: str, frame: dict, index: int) -> str:
     name_parts.append(datetime.now().strftime("%Y%m%d_%H%M%S"))
     subdir = os.path.join(safe_dir, frametype_dir)
     return os.path.join(subdir, "_".join(name_parts) + ".fits")
+
+
+# ── Session planning (Lot C2): cible/date layout + journal ────
+
+def slugify(name: str) -> str:
+    """Normalize a target name into a filesystem-safe slug."""
+    name = (name or "").strip()
+    if not name:
+        return ""
+    out = re.sub(r"[^A-Za-z0-9]+", "-", name).strip("-")
+    return out or "cible"
+
+
+def build_session_dir(root_dir: str, target: str = "", now: datetime | None = None) -> str:
+    """Session output directory (strictly below ``root_dir``).
+
+    With a target:  ``<root>/<target_slug>/<YYYY-MM-DD>/<HHMMSS>``
+    otherwise:      ``<root>/capture_<YYYYMMDD_HHMMSS>`` (legacy).
+
+    Frame-type group dirs (``lights/``, …) live directly inside it and the
+    run state is persisted in ``journal.json`` beside them.
+    """
+    now = now or datetime.now()
+    base = os.path.expanduser(root_dir or "")
+    if target:
+        return os.path.join(base, slugify(target), now.strftime("%Y-%m-%d"),
+                            now.strftime("%H%M%S"))
+    return os.path.join(base, f"capture_{now.strftime('%Y%m%d_%H%M%S')}")
+
+
+def journal_path(session_dir: str) -> str:
+    return os.path.join(session_dir, "journal.json")
+
+
+def save_journal(
+    session_dir: str,
+    *,
+    frames: list[dict],
+    done: int,
+    total: int,
+    last_saved: str | None = None,
+    current: dict | None = None,
+    frame_index: int | None = None,
+    running: bool = False,
+    complete: bool | None = None,
+    target: str = "",
+    **extra,
+) -> str:
+    """Persist run state to ``<session_dir>/journal.json``.
+
+    ``created_at`` is preserved across rewrites so a resumed session keeps
+    its original provenance.  Returns the journal path.
+    """
+    path = journal_path(session_dir)
+    data = {
+        "session_dir": session_dir,
+        "target": target,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "frames": frames,
+        "done": int(done),
+        "total": int(total),
+        "last_saved": last_saved,
+        "current": current,
+        "frame_index": frame_index,
+        "running": bool(running),
+        "complete": complete,
+    }
+    prev = load_journal(session_dir)
+    if prev and prev.get("created_at"):
+        data["created_at"] = prev["created_at"]
+    if extra:
+        data.update(extra)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)  # atomic-ish: journal never ends up half-written
+    return path
+
+
+def load_journal(session_dir: str) -> dict | None:
+    """Return the session journal (None if missing or unreadable)."""
+    try:
+        with open(journal_path(session_dir), encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return None

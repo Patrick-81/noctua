@@ -87,6 +87,10 @@ class WebServer:
             "mount": (lambda: self.registry.get_mount()),
         })
 
+        # Refocus automatique (Lot B3) : politique intervalle/altitude + run serveur
+        from indigo.devices.refocus import RefocusPolicy
+        self.refocus_policy = RefocusPolicy(**self.sequence_cfg.get("refocus", {}) or {"enabled": False})
+
         # Live stacking engine (Seiza LiveStacker) — device-agnostic pile
         from indigo.devices.live_stack import LiveStackEngine
         self.stacking = LiveStackEngine(options=self.sequence_cfg.get("stack", {}))

@@ -8,8 +8,9 @@ const SEQ_FRAME_TYPES = ['LIGHT', 'DARK', 'BIAS', 'FLAT'];
 const SEQ_DEFAULT_FRAME = () => ({ duration: 60, frame_type: 'LIGHT', filter: '', count: 1, delay: 1 });
 
 let _seqFrames = [];
-let _seqDefaults = { frames: [], save_dir: '', dither: { enabled: false, amount: 2.0 } };
+let _seqDefaults = { frames: [], save_dir: '', target: '', dither: { enabled: false, amount: 2.0 } };
 let _seqStatus = { running: false, paused: false, done: 0, total: 0 };
+let _seqResumeDir = null;   // session_dir d'une session interrompue → bouton Reprendre
 let _seqQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
 
 function initSequencePanel() {
@@ -23,8 +24,16 @@ function initSequencePanel() {
             .map(f => ({ ...f }));
         const dirEl = document.getElementById('seq-save-dir');
         if (dirEl) dirEl.value = data.save_dir || '';
+        const targetEl = document.getElementById('seq-target');
+        if (targetEl) targetEl.value = data.target || '';
         const dithEl = document.getElementById('seq-dith-enabled');
         if (dithEl) dithEl.checked = !!(data.dither && data.dither.enabled);
+        const refEl = document.getElementById('seq-ref-enabled');
+        if (refEl) refEl.checked = !!(data.refocus && data.refocus.enabled);
+        const refIntEl = document.getElementById('seq-ref-interval');
+        if (refIntEl && data.refocus) refIntEl.value = data.refocus.interval_min ?? 20;
+        const refAltEl = document.getElementById('seq-ref-alt');
+        if (refAltEl && data.refocus) refAltEl.value = data.refocus.alt_trigger_deg ?? 3;
         renderSequenceTable();
     }).catch(() => renderSequenceTable());
 
@@ -169,16 +178,24 @@ async function seqStart() {
     const total = frames.reduce((s, f) => s + f.count, 0);
     if (!total) { addLog('warning', 'sequence', 'Plan vide — ajoutez au moins une pose'); return; }
     const saveDir = document.getElementById('seq-save-dir')?.value.trim() || '';
+    const target = document.getElementById('seq-target')?.value.trim() || '';
     const dith = document.getElementById('seq-dith-enabled')?.checked;
+    const ref = document.getElementById('seq-ref-enabled')?.checked;
     addLog('info', 'sequence', i18nFmt('log.capture.start', { n: total, dither: dith ? 'ON' : 'OFF' }));
     let res = null;
     try {
+        const refocus = {
+            enabled: !!ref,
+            interval_min: parseFloat(document.getElementById('seq-ref-interval')?.value) || 0,
+            alt_trigger_deg: parseFloat(document.getElementById('seq-ref-alt')?.value) || 0,
+        };
         res = await fetch('/api/sequence/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                frames, save_dir: saveDir,
+                frames, save_dir: saveDir, target,
                 dither: { enabled: !!dith, amount: (_seqDefaults.dither && _seqDefaults.dither.amount) ?? 2.0 },
+                refocus,
             }),
         }).then(r => r.json());
     } catch (e) {
@@ -265,6 +282,21 @@ function seqApplyStatus(st) {
         const guided = (d.guided === undefined || d.guided) ? '' : ' — pas de guidage';
         dithEl.textContent = `Dither : Δ(${d.dx.toFixed(1)}, ${d.dy.toFixed(1)})${guided}`;
     }
+
+    const refStEl = document.getElementById('seq-refocus-status');
+    if (refStEl && st.refocus) {
+        const rf = st.refocus;
+        const parts = [];
+        if (rf.enabled) parts.push(`${rf.interval_min || '—'} min / ${rf.alt_trigger_deg || '—'}°`);
+        if (rf.last_best != null) parts.push(`dernier refocus → pos ${rf.last_best}${rf.last_best_hfr != null ? ` (HFR ${rf.last_best_hfr})` : ''}`);
+        refStEl.textContent = parts.length
+            ? `Refocus : ${parts.join(' — ')}`
+            : 'Refocus : désactivé';
+    }
+
+    _seqResumeDir = st.resumable ? (st.session_dir || null) : null;
+    const resumeBtn = document.getElementById('seq-resume');
+    if (resumeBtn) resumeBtn.style.display = _seqResumeDir ? '' : 'none';
 
     const svEl = document.getElementById('seq-last-saved');
     if (svEl && st.last_saved) {
@@ -389,6 +421,27 @@ function seqInitSequencer() {
         seqUpdateProgressUI();
     });
 
+    const resumeBtn = document.getElementById('seq-resume');
+    if (resumeBtn) resumeBtn.addEventListener('click', async () => {
+        if (!_seqResumeDir) return;
+        addLog('info', 'sequence', `Reprise de la session ${_seqResumeDir}`);
+        try {
+            const res = await fetch('/api/sequence/resume-session', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_dir: _seqResumeDir }),
+            }).then(r => r.json());
+            if (res.ok === false && res.error) {
+                addLog('error', 'sequence', 'Reprise refusée : ' + res.error);
+                return;
+            }
+            renderSequenceTable();
+            seqApplyStatus(res.status || { running: true });
+        } catch (e) {
+            addLog('error', 'sequence', 'Reprise impossible');
+        }
+    });
+
     const dithEl = document.getElementById('seq-dith-enabled');
     if (dithEl) dithEl.addEventListener('change', (e) => {
         seqData.dither.enabled = e.target.checked;
@@ -408,6 +461,22 @@ function seqInitSequencer() {
         if (!Number.isNaN(v) && seqData.dither) seqData.dither.settle_timeout = v;
     });
 
+    const refEl = document.getElementById('seq-ref-enabled');
+    if (refEl) refEl.addEventListener('change', (e) => {
+        if (!seqData.refocus) seqData.refocus = { enabled: false, interval_min: 20, alt_trigger_deg: 3 };
+        seqData.refocus.enabled = e.target.checked;
+    });
+    const refIntEl = document.getElementById('seq-ref-interval');
+    if (refIntEl) refIntEl.addEventListener('change', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v) && seqData.refocus) seqData.refocus.interval_min = v;
+    });
+    const refAltEl = document.getElementById('seq-ref-alt');
+    if (refAltEl) refAltEl.addEventListener('change', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v) && seqData.refocus) seqData.refocus.alt_trigger_deg = v;
+    });
+
     Hub.subscribe('sequence:update', 'sequencer', (env) => seqApplyStatus(env.payload));
     Hub.subscribe('capture:progress', 'sequencer', (env) => {
         seqQuickCapture = env.payload || null;
@@ -422,6 +491,7 @@ async function seqLoadFromServer() {
         const data = await fetch('/api/sequence/defaults').then(r => r.json());
         if (!data) return;
         if (data.dither) seqData.dither = data.dither;
+        if (data.refocus) seqData.refocus = data.refocus;
         if (data.save_dir) seqData.save_dir = data.save_dir;
         if (data.stacking) seqData.stacking = data.stacking;
         const dirEl = document.getElementById('seq-save-dir');
@@ -434,6 +504,12 @@ async function seqLoadFromServer() {
         if (rmsEl && seqData.dither) rmsEl.value = seqData.dither.settle_rms ?? 1;
         const toEl = document.getElementById('seq-dith-settle-timeout');
         if (toEl && seqData.dither) toEl.value = seqData.dither.settle_timeout ?? 20;
+        const refEl = document.getElementById('seq-ref-enabled');
+        if (refEl && seqData.refocus) refEl.checked = !!seqData.refocus.enabled;
+        const refIntEl = document.getElementById('seq-ref-interval');
+        if (refIntEl && seqData.refocus) refIntEl.value = seqData.refocus.interval_min ?? 20;
+        const refAltEl = document.getElementById('seq-ref-alt');
+        if (refAltEl && seqData.refocus) refAltEl.value = seqData.refocus.alt_trigger_deg ?? 3;
         // Si l'ancien format (frames) est présent, convertir en targets
         if (data.frames && data.frames.length && !seqData.targets.length) {
             const t = seqNewTarget();

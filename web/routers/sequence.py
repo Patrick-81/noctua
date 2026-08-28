@@ -2,7 +2,7 @@
 
 import asyncio
 import os
-from datetime import datetime
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -13,6 +13,21 @@ if TYPE_CHECKING:
 
 
 def register(app, server: "WebServer") -> None:
+    def _session_is_resumable() -> bool:
+        """Une session incomplète (journal présent, non terminée) peut être reprise."""
+        from indigo.devices.sequence import load_journal
+        sd = server.sequence_cfg.get("session_dir", "")
+        if not sd or server.sequence.status().get("running"):
+            return False
+        j = load_journal(sd)
+        if not j or j.get("complete"):
+            return False
+        try:
+            done, total = int(j.get("done", 0)), int(j.get("total", 0))
+        except (TypeError, ValueError):
+            return False
+        return total > 0 and 0 <= done < total
+
     def _fire(event: str, context: dict | None = None) -> None:
         """Emet un événement vers le Trigger Manager ; jamais bloquant."""
         try:
@@ -20,15 +35,17 @@ def register(app, server: "WebServer") -> None:
         except Exception as e:  # noqa: BLE001
             log.error(f"trigger fire {event} failed: {e}")
 
-    def _seq_hooks(save_dir: str | None = None):
+    def _seq_hooks(save_dir: str | None = None, frames: list | None = None, target: str = ""):
         """Build the device hooks backing the sequence runner.
 
         ``save_dir`` optionally overrides the root used by build_path; the
         sequence/capture runner injects a per-session ``capture_TS/`` dir
-        while the stacking session injects ``livestack_TS/``.
+        while the stacking session injects ``livestack_TS/``.  ``frames`` and
+        ``target`` feed the progressive journal (Lot C2).
         """
         import asyncio as _asyncio
-        from indigo.devices.sequence import build_path
+        from indigo.devices.sequence import build_path, save_journal
+        frames = frames if frames is not None else server.sequence_cfg.get("frames", [])
 
         async def log(level: str, msg: str):
             import logging as _logging
@@ -87,6 +104,18 @@ def register(app, server: "WebServer") -> None:
                 f.write(img)
             await log("info", f"sequence frame {index} saved: {path} ({len(img)} bytes)")
             return path
+
+        async def journal(path: str, frame: dict, index: int) -> None:
+            """Persist run progress (Lot C2) after each saved pose."""
+            if not save_dir:
+                return
+            st = server.sequence.status()
+            save_journal(
+                save_dir,
+                frames=frames, target=target,
+                done=st.get("done", 0) + 1, total=st.get("total", 0),
+                last_saved=path, current=frame, frame_index=index,
+                running=True)
 
         async def dither() -> dict:
             """Dithering piloté par le guide (pulse de référence + settle).
@@ -163,6 +192,15 @@ def register(app, server: "WebServer") -> None:
             })
 
         async def on_end(done: int, total: int, complete: bool) -> None:
+            if save_dir:
+                try:
+                    save_journal(
+                        save_dir, frames=frames, target=target,
+                        done=done, total=total,
+                        last_saved=server.sequence.status().get("last_saved"),
+                        running=False, complete=complete)
+                except Exception as e:  # noqa: BLE001
+                    await log("warning", f"journal final non écrit : {e}")
             if complete:
                 _fire("series_done", {"done": done, "total": total})
             else:
@@ -171,42 +209,110 @@ def register(app, server: "WebServer") -> None:
                                "error": st.get("last_error") or ""})
 
         async def before_frame(frame: dict) -> dict | None:
-            """Trigger an automatic meridian flip between poses when due.
+            """Trigger automatic maintenance between poses when due.
 
-            Only considered for LIGHT frames and only when flip automation is
-            enabled in the telescope config.  Uses the same flip logic as the
-            manual ``/api/mount/flip`` route.
+            Two independent policies, both only for LIGHT frames and both
+            running *before* the exposure so nothing is exposing:
+              1. meridian flip (when ``telescope.flip_enabled``),
+              2. automatic refocus (Lot B3) — time/altitude driven, runs the
+                 HFR V-curve entirely server-side and slews back to the best
+                 focuser position.
             """
             if frame.get("frame_type", "LIGHT").upper() != "LIGHT":
                 return None
-            if not server.telescope.get("flip_enabled", False):
-                return None
-            m = server.registry.get_mount()
-            if not m or not m.connected:
-                return None
+
+            # 1. Meridian flip (unchanged behaviour).
+            act: dict | None = None
+            if server.telescope.get("flip_enabled", False):
+                m = server.registry.get_mount()
+                if m and m.connected:
+                    try:
+                        status = server._mount_flip_status(m.state_dict())
+                        flip = status.get("flip", {})
+                        due = flip.get("flip_due", False)
+                        ha = flip.get("ha_hours")
+                    except Exception as e:  # noqa: BLE001
+                        await log("warning", f"flip check skipped: {e}")
+                        due = False
+                        ha = None
+
+                    # Re-arm when the object is back east of the meridian (HA < 0),
+                    # so the flip fires once per west-of-meridian pass.
+                    if ha is not None and ha < 0 and server._meridian_flipped:
+                        server._meridian_flipped = False
+
+                    if due and not server._meridian_flipped:
+                        await log("warning", "Méridien passé — flip automatique avant pose")
+                        act = await server._do_meridian_flip()
+
+            # 2. Automatic refocus (Lot B3) — after the flip so the altitude
+            #    baseline of a freshly re-slewed mount is used.
+            pol = getattr(server, "refocus_policy", None)
+            if pol is None or not pol.enabled:
+                return act
+            focuser = server.registry.get_focuser()
+            if not focuser or not getattr(focuser, "is_ready", getattr(focuser, "connected", False)):
+                await log("debug", "refocus : pas de focuser prêt — ignoré")
+                return act
+            mount = server.registry.get_mount()
+            alt = getattr(mount, "alt_deg", None) if mount else None
+            now = time.monotonic()
+            if not pol.should_refocus(now, alt):
+                return act
+
+            from indigo.devices.refocus import RefocusError, run_autofocus
+            cfg = {**server.sequence_cfg.get("refocus", {}), "center": focuser.position}
             try:
-                status = server._mount_flip_status(m.state_dict())
-                flip = status.get("flip", {})
-                due = flip.get("flip_due", False)
-                ha = flip.get("ha_hours")
+                res = await run_autofocus(
+                    focuser,
+                    lambda: measure_hfr(float(cfg.get("exposure_sec", 1.0))),
+                    cfg, log=log,
+                )
+            except RefocusError as e:
+                await log("warning", f"refocus automatique échoué : {e} — "
+                                     f"tentative suivante dans {pol.attempt_cooldown_s:.0f}s")
+                return act
             except Exception as e:  # noqa: BLE001
-                await log("warning", f"flip check skipped: {e}")
-                return None
+                await log("error", f"refocus automatique interrompu: {e}")
+                return act
+            pol.mark_refocused(now, alt,
+                               best=res.get("best_position"), best_hfr=res.get("best_hfr"))
+            info = {"refocused": True,
+                    "detail": f"pos={res.get('best_position')} HFR={res.get('best_hfr')}"}
+            if act:
+                act.update(info)
+                return act
+            return info
 
-            # Re-arm when the object is back east of the meridian (HA < 0),
-            # so the flip fires once per west-of-meridian pass.
-            if ha is not None and ha < 0 and server._meridian_flipped:
-                server._meridian_flipped = False
-
-            # Do not re-flip if we already flipped for this pass.
-            if not due or server._meridian_flipped:
-                return None
-            await log("warning", "Méridien passé — flip automatique avant pose")
-            return await server._do_meridian_flip()
+        async def measure_hfr(exposure_sec: float) -> tuple[float, float, int]:
+            """Expose ``exposure_sec`` s et mesure le HFR de l'image fraîche."""
+            cam = server.registry.get_camera()
+            if not cam or not cam.is_ready:
+                raise RuntimeError("no camera ready for refocus measurement")
+            base = server._camera_images.get(cam.name, b"")
+            await cam.expose(exposure_sec, "LIGHT")
+            loop = _asyncio.get_running_loop()
+            deadline = loop.time() + 30.0
+            while loop.time() < deadline and cam.exposing:
+                await _asyncio.sleep(0.1)
+            while loop.time() < deadline:
+                cur = server._camera_images.get(cam.name, b"")
+                if cur and cur != base:
+                    break
+                await _asyncio.sleep(0.1)
+            img = server._camera_images.get(cam.name, b"")
+            if not img:
+                raise RuntimeError("no image for refocus measurement")
+            from indigo.devices.focus_metrics import compute_focus_metrics
+            res = await loop.run_in_executor(None, lambda: compute_focus_metrics(img))
+            if not res.get("ok"):
+                raise RuntimeError(res.get("error", "focus metric failed"))
+            return res.get("hfr"), res.get("fwhm"), res.get("star_count", 0)
 
         return {
             "expose": expose, "wait_exposure": wait_exposure,
             "set_filter": set_filter, "save": save,
+            "journal": journal,
             "stack": stack,
             "dither": dither, "delay": delay, "log": log,
             "on_progress": on_progress,
@@ -218,7 +324,11 @@ def register(app, server: "WebServer") -> None:
 
     @app.get("/api/sequence/status")
     async def sequence_status():
-        return SanitizedJSONResponse(server.sequence.status())
+        st = server.sequence.status()
+        st["refocus"] = server.refocus_policy.status()
+        st["session_dir"] = server.sequence_cfg.get("session_dir", "")
+        st["resumable"] = _session_is_resumable()
+        return SanitizedJSONResponse(st)
 
     @app.get("/api/sequence/defaults")
     async def sequence_defaults():
@@ -227,10 +337,14 @@ def register(app, server: "WebServer") -> None:
                 {"duration": 60.0, "frame_type": "LIGHT", "filter": "", "count": 1, "delay": 1.0},
             ]),
             "save_dir": server.sequence_cfg.get("save_dir", ""),
+            "target": server.sequence_cfg.get("target", ""),
             "dither": server.sequence_cfg.get("dither", {
                 "enabled": False, "amount": 2.0, "settle_rms": 1.0,
                 "settle_timeout": 20.0, "settle_stable": 3}),
             "stack": server.sequence_cfg.get("stack", {"enabled": False}),
+            "refocus": server.sequence_cfg.get("refocus", {
+                "enabled": False, "interval_min": 20.0, "alt_trigger_deg": 3.0,
+                "exposure_sec": 1.0, "range": 2000, "points": 25}),
         })
 
     @app.post("/api/sequence/start")
@@ -248,6 +362,8 @@ def register(app, server: "WebServer") -> None:
             return {"ok": False, "error": err}
         if body.get("save_dir"):
             server.sequence_cfg["save_dir"] = body["save_dir"]
+        if body.get("target") is not None:
+            server.sequence_cfg["target"] = str(body["target"] or "")
         if body.get("dither") is not None:
             cur = server.sequence_cfg.get("dither", {}) or {}
             merged = {**cur, **body["dither"]}
@@ -258,23 +374,40 @@ def register(app, server: "WebServer") -> None:
             server.sequence_cfg["stack"] = merged
             if body["stack"].get("enabled"):
                 server.stacking.reset()
-        # Each run gets its own typed, timestamped directory under the root:
-        #   <root>/capture_YYYYMMDD_HHMMSS/
+        if body.get("refocus") is not None:
+            cur = server.sequence_cfg.get("refocus", {}) or {}
+            merged = {**cur, **body["refocus"]}
+            server.sequence_cfg["refocus"] = merged
+            server.refocus_policy.configure(**{
+                k: merged[k] for k in ("enabled", "interval_min", "alt_trigger_deg")
+                if k in merged})
+        # Each run gets a fresh refocus baseline (first frame = baseline, no
+        # surprise refocus at start; triggers fire only during the run).
+        server.refocus_policy.reset()
+        # Session output directory (Lot C2) — cible/date layout when a target
+        # is named, legacy capture_TS/ otherwise. Journal created up-front.
         root_dir = os.path.expanduser(server.sequence_cfg.get("save_dir", ""))
-        session_dir = os.path.join(root_dir, f"capture_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+        target = server.sequence_cfg.get("target", "")
+        from indigo.devices.sequence import build_session_dir, save_journal
+        session_dir = build_session_dir(root_dir, target)
         os.makedirs(session_dir, exist_ok=True)
         server.sequence_cfg["session_dir"] = session_dir
+        save_journal(session_dir, frames=frames, target=target,
+                     done=0, total=server.sequence.status().get("total", 0),
+                     running=True, complete=False)
         try:
             server.sequence.start(frames)
         except (RuntimeError, ValueError) as e:
             return {"ok": False, "error": str(e)}
-        task = asyncio.create_task(server.sequence.run(_seq_hooks(save_dir=session_dir)))
+        task = asyncio.create_task(
+            server.sequence.run(_seq_hooks(save_dir=session_dir, frames=frames, target=target)))
         server.sequence._task = task
         task.add_done_callback(lambda _t: server._broadcast_sequence_status())
         server._broadcast_sequence_status()
         _fire("sequence_start", {
             "frames": len(frames),
             "total": server.sequence.status().get("total", 0),
+            "target": target or "",
             "session_dir": session_dir,
         })
         return {"ok": True, "session_dir": session_dir, "status": server.sequence.status()}
@@ -302,3 +435,53 @@ def register(app, server: "WebServer") -> None:
         st = SanitizedJSONResponse(server.sequence.reset())
         server._broadcast_sequence_status()
         return st
+
+    @app.post("/api/sequence/resume-session")
+    async def sequence_resume_session(body: dict):
+        """Reprendre une session interrompue (Lot C2) à partir de son journal.
+
+        Rejoue uniquement les poses non sauvegardées : ``done`` redémarre au
+        compteur journalisé et les index de fichiers continuent (aucun écrasement).
+        """
+        from indigo.devices.sequence import load_journal, save_journal, validate_frames
+        session_dir = (body.get("session_dir")
+                       or server.sequence_cfg.get("session_dir") or "").strip()
+        if not session_dir:
+            return {"ok": False, "error": "session_dir manquant"}
+        session_dir = os.path.expanduser(session_dir)
+        if not os.path.isdir(session_dir):
+            return {"ok": False, "error": f"session introuvable : {session_dir}"}
+        journal = load_journal(session_dir)
+        if not journal:
+            return {"ok": False, "error": "journal introuvable pour cette session"}
+        if journal.get("complete") or int(journal.get("done", 0)) >= int(journal.get("total", 0)):
+            return {"ok": False, "error": "session déjà terminée"}
+        frames = journal.get("frames") or []
+        target = journal.get("target", "")
+        done = int(journal.get("done", 0))
+        err = validate_frames(frames)
+        if err:
+            return {"ok": False, "error": err}
+        server.sequence_cfg["session_dir"] = session_dir
+        if target:
+            server.sequence_cfg["target"] = target
+        server.refocus_policy.reset()
+        try:
+            server.sequence.start(frames, resume_from=done)
+        except (RuntimeError, ValueError) as e:
+            return {"ok": False, "error": str(e)}
+        save_journal(session_dir, frames=frames, target=target,
+                     done=done, total=server.sequence.status().get("total", 0),
+                     running=True, complete=False)
+        task = asyncio.create_task(
+            server.sequence.run(_seq_hooks(save_dir=session_dir, frames=frames, target=target)))
+        server.sequence._task = task
+        task.add_done_callback(lambda _t: server._broadcast_sequence_status())
+        server._broadcast_sequence_status()
+        _fire("sequence_start", {
+            "frames": len(frames), "total": server.sequence.status().get("total", 0),
+            "target": target or "", "session_dir": session_dir,
+            "resumed": True, "done": done,
+        })
+        return {"ok": True, "session_dir": session_dir, "resumed_from": done,
+                "status": server.sequence.status()}
