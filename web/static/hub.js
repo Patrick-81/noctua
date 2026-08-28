@@ -160,7 +160,7 @@ const Hub = (function () {
             payload: payload === undefined ? null : payload,
         };
         const kindTag = envelope.kind === 'request' ? ` [request ${envelope.reqId}]` : '';
-        debugLog(`${source}.emit(${topic})${kindTag} → ${targets.length ? targets.join(', ') : '(aucun)'}`);
+        debugLog(`[Hub] ${source}.emit(${topic})${kindTag} → ${targets.length ? targets.join(', ') : '(aucun)'}`);
         if (arr.length) {
             arr.slice().forEach(e => {
                 if (!e.fn) return;

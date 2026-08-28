@@ -286,7 +286,7 @@ function initConnectionBar() {
     if (connectBtn) {
         connectBtn.addEventListener('click', async () => {
             const protocol = protoSelect?.value || 'connect';
-            const host = ipInput?.value || '192.168.1.25';
+            const host = ipInput?.value || '127.0.0.1';
             const port = parseInt(portInput?.value || '7624', 10);
             addLog('info', 'ws', i18nFmt('log.ws.connecting', { proto: protocol, host, port }));
             try {

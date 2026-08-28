@@ -93,28 +93,75 @@ Si vous avez un serveur INDI (`indiserver`) existant :
 - **Futur-proof** — INDIGO est activement développé et remplace INDI
 - **Communauté** — L'écosystème INDIGO grandit et intègre nativement les drivers ASCOM
 
-## Démarrage
+## Démarrage rapide
 
 ```bash
-# D'un terminal, côté serveur INDIGO réel ou simulateurs :
-indigo_server -p 7624 indigo_mount_simulator indigo_ccd_simulator ...
+# 1. Installation (venv + dépendances) — ou voir section « Installation »
+./install.sh
 
-# Côté client :
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
+# 2. Lancement
 ./start.sh                    # lit config.yaml (INDIGO + web)
-./start.sh 192.168.1.100:7624 # surcharge l'adresse du serveur
+./start.sh <host_indigo>:7624 # surcharge l'hôte du serveur INDIGO
 ./start.sh --port 8080        # surcharge le port web
 ```
 
 Puis ouvrir **http://<host>:8080** dans le navigateur.
 
-> ⚠️ **Note** : Le projet utilise `.venv` comme environnement unique. Les scripts `start.sh` et `start-mock-server.sh` le pointent tous deux vers `.venv/bin/python`. Si vous avez créé d'anciennes venvs (`venv`, `venv_new`, `venv_temp`), elles sont ignorées. Supprimez-les avec `rm -rf venv venv_new venv_temp` pour éviter toute confusion.
+## Prérequis
 
-## Configuration
+| Prérequis | Détail |
+|---|---|
+| **Python 3.10+** | requis par le backend (FastAPI, numpy, seiza) |
+| **pip + venv** | fournis par `python3-venv` / `python3-pip` (Debian/Ubuntu) |
+| **INDIGO** (`indigo_server`) | un serveur INDIGO accessible sur le réseau (matériel réel ou simulateurs). Noctua parle INDIGO/INDI sur TCP **port 7624** — c'est le seul middleware supporté |
+| **(optionnel) `seiza`** | solveur astrométrique. Installé automatiquement en général ; s'il échoue, le serveur fonctionne mais la résolution d'astrométrie est désactivée |
+
+> **Le port INDIGO est toujours `7624` — c'est l'hôte qui dépend de votre réseau.**
+> À l'installation, renseignez l'adresse IP du serveur INDIGO (réel ou
+> simulateurs) dans `config.yaml` sous `indigo.host`, ou passez-la en argument
+> à `./start.sh <indigo_host>:7624`.
+
+Prérequis système (ex. Ubuntu/Debian) :
+
+```bash
+sudo apt install python3 python3-venv python3-pip git
+```
+
+## Installation
+
+La manière la plus simple est d'utiliser le script dédié (crée `.venv`,
+installe les dépendances et copie `config.example.yaml` si besoin) :
+
+```bash
+./install.sh
+```
+
+Ou manuellement :
+
+```bash
+python3 -m venv .venv                 # environnement virtuel unique
+source .venv/bin/activate             # (Windows : .venv\Scripts\activate)
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+> **Note** : Le projet utilise `.venv` comme environnement unique. Les scripts
+> `start.sh` et `start-mock-server.sh` pointent tous deux vers `.venv/bin/python`.
+> Si vous avez d'anciennes venvs (`venv`, `venv_new`, `venv_temp`), elles sont
+> ignorées — supprimez-les avec `rm -rf venv venv_new venv_temp` pour éviter toute
+> confusion.
+
+## Configuration locale & lancement
+
+Créez votre configuration locale à partir du modèle (si `install.sh` ne l'a pas
+déjà fait) :
+
+```bash
+cp config.example.yaml config.yaml   # puis éditez selon votre réseau
+```
 
 `config.yaml` :
-- `indigo` : adresse `host:port` du serveur INDIGO et protocole (`connect`)
+- `indigo` : **hôte `host:port` du serveur INDIGO** (port toujours `7624`) et protocole (`connect`)
 - `web` : hôte/port d'écoute (défaut `0.0.0.0:8080`)
 - `site` : nom du site, coordonnées, fuseau (utilisés pour la distance LST et le flip méridien)
 - `telescope` : flip méridien, marge d'angle horaire, altitude min, taux de slew recherche
@@ -123,7 +170,22 @@ Puis ouvrir **http://<host>:8080** dans le navigateur.
 
 `profiles.yaml` : stocke les profils de matériel (monture/caméra/caméra guide/focuser/roue). Chemin surchargeable par `INDIGO_PROFILES_PATH`.
 
-> **Attention** : par défaut l'interface se bind sur `0.0.0.0`. **Ne pas exposer sur Internet** — réservez à un LAN local ou derrière authentification (état : authentification encore absente).
+> **Attention** : par défaut l'interface se bind sur `0.0.0.0`. **Ne pas exposer
+> sur Internet** — réservez à un LAN local ou derrière authentification (état :
+> authentification encore absente).
+
+## Test sans matériel (mock)
+
+Pour tester toute l'interface **sans serveur INDIGO réel**, lancez un serveur
+INDIGO simulé, puis Noctua dans un second terminal :
+
+```bash
+# Terminal 1 : serveur INDIGO mock (port 17624)
+./start-mock-server.sh
+
+# Terminal 2 : Noctua branché sur le mock
+./start.sh 127.0.0.1:17624
+```
 
 ## Test à blanc
 

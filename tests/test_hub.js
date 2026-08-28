@@ -14,6 +14,7 @@ const sandbox = { setTimeout, clearTimeout };
 vm.createContext(sandbox);
 vm.runInContext(src + '\n;this.__Hub = Hub;', sandbox, { filename: 'hub.js' });
 const Hub = sandbox.__Hub;
+Hub.debug = true;
 
 let passed = 0, failed = 0;
 function assert(cond, msg) {

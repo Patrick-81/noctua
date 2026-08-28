@@ -1,7 +1,7 @@
 # Noctua — Exemple de configuration
 # Copiez ce fichier vers config.yaml puis ajustez les valeurs.
 indigo:
-  host: 192.168.1.25        # adresse du serveur INDIGO
+  host: 127.0.0.1        # adresse du serveur INDIGO (modifiez selon votre réseau)
   port: 7624
 web:
   host: 0.0.0.0             # interface d'écoute (0.0.0.0 = LAN local)
@@ -14,7 +14,7 @@ site:
   timezone: Europe/Paris
 telescope:
   flip_enabled: true
-  hour_angle_margin: 0.0
+  hour_angle_margin: 0.2
   min_altitude: 5.0
   flip_slew_rate: Centering
   recenter_after_flip: true

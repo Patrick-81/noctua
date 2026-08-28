@@ -8,7 +8,7 @@ Starts:
 
 Usage:
     python run.py                     # uses config.yaml
-    python run.py 192.168.1.100:7624  # override INDIGO server
+    python run.py <indigo_host>:7624  # override INDIGO server
     python run.py --port 8080         # override web port
 """
 
@@ -83,7 +83,7 @@ def main():
         else:
             indigo_host_port = args.indigo_server
     else:
-        host = indigo_cfg.get("host", "192.168.1.100")
+        host = indigo_cfg.get("host", "127.0.0.1")
         port = indigo_cfg.get("port", 7624)
         indigo_host_port = f"{host}:{port}"
 

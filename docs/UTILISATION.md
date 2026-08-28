@@ -16,7 +16,7 @@ Ce guide décrit les modes, panneaux et réglages disponibles côté navigateur.
 
 ```bash
 ./start.sh                        # utilise config.yaml (INDIGO + web)
-./start.sh 192.168.1.25:7624      # surcharge l'adresse du serveur INDIGO
+./start.sh <indigo_host>:7624      # surcharge l'adresse du serveur INDIGO
 ./start.sh 127.0.0.1:17624 --port 8080
 ```
 

@@ -446,7 +446,7 @@ function _calibrateDone(status) {
     }
 
     // Auto-populate guide gains from calibration results (consommateur guide.js)
-    // + confirmation popup (consommateur app.js) : publiés sur le bus.
+    // + confirmation popup (consommateur app.js) : émission via le Hub ci-dessous.
 
     _calibrateDrawGraph(status);
     addLog('info', 'calibration', i18nFmt('log.calibration.done', { q: status.quality }));
