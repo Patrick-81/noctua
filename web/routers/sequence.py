@@ -82,19 +82,20 @@ def register(app, server: "WebServer") -> None:
             return path
 
         async def dither() -> dict:
-            cfg = server.sequence_cfg.get("dither", {})
-            if not cfg.get("enabled", True):
-                return {"ok": True, "skipped": True}
-            import random
-            amount = max(1.0, float(cfg.get("amount", 2.0)))
-            dx = random.gauss(0, amount)
-            dy = random.gauss(0, amount)
-            if hasattr(server, "_guide") and server._guide.status().get("state") == "guiding":
-                st = server._guide.status()
-                server._guide.set_reference(st.get("ref_x", 0) + dx,
-                                            st.get("ref_y", 0) + dy)
-                return {"ok": True, "dx": dx, "dy": dy}
-            return {"ok": True, "dx": dx, "dy": dy, "guided": False}
+            """Dithering piloté par le guide (pulse de référence + settle).
+
+            Voir ``indigo.devices.guide.apply_dither`` : décale la référence du
+            guideur (ses corrections ramènent l'étoile dessus = décalage réel
+            de la monture), puis attend que le résidu de guidage retombe sous
+            le seuil avant de laisser la pose suivante démarrer. Appelé après
+            la sauvegarde de la pose.
+            """
+            from indigo.devices.guide import apply_dither
+            gd = getattr(server, "_guide", None)
+            if gd is None:
+                return {"ok": True, "skipped": True, "reason": "no guide"}
+            cfg = server.sequence_cfg.get("dither", {}) or {}
+            return await apply_dither(gd, cfg, log=log)
 
         async def stack(path: str, frame: dict) -> None:
             """Push a freshly saved LIGHT frame into the live stack."""
@@ -178,7 +179,9 @@ def register(app, server: "WebServer") -> None:
                 {"duration": 60.0, "frame_type": "LIGHT", "filter": "", "count": 1, "delay": 1.0},
             ]),
             "save_dir": server.sequence_cfg.get("save_dir", ""),
-            "dither": server.sequence_cfg.get("dither", {"enabled": False, "amount": 2.0}),
+            "dither": server.sequence_cfg.get("dither", {
+                "enabled": False, "amount": 2.0, "settle_rms": 1.0,
+                "settle_timeout": 20.0, "settle_stable": 3}),
             "stack": server.sequence_cfg.get("stack", {"enabled": False}),
         })
 

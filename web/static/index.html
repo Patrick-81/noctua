@@ -1014,6 +1014,13 @@
                         </label>
                         <span class="seq-dith-cfg" id="seq-dith-amount">±2 px</span>
                     </div>
+                    <div class="hw-row" title="Settle : attend que le guidage se stabilise après le dither">
+                        <span class="hw-label" style="width:110px;">Settle</span>
+                        <input type="number" id="seq-dith-settle-rms" class="cap-input" min="0" step="0.1" value="1" style="width:64px;" title="Seuil de stabilisation (″) — 0 désactive l'attente">
+                        <span style="font-size:0.6rem; margin-right:8px;">″ RMS</span>
+                        <input type="number" id="seq-dith-settle-timeout" class="cap-input" min="0" step="1" value="20" style="width:64px;" title="Durée max d'attente (s)">
+                        <span style="font-size:0.6rem;">s max</span>
+                    </div>
                     <div class="hw-row">
                         <span class="hw-label" data-i18n="seq.save_in">Sauver dans :</span>
                         <input type="text" id="seq-save-dir" class="cap-input" style="flex:1; min-width:0;" placeholder="~/captures/">

@@ -20,7 +20,7 @@ import time
 import urllib.request
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-PYTHON = os.path.join(ROOT, "venv", "bin", "python")
+PYTHON = os.path.join(ROOT, "venv", "bin", "python") if os.path.isdir(os.path.join(ROOT, "venv")) else os.path.join(ROOT, ".venv", "bin", "python")
 MOCK_PORT = 17641
 WEB_PORT = 18100
 BASE_URL = f"http://127.0.0.1:{WEB_PORT}"
@@ -116,11 +116,11 @@ def test_run_completes_and_saves():
 
 
 def test_files_written():
-    print("\n=== Test: FITS files written under save_dir/capture_TS/L/ ===")
+    print("\n=== Test: FITS files written under save_dir/capture_TS/lights/ ===")
     st = api_get("/api/sequence/status")
     sessions = sorted(glob.glob(os.path.join(SAVE_DIR, "capture_*")))
     check(sessions, "capture session dir created")
-    group_dir = os.path.join(sessions[-1], "L") if sessions else os.path.join(SAVE_DIR, "L")
+    group_dir = os.path.join(sessions[-1], "lights") if sessions else os.path.join(SAVE_DIR, "lights")
     files = sorted(glob.glob(os.path.join(group_dir, "light_L_*.fits")))
     check(len(files) == 2, f"2 light fits saved (found {len(files)})")
     if files:

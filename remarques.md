@@ -97,10 +97,14 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
    "refocus après X min / X° d'altitude" (N.I.N.A. refocalise selon température
    / élévation).
 
-9. **Dithering piloté réellement par le guide** — aujourd'hui `dither()` est un
-   hook qui retourne `{dx, dy}` sans intégration serveur du pulse de guidage
-   (guide.py n'a pas de dither). Un vrai dithering déclenche un décalage via la
-   monture puis attend la stabilisation (settle).
+9. ~~**Dithering piloté réellement par le guide**~~ — **FAIT (A1, 28/08)** :
+   `apply_dither()` dans `guide.py` décale la référence du guideur (= pulse de
+   la monture via ses corrections) puis attend le **settle** (`wait_settle()`,
+   résidu RMS < `settle_rms` sur N échantillons, timeout) avant la pose
+   suivante. Config `sequence.dither` : `amount` (px), `settle_rms` (″),
+   `settle_timeout` (s), `settle_stable`. UI dans le séquenceur (inputs Settle)
+   + statut `last_dither.settle` affiché après chaque pose. Tests
+   `tests/test_dither.py` (11), 205 pytest OK.
 
 10. **Dôme / abri roulant (rolloff roof) automation** — contrôle des toits
     automatiques pour installation non supervisée.
@@ -158,10 +162,12 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot A — Fiabiliser l'automatisation (fondations)
 
-- **A1. Dithering piloté réellement par le guide** — remplacer le hook `dither()`
-  retournant `{dx,dy}` par un décalage serveur via `guide.py` (pulse monture)
-  + **settle** (attendre la stabilisation avant la pose suivante), config
-  `sequence.dither`. Petit, fort gain de qualité images.
+- ~~**A1. Dithering piloté réellement par le guide**~~ — **FAIT (28/08)** :
+  décalage serveur de la référence du guideur (`apply_dither`/`wait_settle`
+  dans `guide.py`) + settle configurable (RMS ″ / timeout / stabilité),
+  exposé dans l'UI séquenceur et les defaults de l'API. Reste un raffinement
+  possible : dither via pulse monture direct (mode `pulse`) au lieu du seul
+  shift de référence.
 - **A2. Trigger Manager** — hooks d'événements de séquence (fin de pose,
   fin de série, erreur) → actions configurables (script, pointage, notification).
   **C'est le socle des Lots B.**

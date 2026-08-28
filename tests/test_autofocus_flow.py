@@ -20,7 +20,7 @@ import urllib.request
 import urllib.error
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-PYTHON = os.path.join(ROOT, "venv", "bin", "python")
+PYTHON = os.path.join(ROOT, "venv", "bin", "python") if os.path.isdir(os.path.join(ROOT, "venv")) else os.path.join(ROOT, ".venv", "bin", "python")
 MOCK_PORT = 17624
 WEB_PORT = 18086
 BASE_URL = f"http://127.0.0.1:{WEB_PORT}"

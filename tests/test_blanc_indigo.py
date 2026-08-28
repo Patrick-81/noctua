@@ -30,7 +30,7 @@ import time
 import urllib.request
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-PYTHON = os.path.join(ROOT, "venv", "bin", "python")
+PYTHON = os.path.join(ROOT, "venv", "bin", "python") if os.path.isdir(os.path.join(ROOT, "venv")) else os.path.join(ROOT, ".venv", "bin", "python")
 
 INDIGO_BIN = shutil.which("indigo_server")
 SIM_DRIVERS = [

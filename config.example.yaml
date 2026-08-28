@@ -31,7 +31,10 @@ sequence:
   save_dir: ~/asteo/captures/
   dither:
     enabled: true
-    amount: 2.0
+    amount: 2.0                  # σ du décalage gaussien (px)
+    settle_rms: 1.0              # seuil de stabilisation du guidage (″) — 0 = pas d'attente
+    settle_timeout: 20.0         # temps max d'attente du settle (s)
+    settle_stable: 3             # échantillons consécutifs sous le seuil pour considérer le settle OK
   stack:
     enabled: false
     max_frames: 0

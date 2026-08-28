@@ -13,8 +13,10 @@ to send to the mount via timed MOUNT_MOTION commands.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
+import random
 from enum import Enum
 
 log = logging.getLogger("indigo.guide")
@@ -48,6 +50,7 @@ class Guide:
         self.ref_x: float = 0.0
         self.ref_y: float = 0.0
         self.ref_set: bool = False
+        self._has_current: bool = False     # a centroid was measured this session
         # Current frame
         self.current_x: float = 0.0
         self.current_y: float = 0.0
@@ -94,6 +97,7 @@ class Guide:
         self.ref_x = 0.0
         self.ref_y = 0.0
         self.ref_set = False
+        self._has_current = False
         self.drift_x = 0.0
         self.drift_y = 0.0
         self.drift_arcsec_x = 0.0
@@ -124,6 +128,7 @@ class Guide:
         self.current_x = x
         self.current_y = y
         self.current_snr = snr
+        self._has_current = True
         self.frame_count += 1
 
         # Set reference on first measurement
@@ -230,6 +235,7 @@ class Guide:
         """Reset to idle state."""
         self.state = GuideState.IDLE
         self.ref_set = False
+        self._has_current = False
         self.history = []
         self.frame_count = 0
         self.current_snr = None
@@ -240,10 +246,20 @@ class Guide:
         return self.status()
 
     def set_reference(self, x: float, y: float) -> dict:
-        """Manually set the guide reference star position."""
+        """Manually set the guide reference star position.
+
+        If a centroid was already measured this session, the drift is
+        recomputed against the new reference so ``wait_settle`` sees the real
+        post-dither offset (used by sequence dithering).
+        """
         self.ref_x = x
         self.ref_y = y
         self.ref_set = True
+        if self._has_current:
+            self.drift_x = self.current_x - x
+            self.drift_y = self.current_y - y
+            self.drift_arcsec_x = self.drift_x * self.plate_scale
+            self.drift_arcsec_y = self.drift_y * self.plate_scale
         log.info("Guide reference manually set: (%.1f, %.1f)", x, y)
         return self.status()
 
@@ -275,3 +291,101 @@ class Guide:
             "frame_count": self.frame_count,
             "history": self.history[-100:],  # Last 100 for API
         }
+
+
+def dither_gauss_offset(amount: float) -> tuple[float, float]:
+    """Random guider-space dither offset (pixels), σ = ``amount``, μ = 0."""
+    amt = max(0.5, float(amount))
+    return random.gauss(0.0, amt), random.gauss(0.0, amt)
+
+
+async def wait_settle(
+    guide: Guide,
+    settle_rms: float,
+    timeout: float,
+    *,
+    poll: float = 0.5,
+    stable: int = 3,
+) -> dict:
+    """Wait until the guide drift (arcsec) stays under ``settle_rms``.
+
+    Polls ``guide.status()`` every ``poll`` seconds (the frontend drives the
+    guide loop, so drift only refreshes as ``step_result`` lands). Requires
+    ``stable`` consecutive in-threshold samples. Aborts early if guiding stops.
+
+    Returns ``{waited, rms, timed_out, aborted}``.
+    """
+    waited = 0.0
+    final_rms: float | None = None
+    stable_count = 0
+    while waited < float(timeout):
+        await asyncio.sleep(poll)
+        waited += poll
+        st = guide.status()
+        if st.get("state") != "guiding":
+            return {"waited": round(waited, 1), "rms": final_rms,
+                    "timed_out": False, "aborted": True}
+        rms = math.hypot(st.get("drift_x", 0.0), st.get("drift_y", 0.0)) \
+            * st.get("plate_scale", 1.0)
+        final_rms = round(rms, 3)
+        if rms <= float(settle_rms):
+            stable_count += 1
+            if stable_count >= int(stable):
+                return {"waited": round(waited, 1), "rms": final_rms,
+                        "timed_out": False, "aborted": False}
+        else:
+            stable_count = 0
+    return {"waited": round(waited, 1), "rms": final_rms,
+            "timed_out": True, "aborted": False}
+
+
+async def apply_dither(guide: Guide, cfg: dict, log=None) -> dict:
+    """Sequence-level dither: shift the guide reference and wait for settle.
+
+    ``cfg`` keys: ``enabled``, ``amount`` (px, σ of the gaussian offset),
+    ``settle_rms`` (arcsec threshold; 0 disables the wait), ``settle_timeout``
+    (s), ``settle_stable`` (consecutive good samples). ``log`` is an optional
+    ``await log(level, msg)`` callable.
+
+    The guider is frontend-orchestrated: shifting its reference makes its
+    next correction pulses move the mount until the star lands on the new
+    reference, i.e. a real mount dither — N.I.N.A. style. Returns the dict
+    reported by ``sequence.status()`` as ``last_dither``.
+    """
+    if not (cfg or {}).get("enabled", True):
+        return {"ok": True, "skipped": True}
+
+    amount = max(0.5, float(cfg.get("amount", 2.0)))
+    st = guide.status()
+    if st.get("state") != "guiding":
+        dx, dy = dither_gauss_offset(amount)
+        if log:
+            await log("info", "dither demandé mais pas de guidage en cours — ignoré")
+        return {"ok": True, "skipped": True, "reason": "not guiding",
+                "dx": dx, "dy": dy, "guided": False}
+
+    dx, dy = dither_gauss_offset(amount)
+    guide.set_reference(st.get("ref_x", 0.0) + dx, st.get("ref_y", 0.0) + dy)
+
+    settle_rms = float(cfg.get("settle_rms", 1.0) or 0.0)
+    timeout = float(cfg.get("settle_timeout", 20.0) or 0.0)
+    stable = int(cfg.get("settle_stable", 3))
+    if settle_rms > 0 and timeout > 0:
+        settle = await wait_settle(guide, settle_rms, timeout, stable=stable)
+        if settle.get("timed_out"):
+            if log:
+                await log("warning",
+                          f"dither Δ({dx:.1f},{dy:.1f}) px : settle non atteint "
+                          f"après {settle['waited']:.0f}s (rms {settle['rms']}″) — je continue")
+        elif settle.get("aborted"):
+            if log:
+                await log("warning", "dither : guidage interrompu pendant le settle")
+        else:
+            if log:
+                await log("info",
+                          f"dither Δ({dx:.1f},{dy:.1f}) px → settlé en "
+                          f"{settle['waited']:.1f}s (rms {settle['rms']}″)")
+    else:
+        settle = {"waited": 0.0, "rms": None, "timed_out": False, "aborted": False}
+
+    return {"ok": True, "dx": dx, "dy": dy, "guided": True, "settle": settle}

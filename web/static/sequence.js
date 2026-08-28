@@ -397,6 +397,17 @@ function seqInitSequencer() {
     const dithAmt = document.getElementById('seq-dith-amount');
     if (dithAmt && seqData.dither) dithAmt.textContent = `±${seqData.dither.amount ?? 2} px`;
 
+    const settleRmsEl = document.getElementById('seq-dith-settle-rms');
+    if (settleRmsEl) settleRmsEl.addEventListener('change', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v) && seqData.dither) seqData.dither.settle_rms = v;
+    });
+    const settleToEl = document.getElementById('seq-dith-settle-timeout');
+    if (settleToEl) settleToEl.addEventListener('change', (e) => {
+        const v = parseFloat(e.target.value);
+        if (!Number.isNaN(v) && seqData.dither) seqData.dither.settle_timeout = v;
+    });
+
     Hub.subscribe('sequence:update', 'sequencer', (env) => seqApplyStatus(env.payload));
     Hub.subscribe('capture:progress', 'sequencer', (env) => {
         seqQuickCapture = env.payload || null;
@@ -419,6 +430,10 @@ async function seqLoadFromServer() {
         if (dithEl) dithEl.checked = !!seqData.dither.enabled;
         const dithAmt = document.getElementById('seq-dith-amount');
         if (dithAmt) dithAmt.textContent = `±${seqData.dither.amount ?? 2} px`;
+        const rmsEl = document.getElementById('seq-dith-settle-rms');
+        if (rmsEl && seqData.dither) rmsEl.value = seqData.dither.settle_rms ?? 1;
+        const toEl = document.getElementById('seq-dith-settle-timeout');
+        if (toEl && seqData.dither) toEl.value = seqData.dither.settle_timeout ?? 20;
         // Si l'ancien format (frames) est présent, convertir en targets
         if (data.frames && data.frames.length && !seqData.targets.length) {
             const t = seqNewTarget();
@@ -606,6 +621,20 @@ function seqFlattenFrames() {
     return frames;
 }
 
+// Associe l'état du panneau (checkbox + inputs settle) à l'objet dither envoyé au serveur.
+function seqDitherFromUi() {
+    const d = {
+        enabled: !!document.getElementById('seq-dith-enabled')?.checked,
+        amount: seqData.dither.amount ?? 2.0,
+    };
+    const rms = parseFloat(document.getElementById('seq-dith-settle-rms')?.value);
+    const to = parseFloat(document.getElementById('seq-dith-settle-timeout')?.value);
+    if (!Number.isNaN(rms)) d.settle_rms = rms;
+    if (!Number.isNaN(to)) d.settle_timeout = to;
+    if (seqData.dither.settle_stable != null) d.settle_stable = seqData.dither.settle_stable;
+    return d;
+}
+
 async function seqStartSequence() {
     const frames = seqFlattenFrames();
     const total = frames.reduce((s, f) => s + f.count, 0);
@@ -620,7 +649,7 @@ async function seqStartSequence() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 frames, save_dir: saveDir,
-                dither: { enabled: !!dith, amount: seqData.dither.amount ?? 2.0 },
+                dither: seqDitherFromUi(),
             }),
         }).then(r => r.json());
     } catch (e) {
@@ -724,8 +753,16 @@ function seqUpdateProgressUI() {
     if (dithEl && st.last_dither && st.last_dither.dx != null) {
         const d = st.last_dither;
         dithEl.style.display = '';
-        const guided = (d.guided === undefined || d.guided) ? '' : ' — pas de guidage';
-        dithEl.textContent = `Dither : Δ(${d.dx.toFixed(1)}, ${d.dy.toFixed(1)})${guided}`;
+        let extra = '';
+        if (d.guided === false) extra = ' — pas de guidage';
+        else if (d.settle) {
+            const s = d.settle;
+            const rms = (s.rms != null) ? s.rms.toFixed(2) + '″' : '—';
+            if (s.timed_out) extra = ` — settle non atteint (${s.waited}s, rms ${rms})`;
+            else if (s.aborted) extra = ' — guidage interrompu';
+            else if (s.waited && s.waited > 0) extra = ` — settlé ${s.waited}s (rms ${rms})`;
+        }
+        dithEl.textContent = `Dither : Δ(${d.dx.toFixed(1)}, ${d.dy.toFixed(1)})${extra}`;
     }
 
     const svEl = document.getElementById('seq-last-saved');
