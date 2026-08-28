@@ -243,6 +243,60 @@ def test_runner_calls_before_frame_between_poses():
     asyncio.run(main())
 
 
+def test_runner_trigger_event_hooks():
+    """on_frame_start / on_error / on_end hooks sont appelés aux bons moments."""
+    async def main():
+        r = SequenceRunner()
+        hooks, calls = _hook(fail_save_at=2)
+        evts = {"frame_start": [], "error": [], "end": []}
+
+        async def on_frame_start(frame, index):
+            evts["frame_start"].append((frame.get("frame_type"), index))
+
+        async def on_error(error, frame):
+            evts["error"].append((error, frame.get("frame_type")))
+
+        async def on_end(done, total, complete):
+            evts["end"].append((done, total, complete))
+
+        hooks["on_frame_start"] = on_frame_start
+        hooks["on_error"] = on_error
+        hooks["on_end"] = on_end
+
+        r.start(TWO_FRAMES)  # LIGHT×2 puis DARK ; la 2e pose échoue (save)
+        try:
+            await r.run(hooks)
+        except RuntimeError:
+            pass
+
+        # une frame_start par pose démarrée (2), une erreur sur la 2e
+        assert evts["frame_start"] == [("LIGHT", 1), ("LIGHT", 2)]
+        assert evts["error"] == [("boom save", "LIGHT")]
+        # on_end marqué incomplet (erreur) après la 1e pose
+        assert evts["end"] == [(1, 3, False)]
+
+    asyncio.run(main())
+
+
+def test_runner_series_done_complete():
+    """on_end reçoit complete=True quand toutes les poses aboutissent."""
+    async def main():
+        r = SequenceRunner()
+        hooks, _ = _hook()
+        ends = []
+
+        async def on_end(done, total, complete):
+            ends.append((done, total, complete))
+
+        hooks["on_end"] = on_end
+        r.start(TWO_FRAMES)
+        await r.run(hooks)
+
+        assert ends == [(3, 3, True)]
+
+    asyncio.run(main())
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     passed = 0

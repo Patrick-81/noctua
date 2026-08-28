@@ -44,3 +44,30 @@ sequence:
       filter: ""
       count: 1
       delay: 1.0
+  # ── Trigger Manager (Lot A2) ─────────────────────────────────
+  # Événements : sequence_start, frame_start, frame_done, dither_done,
+  #              error, series_done, stop
+  # Actions :    log (message, level), script (command, timeout),
+  #              mount_goto (ra [h], dec [°] — "now" = position actuelle)
+  # Ceci est un exemple — commentez ou retirez ce qui ne s'applique pas.
+  triggers:
+    - name: alerte-fin-de-serie
+      event: series_done
+      actions:
+        - type: log
+          level: info
+          message: "Série terminée : {done}/{total} poses"
+    - name: script-par-pose
+      event: frame_done
+      conditions:
+        frame_type: LIGHT
+      actions:
+        - type: script
+          command: "python3 ~/scripts/on_frame.py --filter {filter} --index {done}"
+          timeout: 20
+    - name: parking-sur-erreur
+      event: error
+      actions:
+        - type: log
+          level: error
+          message: "Erreur de séquence : {error}"

@@ -13,6 +13,13 @@ if TYPE_CHECKING:
 
 
 def register(app, server: "WebServer") -> None:
+    def _fire(event: str, context: dict | None = None) -> None:
+        """Emet un événement vers le Trigger Manager ; jamais bloquant."""
+        try:
+            server.triggers.fire(event, context or {})
+        except Exception as e:  # noqa: BLE001
+            log.error(f"trigger fire {event} failed: {e}")
+
     def _seq_hooks(save_dir: str | None = None):
         """Build the device hooks backing the sequence runner.
 
@@ -95,7 +102,10 @@ def register(app, server: "WebServer") -> None:
             if gd is None:
                 return {"ok": True, "skipped": True, "reason": "no guide"}
             cfg = server.sequence_cfg.get("dither", {}) or {}
-            return await apply_dither(gd, cfg, log=log)
+            res = await apply_dither(gd, cfg, log=log)
+            if res.get("guided"):
+                _fire("dither_done", res)
+            return res
 
         async def stack(path: str, frame: dict) -> None:
             """Push a freshly saved LIGHT frame into the live stack."""
@@ -124,6 +134,41 @@ def register(app, server: "WebServer") -> None:
 
         async def on_progress() -> None:
             server._broadcast_sequence_status()
+            st = server.sequence.status()
+            cur = st.get("current") or {}
+            _fire("frame_done", {
+                "done": st.get("done", 0),
+                "total": st.get("total", 0),
+                "frame_type": cur.get("frame_type", "LIGHT"),
+                "filter": cur.get("filter", ""),
+                "duration": cur.get("duration", 0),
+                "saved_path": st.get("last_saved", ""),
+                "last_dither": st.get("last_dither"),
+            })
+
+        async def on_frame_start(frame: dict, index: int) -> None:
+            _fire("frame_start", {
+                "index": index, "done": server.sequence.status().get("done", 0),
+                "total": server.sequence.status().get("total", 0),
+                "frame_type": frame.get("frame_type", "LIGHT"),
+                "filter": frame.get("filter", ""),
+                "duration": frame.get("duration", 0),
+            })
+
+        async def on_error(error: str, frame: dict) -> None:
+            _fire("error", {
+                "error": error,
+                "frame_type": frame.get("frame_type", "LIGHT"),
+                "filter": frame.get("filter", ""),
+            })
+
+        async def on_end(done: int, total: int, complete: bool) -> None:
+            if complete:
+                _fire("series_done", {"done": done, "total": total})
+            else:
+                st = server.sequence.status()
+                _fire("stop", {"done": done, "total": total,
+                               "error": st.get("last_error") or ""})
 
         async def before_frame(frame: dict) -> dict | None:
             """Trigger an automatic meridian flip between poses when due.
@@ -165,6 +210,9 @@ def register(app, server: "WebServer") -> None:
             "stack": stack,
             "dither": dither, "delay": delay, "log": log,
             "on_progress": on_progress,
+            "on_frame_start": on_frame_start,
+            "on_error": on_error,
+            "on_end": on_end,
             "before_frame": before_frame,
         }
 
@@ -224,6 +272,11 @@ def register(app, server: "WebServer") -> None:
         server.sequence._task = task
         task.add_done_callback(lambda _t: server._broadcast_sequence_status())
         server._broadcast_sequence_status()
+        _fire("sequence_start", {
+            "frames": len(frames),
+            "total": server.sequence.status().get("total", 0),
+            "session_dir": session_dir,
+        })
         return {"ok": True, "session_dir": session_dir, "status": server.sequence.status()}
 
     @app.post("/api/sequence/stop")

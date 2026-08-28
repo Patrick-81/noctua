@@ -168,9 +168,18 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
   exposé dans l'UI séquenceur et les defaults de l'API. Reste un raffinement
   possible : dither via pulse monture direct (mode `pulse`) au lieu du seul
   shift de référence.
-- **A2. Trigger Manager** — hooks d'événements de séquence (fin de pose,
-  fin de série, erreur) → actions configurables (script, pointage, notification).
-  **C'est le socle des Lots B.**
+- ~~**A2. Trigger Manager**~~ — **FAIT (28/08)** : `indigo/devices/triggers.py`
+  (TriggerManager) émet des événements de séquence (`sequence_start`,
+  `frame_start`, `frame_done`, `dither_done`, `error`, `series_done`, `stop`)
+  vers des actions configurables — `log`, `script` (shell + timeout), et
+  `mount_goto` (RA/DEC). Conditions optionnelles (p.ex. `frame_type`) et
+  templating `{…}` des messages/commandes. Firing **non bloquant** (une action
+  en échec ne casse jamais la séquence). UI/API : GET `/api/triggers/status` +
+  POST `/api/triggers/test`. Hooké via `on_frame_start`/`on_error`/`on_end`
+  dans `SequenceRunner`. **Socle des Lots B** (B2 branchera les alertes
+  Telegram/webhook comme nouvelle action). Tests `tests/test_triggers.py` (12)
+  + hooks dans `test_sequence.py` + couverture E2E dans `test_sequence_flow.py`
+  → 219 pytest OK.
 
 ### Lot B — Supervision & sécurité
 

@@ -80,6 +80,13 @@ class WebServer:
         from indigo.devices.sequence import SequenceRunner
         self.sequence = SequenceRunner()
 
+        # Trigger Manager (Lot A2) : hooks d'événements de séquence → actions
+        from indigo.devices.triggers import TriggerManager
+        self.triggers = TriggerManager(self.sequence_cfg.get("triggers"))
+        self.triggers.bind({
+            "mount": (lambda: self.registry.get_mount()),
+        })
+
         # Live stacking engine (Seiza LiveStacker) — device-agnostic pile
         from indigo.devices.live_stack import LiveStackEngine
         self.stacking = LiveStackEngine(options=self.sequence_cfg.get("stack", {}))
@@ -214,9 +221,10 @@ class WebServer:
         # ── REST API + WebSocket + test endpoints ────────────────
         # Routes moved to web/routers/*.py — each exposes register(app, server).
         from .routers import (camera, config, focuser, guide, hardware,
-                              mount, pointing, sequence, stacking, visibility, ws_test)
+                              mount, pointing, sequence, stacking, triggers,
+                              visibility, ws_test)
         for router in (hardware, config, mount, camera, focuser, guide,
-                       sequence, stacking, pointing, visibility, ws_test):
+                       sequence, stacking, pointing, triggers, visibility, ws_test):
             router.register(app, self)
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────

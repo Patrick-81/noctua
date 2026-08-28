@@ -129,6 +129,21 @@ def test_files_written():
         check(st["last_saved"] == files[-1], "last_saved matches newest file")
 
 
+def test_triggers_fired():
+    print("\n=== Test: Trigger Manager reçoit les événements de séquence ===")
+    st = api_get("/api/triggers/status")
+    check(st.get("enabled") is True, "triggers enabled")
+    names = [t.get("name") for t in st.get("triggers", [])]
+    check("fin-serie" in names, "trigger configuré (fin-serie)")
+    last = st.get("last", {})
+    fin = last.get("fin-serie")
+    check(fin is not None and fin.get("event") == "series_done",
+          f"series_done déclenché (got {fin})")
+    # les poses du test précédent ont déclenché frame_done aussi
+    check(any(t.get("name") == "frame-log" for t in st.get("triggers", [])),
+          "trigger frame-done configuré")
+
+
 def test_pause_resume_reset():
     print("\n=== Test: pause / resume / reset controls ===")
     frames = [{"duration": 0.28, "frame_type": "LIGHT", "filter": "",
@@ -219,6 +234,17 @@ sequence:
       filter: ""
       count: 1
       delay: 0.0
+  triggers:
+    - name: fin-serie
+      event: series_done
+      actions:
+        - type: log
+          message: "Série terminée {{done}}/{{total}}"
+    - name: frame-log
+      event: frame_done
+      actions:
+        - type: log
+          message: "Pose {{done}}"
 """)
 
     for port in (MOCK_PORT, WEB_PORT):

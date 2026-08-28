@@ -69,6 +69,9 @@ class SequenceRunner:
           - ``delay(seconds)``          → sleep between frames
           - ``log(level, msg)``         → emit a server-side log line
           - ``on_progress()``           → called after each completed frame
+          - ``on_frame_start(frame, index)`` → before each exposure
+          - ``on_error(error, frame)``  → called when a frame fails
+          - ``on_end(done, total, complete)`` → once, when the run terminates
         """
         h = hooks or {}
         self._running = True
@@ -90,6 +93,9 @@ class SequenceRunner:
                         ld = h.get("log")
                         if ld:
                             await ld("error", f"sequence frame failed: {e}")
+                        oe = h.get("on_error")
+                        if oe:
+                            await oe(str(e), self._current or frame)
                         if self._stop_requested:
                             break
                         raise
@@ -102,6 +108,11 @@ class SequenceRunner:
                         await dt(float(frame.get("delay", 0.0)))
                 self._current = None
         finally:
+            complete = (not self._stop_requested and self._last_error is None
+                        and self._total > 0 and self._done >= self._total)
+            oe = h.get("on_end")
+            if oe:
+                await oe(self._done, self._total, complete)
             self._running = False
             self._paused = False
             self._task = None
@@ -124,6 +135,10 @@ class SequenceRunner:
                 if fl:
                     await fl("info", f"meridian flip effectué avant pose "
                                      f"({flip.get('phases', [])})")
+
+        ofs = h.get("on_frame_start")
+        if ofs:
+            await ofs(frame, self._done + 1)
 
         sf = h.get("set_filter")
         if sf and frame.get("filter"):
