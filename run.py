@@ -106,10 +106,14 @@ def main():
     config_path = Path(args.config) if args.config else (Path(__file__).parent / "config.yaml")
     ui_path = Path(__file__).parent / "ui.yaml"
     profiles_path = Path(os.environ.get("INDIGO_PROFILES_PATH") or (Path(__file__).parent / "profiles.yaml"))
+    templates_path = Path(os.environ.get("INDIGO_SEQUENCE_TEMPLATES_PATH")
+                          or (Path(__file__).parent / "sequence_templates.yaml"))
     web = WebServer(registry, site_config=site_cfg, config_path=config_path,
                     ui_path=ui_path, profiles_path=profiles_path,
+                    templates_path=templates_path,
                     telescope_config=telescope_cfg, sequence_config=sequence_cfg,
-                    exposure_config=exposure_cfg)
+                    exposure_config=exposure_cfg,
+                    masters_config=config.get("masters", {}))
 
     # Run everything
     async def run_all():

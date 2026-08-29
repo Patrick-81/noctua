@@ -1,0 +1,10 @@
+templates:
+- name: T-Ha
+  frames:
+  - duration: 1.0
+    frame_type: LIGHT
+    filter: Ha
+    count: 2
+    delay: 0.1
+  count: 2
+  updated_at: '2026-08-29T07:59:54'

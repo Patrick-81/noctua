@@ -16,6 +16,7 @@ import base64
 import json
 import logging
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -42,7 +43,8 @@ class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
                  config_path: Path | None = None, ui_path: Path | None = None,
                  profiles_path: Path | None = None, telescope_config: dict | None = None,
-                 sequence_config: dict | None = None, exposure_config: dict | None = None):
+                 sequence_config: dict | None = None, exposure_config: dict | None = None,
+                 templates_path: Path | None = None, masters_config: dict | None = None):
         self.registry = registry
         self.site = site_config or {}
         self.telescope = dict(telescope_config or {})
@@ -61,6 +63,17 @@ class WebServer:
         self.config_path = config_path
         self.ui_path = ui_path
         self.profiles = ProfileStore(profiles_path)
+        # Sequence templates (Lot C3) : défaut = à côté du fichier de config.
+        from indigo.devices.templates import SequenceTemplateStore
+        if templates_path is None:
+            templates_path = (config_path.parent / "sequence_templates.yaml"
+                              if config_path else None)
+        self.template_store = SequenceTemplateStore(templates_path)
+        # Master calibration library (Lot C1) : racine par défaut = save_dir
+        from indigo.devices.masters import MasterLibrary
+        self.masters_cfg = dict(masters_config or {})
+        masters_root = self.masters_cfg.get("dir") or self.sequence_cfg.get("save_dir", "")
+        self.masters = MasterLibrary(masters_root)
         self.app = FastAPI(title="INDIGO Devices")
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
@@ -225,10 +238,11 @@ class WebServer:
         # ── REST API + WebSocket + test endpoints ────────────────
         # Routes moved to web/routers/*.py — each exposes register(app, server).
         from .routers import (camera, config, focuser, guide, hardware,
-                              mount, pointing, sequence, stacking, triggers,
-                              visibility, ws_test)
+                              masters, mount, pointing, sequence, stacking,
+                              triggers, visibility, ws_test)
         for router in (hardware, config, mount, camera, focuser, guide,
-                       sequence, stacking, pointing, triggers, visibility, ws_test):
+                       sequence, stacking, masters, pointing, triggers,
+                       visibility, ws_test):
             router.register(app, self)
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────
@@ -638,6 +652,7 @@ class WebServer:
                     break
 
                 base = self._camera_images.get(cam.name, b"")
+                t_obs = datetime.now(timezone.utc)
                 await cam.expose(duration, "LIGHT")
                 while cam.exposing and not self._stacking_stop:
                     await _asyncio.sleep(0.1)
@@ -655,6 +670,31 @@ class WebServer:
                 group = (filter_name or "light").replace("/", "_")
                 path = os.path.join(session_dir, f"light_{group}_{idx:03d}_{ts}.fits")
                 img = self._camera_images.get(cam.name, self._last_image_data)
+                # Lot C4 : métadonnées normalisées dans l'entête FITS.
+                from indigo.devices import fitsmeta
+                site = self.site or {}
+                meta = fitsmeta.frame_meta(
+                    target=self.sequence_cfg.get("target", ""),
+                    frame_type="LIGHT",
+                    filter_name=filter_name,
+                    exposure_sec=duration,
+                    instrument=cam.name,
+                    ccd_temp=cam.temperature,
+                    set_temp=(cam.target_temp if cam.target_temp is not None
+                              else cam.temperature),
+                    pixel_size_um=cam.pixel_size_um,
+                    binning_x=cam.binning_x,
+                    binning_y=cam.binning_y,
+                    gain=cam.gain,
+                    offset=cam.offset,
+                    focal_length_mm=cam.focal_length_mm,
+                    telescope=(self.telescope or {}).get("name", ""),
+                    sitelat=site.get("latitude"),
+                    sitelong=site.get("longitude"),
+                    sitelev=site.get("elevation"),
+                    date_obs=t_obs,
+                )
+                img = await _asyncio.to_thread(fitsmeta.inject_meta, img, meta)
                 with open(path, "wb") as f:
                     f.write(img)
 

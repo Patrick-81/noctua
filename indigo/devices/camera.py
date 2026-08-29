@@ -129,10 +129,12 @@ class Camera(BaseDevice):
             self.pixel_size_um = float(ps.value)
 
     def _parse_temperature(self, pv: PropertyVector) -> None:
-        item = pv.get_item("CCD_TEMPERATURE") or pv.get_item("TEMPERATURE")
+        item = (pv.get_item("CCD_TEMPERATURE") or pv.get_item("CCD_TEMPERATURE_VALUE")
+                or pv.get_item("TEMPERATURE"))
         if item and item.value is not None:
             self.temperature = float(item.value)
-        sp = pv.get_item("CCD_SETPOINT_TEMPERATURE")
+        sp = (pv.get_item("CCD_TEMPERATURE_TARGET")
+              or pv.get_item("CCD_SETPOINT_TEMPERATURE"))
         if sp and sp.value is not None:
             self.target_temp = float(sp.value)
 

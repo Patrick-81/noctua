@@ -3,6 +3,7 @@
 import asyncio
 import os
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,39 @@ from .common import SanitizedJSONResponse, log
 
 if TYPE_CHECKING:
     from ..server import WebServer
+
+
+def _frame_meta(server, cam, frame: dict, target: str, t_obs=None) -> dict:
+    """Normalized FITS header metadata for a captured frame (Lot C4).
+
+    Values are standard FITS keywords; None/NaN/Inf/empty are skipped by the
+    writer (``fitsmeta.inject_meta``), so a partial camera state never
+    corrupts the header with dummy numbers.
+    """
+    from indigo.devices import fitsmeta
+    telescope = (server.telescope or {}).get("name", "") or ""
+    site = server.site or {}
+    return fitsmeta.frame_meta(
+        target=target,
+        frame_type=frame.get("frame_type") or "LIGHT",
+        filter_name=frame.get("filter") or "",
+        exposure_sec=float(frame.get("duration", 0) or 0),
+        instrument=cam.name if cam else "",
+        ccd_temp=cam.temperature if cam else None,
+        set_temp=(cam.target_temp if cam and cam.target_temp is not None
+                  else cam.temperature if cam else None),
+        pixel_size_um=cam.pixel_size_um if cam else None,
+        binning_x=cam.binning_x if cam else None,
+        binning_y=cam.binning_y if cam else None,
+        gain=cam.gain if cam else None,
+        offset=cam.offset if cam else None,
+        focal_length_mm=cam.focal_length_mm if cam else None,
+        telescope=telescope,
+        sitelat=site.get("latitude"),
+        sitelong=site.get("longitude"),
+        sitelev=site.get("elevation"),
+        date_obs=t_obs,
+    )
 
 
 def register(app, server: "WebServer") -> None:
@@ -65,6 +99,7 @@ def register(app, server: "WebServer") -> None:
                 raise RuntimeError(f"camera '{cam.name}' not ready")
             seq_cam["name"] = cam.name
             seq_cam["baseline"] = server._camera_images.get(cam.name, b"")
+            seq_cam["t_obs"] = datetime.now(timezone.utc)
             await cam.expose(duration, frame_type)
 
         async def wait_exposure() -> None:
@@ -99,6 +134,11 @@ def register(app, server: "WebServer") -> None:
             img = server._camera_images.get(name, server._last_image_data) if name else server._last_image_data
             if not img:
                 raise RuntimeError("no image data available — capture first")
+            # Lot C4 : journal de métadonnées normalisées dans l'entête FITS.
+            from indigo.devices import fitsmeta
+            cam = server.registry.get_camera(name) if name else server.registry.get_camera()
+            meta = _frame_meta(server, cam, frame, target, seq_cam.get("t_obs"))
+            img = await _asyncio.to_thread(fitsmeta.inject_meta, img, meta)
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "wb") as f:
                 f.write(img)
@@ -485,3 +525,40 @@ def register(app, server: "WebServer") -> None:
         })
         return {"ok": True, "session_dir": session_dir, "resumed_from": done,
                 "status": server.sequence.status()}
+
+    @app.get("/api/sequence/templates")
+    async def sequence_templates_list():
+        """Templates de séquence nommés (Lot C3)."""
+        return SanitizedJSONResponse({"templates": server.template_store.list()})
+
+    @app.post("/api/sequence/templates")
+    async def sequence_templates_save(body: dict):
+        name = (body.get("name") or "").strip()
+        frames = body.get("frames")
+        if not name:
+            return {"ok": False, "error": "nom de template requis"}
+        if not isinstance(frames, list):
+            return {"ok": False, "error": "plan (frames) requis"}
+        res = server.template_store.upsert(name, frames)
+        return {**res, "templates": server.template_store.list()}
+
+    @app.post("/api/sequence/templates/delete")
+    async def sequence_templates_delete(body: dict):
+        return server.template_store.delete((body.get("name") or "").strip())
+
+    @app.get("/api/sequence/templates/export")
+    async def sequence_templates_export():
+        return SanitizedJSONResponse(server.template_store.export())
+
+    @app.post("/api/sequence/templates/import")
+    async def sequence_templates_import(body: dict):
+        import json as _json
+        raw = body.get("json")
+        if not raw:
+            return {"ok": False, "error": "JSON à importer requis"}
+        try:
+            obj = _json.loads(raw)
+        except (ValueError, TypeError) as e:
+            return {"ok": False, "error": f"JSON invalide : {e}"}
+        res = server.template_store.import_data(obj)
+        return res

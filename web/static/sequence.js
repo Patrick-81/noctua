@@ -12,6 +12,7 @@ let _seqDefaults = { frames: [], save_dir: '', target: '', dither: { enabled: fa
 let _seqStatus = { running: false, paused: false, done: 0, total: 0 };
 let _seqResumeDir = null;   // session_dir d'une session interrompue → bouton Reprendre
 let _seqQuickCapture = null;        // { running, done, total } — capture rapide (capture.js)
+let _seqTemplates = [];             // templates de séquence nommés (Lot C3)
 
 function initSequencePanel() {
     const list = document.getElementById('seq-frame-list');
@@ -215,6 +216,126 @@ async function seqCall(url) {
     const res = await fetch(url, { method: 'POST' }).then(r => r.json()).catch(() => null);
     if (res) seqApplyStatus(res);
     return res;
+}
+
+// ── Templates de séquence nommés (Lot C3) ───────────────────
+
+async function seqLoadTemplates() {
+    try {
+        const res = await fetch('/api/sequence/templates').then(r => r.json());
+        _seqTemplates = (res && res.templates) || [];
+    } catch (e) {
+        _seqTemplates = [];
+    }
+    seqRenderTemplates();
+}
+
+function seqRenderTemplates() {
+    const sel = document.getElementById('seq-template-select');
+    if (!sel) return;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">— charger un template —</option>' +
+        _seqTemplates.map(t =>
+            `<option value="${escapeAttr(t.name)}" ${t.name === cur ? 'selected' : ''}>` +
+            `${escapeAttr(t.name)} (${t.count != null ? t.count : '?'})</option>`).join('');
+    const delBtn = document.getElementById('seq-template-del');
+    if (delBtn) delBtn.disabled = !_seqTemplates.length;
+}
+
+function seqTemplateSelected() {
+    if (_seqStatus.running || _seqQuickCapture && _seqQuickCapture.running) return;
+    const sel = document.getElementById('seq-template-select');
+    if (!sel || !sel.value) return;
+    const t = _seqTemplates.find(x => x.name === sel.value);
+    if (!t || !t.frames || !t.frames.length) return;
+    _seqFrames = t.frames.map(f => ({ ...f }));
+    renderSequenceTable();
+    addLog('info', 'sequence', `Template « ${t.name} » chargé (${t.count} pose(s))`);
+}
+
+async function seqTemplateSave() {
+    if (_seqStatus.running) {
+        addLog('warning', 'sequence', 'Stoppez la séquence avant d\'enregistrer un template');
+        return;
+    }
+    const frames = seqFramesFromUi();
+    const total = frames.reduce((s, f) => s + f.count, 0);
+    if (!total) { addLog('warning', 'sequence', 'Plan vide — rien à enregistrer'); return; }
+    const name = prompt('Nom du template :', '');
+    if (!name || !name.trim()) return;
+    try {
+        const res = await fetch('/api/sequence/templates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: name.trim(), frames }),
+        }).then(r => r.json());
+        if (res.ok === false && res.error) {
+            addLog('error', 'sequence', 'Template non enregistré : ' + res.error);
+            return;
+        }
+        addLog('info', 'sequence', `Template « ${name.trim()} » enregistré (${total} pose(s))`);
+        await seqLoadTemplates();
+        const sel = document.getElementById('seq-template-select');
+        if (sel) sel.value = name.trim();
+    } catch (e) {
+        addLog('error', 'sequence', 'Enregistrement du template impossible');
+    }
+}
+
+async function seqTemplateDelete() {
+    const sel = document.getElementById('seq-template-select');
+    const name = sel && sel.value;
+    if (!name) return;
+    if (!confirm(`Supprimer le template « ${name} » ?`)) return;
+    await fetch('/api/sequence/templates/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+    }).then(r => r.json()).catch(() => null);
+    addLog('info', 'sequence', `Template « ${name} » supprimé`);
+    await seqLoadTemplates();
+}
+
+async function seqTemplateExport() {
+    try {
+        const res = await fetch('/api/sequence/templates/export').then(r => r.json());
+        const text = JSON.stringify(res, null, 2);
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            addLog('info', 'sequence',
+                `Templates exportés : ${(res.templates || []).length} (copiés dans le presse-papiers)`);
+        } else {
+            const blob = new Blob([text], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'noctua-templates.json';
+            a.click();
+            URL.revokeObjectURL(a.href);
+            addLog('info', 'sequence', 'Templates exportés (fichier noctua-templates.json)');
+        }
+    } catch (e) {
+        addLog('error', 'sequence', 'Export des templates impossible');
+    }
+}
+
+async function seqTemplateImport() {
+    const text = prompt('Collez le JSON exporté de templates :', '');
+    if (!text || !text.trim()) return;
+    try {
+        const res = await fetch('/api/sequence/templates/import', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ json: text.trim() }),
+        }).then(r => r.json());
+        if (res.ok === false && res.error) {
+            addLog('error', 'sequence', 'Import refusé : ' + res.error);
+            return;
+        }
+        addLog('info', 'sequence', `${res.imported || 0} template(s) importé(s)`);
+        await seqLoadTemplates();
+    } catch (e) {
+        addLog('error', 'sequence', 'Import des templates impossible');
+    }
 }
 
 let _seqPrevRunning = false;
@@ -446,6 +567,18 @@ function seqInitSequencer() {
     if (dithEl) dithEl.addEventListener('change', (e) => {
         seqData.dither.enabled = e.target.checked;
     });
+
+    const templSel = document.getElementById('seq-template-select');
+    if (templSel) templSel.addEventListener('change', seqTemplateSelected);
+    const tmplSave = document.getElementById('seq-template-save');
+    if (tmplSave) tmplSave.addEventListener('click', seqTemplateSave);
+    const tmplDel = document.getElementById('seq-template-del');
+    if (tmplDel) tmplDel.addEventListener('click', seqTemplateDelete);
+    const tmplExport = document.getElementById('seq-template-export');
+    if (tmplExport) tmplExport.addEventListener('click', seqTemplateExport);
+    const tmplImport = document.getElementById('seq-template-import');
+    if (tmplImport) tmplImport.addEventListener('click', seqTemplateImport);
+    seqLoadTemplates();
 
     const dithAmt = document.getElementById('seq-dith-amount');
     if (dithAmt && seqData.dither) dithAmt.textContent = `±${seqData.dither.amount ?? 2} px`;

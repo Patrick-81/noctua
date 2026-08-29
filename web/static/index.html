@@ -1039,6 +1039,16 @@
                         <span class="hw-label" title="Nom de la cible — organise les sessions en <cible>/<date>/">Cible</span>
                         <input type="text" id="seq-target" class="cap-input" style="flex:1; min-width:0;" placeholder="M31 Andromeda, NGC 7000, …">
                     </div>
+                    <div class="hw-row">
+                        <span class="hw-label" title="Plans de séquence nommés et réutilisables (L, RGB, Ha…) — exportables/importables en JSON">Templates</span>
+                        <select id="seq-template-select" class="cap-input" style="flex:1; min-width:0;" title="Charger un template dans le plan ci-dessus">
+                            <option value="">— charger un template —</option>
+                        </select>
+                        <button id="seq-template-save" class="btn-glass" style="flex:0 0 auto; padding:2px 8px;" title="Enregistrer le plan actuel sous un nom">+💾</button>
+                        <button id="seq-template-del" class="btn-glass" style="flex:0 0 auto; padding:2px 8px;" title="Supprimer le template sélectionné">🗑</button>
+                        <button id="seq-template-export" class="btn-glass" style="flex:0 0 auto; padding:2px 8px;" title="Copier le JSON exporté dans le presse-papiers">⇪</button>
+                        <button id="seq-template-import" class="btn-glass" style="flex:0 0 auto; padding:2px 8px;" title="Importer un JSON de templates (coller)">⇓</button>
+                    </div>
                 </div>
 
                 <!-- Colonne droite : détails de la cible sélectionnée -->

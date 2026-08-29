@@ -13,6 +13,7 @@ __test__ = False  # pytest: run via python tests/test_sequence_flow.py
 import glob
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -21,6 +22,8 @@ import urllib.request
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
 PYTHON = os.path.join(ROOT, "venv", "bin", "python") if os.path.isdir(os.path.join(ROOT, "venv")) else os.path.join(ROOT, ".venv", "bin", "python")
+sys.path.insert(0, ROOT)
+from indigo.devices import fitsmeta  # noqa: E402
 MOCK_PORT = 17641
 WEB_PORT = 18100
 BASE_URL = f"http://127.0.0.1:{WEB_PORT}"
@@ -127,6 +130,49 @@ def test_files_written():
         sizes = [os.path.getsize(f) for f in files]
         check(all(s > 0 for s in sizes), "all saved files non-empty")
         check(st["last_saved"] == files[-1], "last_saved matches newest file")
+
+
+def test_fits_headers():
+    print("\n=== Test: entête FITS normalisé (Lot C4) sur les images sauvegardées ===")
+    sessions = sorted(glob.glob(os.path.join(SAVE_DIR, "capture_*")))
+    if not sessions:
+        check(False, "session disponible pour lire un header")
+        return
+    files = sorted(glob.glob(os.path.join(sessions[-1], "lights", "light_L_*.fits")))
+    if not files:
+        check(False, "fichier light disponible pour lire un header")
+        return
+    with open(files[-1], "rb") as f:
+        data = f.read()
+    values, cards, _hb = fitsmeta.read_header(data)
+    # le header normalisé doit contenir les cartes attendues
+    expected = {
+        "IMAGETYP": "Light Frame",
+        "EXPTIME": "0.1",
+        "INSTRUME": "Main Camera",
+        "CCD-TEMP": "-10",
+        "XBINNING": "1",
+        "YBINNING": "1",
+    }
+    for key, want in expected.items():
+        got = values.get(key)
+        check(got == want, f"{key} = {got}")
+    check(float(values.get("SITELAT")) == 43.952, f"SITELAT = {values.get('SITELAT')}")
+    check(values.get("DATE-OBS") is not None, f"DATE-OBS = {values.get('DATE-OBS')}")
+    check(values.get("GAIN") is not None and values.get("OFFSET") is not None,
+          "GAIN/OFFSET présents")
+    check(len(cards) > 20, f"{len(cards)} cartes d'entête écrites")
+
+    # exécution avec cible : OBJECT = nom de la cible
+    sessions = sorted(glob.glob(os.path.join(SAVE_DIR, "M31-Andromeda", "*")))
+    if sessions:
+        files = sorted(glob.glob(os.path.join(sessions[-1], "lights", "light_L_*.fits")))
+        if files:
+            with open(files[-1], "rb") as f:
+                data = f.read()
+            values, _cards, _hb = fitsmeta.read_header(data)
+            check(values.get("OBJECT") == "M31 Andromeda", f"OBJECT = {values.get('OBJECT')}")
+            check(values.get("DATE-OBS") is not None, "DATE-OBS présent (cible)")
 
 
 def test_triggers_fired():
@@ -262,11 +308,50 @@ def test_resume_interrupted_session():
 
     # index de fichiers continus sur toute la session (aucun écrasement)
     files_after = sorted(glob.glob(os.path.join(session, "lights", "light_*.fits")))
-    indexes = [int(f.split("_")[1]) for f in files_after]
+    indexes = [int(re.search(r"_(\d+)_", os.path.basename(f)).group(1))
+               for f in files_after]
     check(len(files_after) == 5, f"5 fichiers au total (found {len(files_after)})")
     check(indexes == list(range(1, 6)), f"index continus 1..5 (got {indexes})")
     check(all(f in files_after for f in files_before), "les fichiers d'avant sont conservés (pas d'écrasement)")
     check(st.get("last_saved", "").startswith(session), "dernier fichier dans la session")
+
+
+def test_templates_crud():
+    print("\n=== Test: templates de séquence nommés (Lot C3) ===")
+    r = api_get("/api/sequence/templates")
+    check("error" not in r and isinstance(r.get("templates"), list),
+          "GET templates ok")
+    plan = [{"duration": 0.5, "frame_type": "LIGHT", "filter": "L", "count": 3, "delay": 0.1}]
+    save = api_post("/api/sequence/templates", {"name": "T-L", "frames": plan})
+    check(save.get("ok") is True, "sauvegarde template ok")
+    check(save.get("template", {}).get("count") == 3, "count calculé dans le template")
+
+    r = api_get("/api/sequence/templates")
+    names = [t.get("name") for t in r.get("templates", [])]
+    check("T-L" in names, "template listé (" + ", ".join(names) + ")")
+
+    bad = api_post("/api/sequence/templates", {"name": "T-VIDE", "frames": []})
+    check(bad.get("ok") is False, "template vide rejeté")
+
+    exp = api_get("/api/sequence/templates/export")
+    check("templates" in exp and any(t.get("name") == "T-L" for t in exp["templates"]),
+          "export contient le template")
+
+    imp = api_post("/api/sequence/templates/import",
+                   {"json": json.dumps([{"name": "T-Ha", "frames": [{
+                       "duration": 1.0, "frame_type": "LIGHT", "filter": "Ha",
+                       "count": 2, "delay": 0.1}]}])})
+    check(imp.get("ok") is True and imp.get("imported") == 1, "import ok")
+
+    r = api_get("/api/sequence/templates")
+    names2 = [t.get("name") for t in r.get("templates", [])]
+    check("T-L" in names2 and "T-Ha" in names2, "templates L + Ha présents")
+
+    d = api_post("/api/sequence/templates/delete", {"name": "T-L"})
+    check(d.get("deleted") is True, "suppression ok")
+    r = api_get("/api/sequence/templates")
+    check(all(t.get("name") != "T-L" for t in r.get("templates", [])),
+          "template supprimé de la liste")
 
 
 # ── Main ───────────────────────────────────────────────────
@@ -355,10 +440,12 @@ sequence:
         test_start_rejects_empty_plan()
         test_run_completes_and_saves()
         test_files_written()
+        test_fits_headers()
         test_pause_resume_reset()
         test_stop_mid_run()
         test_mid_target_session_layout_and_journal()
         test_resume_interrupted_session()
+        test_templates_crud()
     finally:
         print("\n\nShutting down...")
         kill_proc(web_proc)

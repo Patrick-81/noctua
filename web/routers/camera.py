@@ -67,10 +67,33 @@ def register(app, server: "WebServer") -> None:
         # For now, we'll store the last image in the server
         if not hasattr(server, '_last_image_data') or not server._last_image_data:
             return {"error": "no image data available — capture first"}
+        # Lot C4 : métadonnées normalisées (capteur, optique, site) dans l'entête FITS.
+        from indigo.devices import fitsmeta
+        site = server.site or {}
+        meta = fitsmeta.frame_meta(
+            target=body.get("target") or server.sequence_cfg.get("target", ""),
+            frame_type=body.get("frame_type") or c.frame_type or "LIGHT",
+            filter_name=filter_name,
+            exposure_sec=c.exposure_time,
+            instrument=c.name,
+            ccd_temp=c.temperature,
+            set_temp=(c.target_temp if c.target_temp is not None else c.temperature),
+            pixel_size_um=c.pixel_size_um,
+            binning_x=c.binning_x,
+            binning_y=c.binning_y,
+            gain=c.gain,
+            offset=c.offset,
+            focal_length_mm=c.focal_length_mm,
+            telescope=(server.telescope or {}).get("name", ""),
+            sitelat=site.get("latitude"),
+            sitelong=site.get("longitude"),
+            sitelev=site.get("elevation"),
+        )
+        img = await asyncio.to_thread(fitsmeta.inject_meta, server._last_image_data, meta)
         with open(filepath, "wb") as f:
-            f.write(server._last_image_data)
-        log.info("Image saved: %s (%d bytes)", filepath, len(server._last_image_data))
-        return {"ok": True, "path": filepath, "size": len(server._last_image_data)}
+            f.write(img)
+        log.info("Image saved: %s (%d bytes)", filepath, len(img))
+        return {"ok": True, "path": filepath, "size": len(img)}
 
     @app.post("/api/camera/temperature")
     async def camera_temperature(body: dict):

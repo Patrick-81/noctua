@@ -201,9 +201,17 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot C — Qualité & organisation
 
-- **C1. Bibliothèque de masters** — association auto dark/flat par
-  filtre/binning/température (complète le Flat Wizard ; le master livestack
-  existe déjà).
+- ~~**C1. Bibliothèque de masters**~~ — **FAIT (29/08)** :
+  `indigo/devices/masters.py` (`MasterLibrary`) — combine les frames raw en
+  masters de calibration (bias/dark/flat) catalogués par entête FITS normalisé
+  : filtre, binning, température, exposition, NCOMBINE, provenance
+  (instrument/téléviseur/site). Résolution : binning doit matcher, dark dans
+  ±5 °C (jamais de master « chaud » hors tolérance) avec exposition préférée
+  ≥ demandée, flat par filtre + binning. Endpoints `/api/masters`
+  (GET status, POST build dir|files, resolve, delete, calibrate → injecte dans
+  le livestack). Racine par défaut `sequence.save_dir`, surcharge
+  `masters.dir`. Le Flat Wizard peut ainsi produire des flats automatiques
+  réutilisables. Unitaires `tests/test_masters.py` (8) + smoke E2E HTTP.
 - ~~**C2. Planification cible/date + reprise**~~ — **FAIT (28/08)** : structure
   `<save_dir>/<slug-cible>/<YYYY-MM-DD>/<HHMMSS>` (sans cible → legacy
   `capture_<TS>`), journal `journal.json` (écriture atomique, `created_at`
@@ -213,22 +221,42 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
   fichiers** (aucun écrasement), journal marqué `complete` à la fin. Helpers
   `slugify`/`build_session_dir`/`save_journal`/`load_journal` (unitaires) +
   flux cible/date et reprise → **237 pytest OK, flux séquence 55 OK**.
-- **C3. Templates de séquence nommés** — plans réutilisables (L, RGB, Ha) et
-  partageables.
-- **C4. Journaling par cible** — métadonnées par pose (settle, seeing/HFR,
-  température senseur) pour analyse qualité.
+- ~~**C3. Templates de séquence nommés**~~ — **FAIT (28/08)** :
+  `indigo/devices/templates.py` (`SequenceTemplateStore`, YAML persistant,
+  validation via `validate_frames`). Endpoints `/api/sequence/templates`
+  (GET/list, POST upsert, delete, import, export) ; UI : rangée Templates
+  (select + 💾 enregistrer / 🗑 / ⇪ export → presse-papiers / ⇓ import JSON
+  collé). Plans réutilisables (L, RGB, Ha…) et partageables via
+  `{version, exported_at, templates}`. Unitaires `tests/test_templates.py` +
+  flux CRUD → **246 pytest OK, flux séquence 65 OK**.
+- ~~**C4. Journaling par cible**~~ — **FAIT (29/08)** : métadonnées **dans
+  l'entête FITS des images** (`indigo/devices/fitsmeta.py`, réécriture binaire
+  sans astropy, data conservée bit-identique). Mots-clés normalisés :
+  IMAGETYP/DATE-OBS, cible (OBJECT, OBJTHOUR, OBJTDEC), pose (EXPTIME), capteur
+  (INSTRUME, CCD-TEMP, SET-TEMP, PIXSIZE, GAIN, OFFSET, binning H/V), optique
+  (FOCALLEN), télescope (TELESCOP), site (SITELAT/LONG/ELEV), provenance
+  (SWCREATE). Injection branchée sur : sauvegarde séquence
+  (`web/routers/sequence.py`), session livestack (`web/server.py`) et
+  `/api/camera/save`. Valeurs manquantes (None/NaN/Inf) sautées, accents
+  translittérés (ASCII FITS). Unitaires `tests/test_fitsmeta.py` (11) + checks
+  entête dans le flux → **265 pytest OK, flux séquence 75 OK**.
 
 ### Lot D — Avancés (plus tard)
 
 - **D1.** Mosaïque automatique (découpe en tuiles enchaînées).
 - **D2.** Dôme / abri roulant (rolloff roof).
 - **D3.** Framing assistant complet (orientation senseur, pivot, cadrage cible).
-- **D4.** LUT narrowband (Ha/OIII/SII).
+- **D4. LUT narrowband** — **ÉCARTÉ (28/08)** : la composition couleur finale
+  (palettes Ha/OIII/SII, étirements) relève du post-traitement (Siril
+  ChannelCombination, PixInsight) sur les masters calibrés ; un aperçu
+  false-color en direct ne compositerait qu'un seul filtre mono par pose.
 
 ### Ordre recommandé
 
-A1 → A2 → B3 → ~~C2~~ → C3 → C4 → C1 → Lot D.
+A1 → A2 → B3 → ~~C2~~ → ~~C3~~ → ~~C4~~ → ~~C1~~ → Lot D.
 (B1 météo et B2 alertes écartés — pas de communication internet.)
+Dans le Lot D, on adressera **préférentiellement D1 (mosaïque) et D3 (framing
+assistant)** ; D2 (dôme/roof) en retrait, D4 (LUT narrowband) écarté (post-traitement).
 
 ---
 
