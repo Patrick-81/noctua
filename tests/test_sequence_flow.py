@@ -12,6 +12,7 @@ __test__ = False  # pytest: run via python tests/test_sequence_flow.py
 
 import glob
 import json
+import math
 import os
 import re
 import subprocess
@@ -354,6 +355,66 @@ def test_templates_crud():
           "template supprimé de la liste")
 
 
+def test_mosaic_run():
+    print("\n=== Test: mosaïque (Lot D1) 2×2 via /api/sequence/start ===")
+    # FOV caméra du mock : pas de focale → indisponible.
+    fov = api_get("/api/mosaic/fov")
+    check("error" not in fov, "GET /api/mosaic/fov ok")
+    check(fov.get("ok") is False, "FOV indisponible sans focale (mock)")
+
+    plan = api_post("/api/mosaic/plan", {
+        "target_coords": {"ra_hours": 6.0, "dec_deg": 30.0},
+        "size_arcmin": {"w": 480, "h": 480},
+        "overlap_frac": 0.1,
+        "fov_x_deg": 5.0, "fov_y_deg": 5.0,
+    })
+    check(plan.get("ok") is True, "plan mosaïque ok")
+    check(plan.get("rows") == 2 and plan.get("cols") == 2, "grille 2×2")
+    check(len(plan.get("tiles", [])) == 4, "4 tuiles planifiées")
+    t0 = plan["tiles"][0]
+    check(t0["index"] == 0 and t0["row"] == 0 and t0["col"] == 0, "tuile 0 = coin SO")
+    exp_ra = (90.0 - 0.5 * 4.5 / math.cos(math.radians(30.0))) / 15.0
+    check(abs(t0["ra_hours"] - exp_ra) < 1e-3,
+          f"tuile 0 RA cohérente ({t0['ra_hours']}h ≈ {exp_ra}h)")
+
+    frames = [{"duration": 0.1, "frame_type": "LIGHT", "filter": "L",
+               "count": 1, "delay": 0.0}]
+    r = api_post("/api/sequence/start", {"frames": frames, "target": "Mosaic TF",
+                                         "target_coords": {"ra_hours": 6.0, "dec_deg": 30.0},
+                                         "mosaic": {"size_arcmin": {"w": 480, "h": 480},
+                                                    "overlap_frac": 0.1,
+                                                    "fov_x_deg": 5.0, "fov_y_deg": 5.0}})
+    check(r.get("ok") is True, f"start mosaïque ok (got {r.get('error')})")
+    session = r.get("session_dir") or ""
+    check(r.get("status", {}).get("total") == 4, "total étendu à 4 (4 tuiles × 1 pose)")
+
+    ok = wait_until(lambda: api_get("/api/sequence/status").get("running") is False,
+                    timeout=60)
+    check(ok, "séquence mosaïque terminée")
+    st = api_get("/api/sequence/status")
+    check(st.get("done") == 4, f"done == 4 (got {st.get('done')})")
+    m = st.get("mosaic") or {}
+    check(m.get("tiles") == 4 and m.get("rows") == 2 and m.get("cols") == 2,
+          f"status expose la mosaïque ({m})")
+    tc = st.get("target_coords") or {}
+    check(tc.get("ra_hours") == 6.0 and tc.get("dec_deg") == 30.0,
+          "status expose target_coords")
+
+    lights = sorted(glob.glob(os.path.join(session, "lights", "light_L_*.fits")))
+    check(len(lights) == 4, f"4 fichiers sauvegardés (found {len(lights)})")
+    rows_cols = set()
+    for f in lights:
+        with open(f, "rb") as fh:
+            data = fh.read()
+        values, _cards, _hb = fitsmeta.read_header(data)
+        rows_cols.add((values.get("MOSROW"), values.get("MOSCOL"), values.get("MOSN")))
+    check(len(rows_cols) == 4, "4 combinaisons (MOSROW, MOSCOL, MOSN) distinctes")
+    for rw, col, n in sorted(rows_cols):
+        check(n == "4", f"MOSN = 4 ({rw},{col},{n})")
+        check(rw in ("0", "1") and col in ("0", "1"),
+              f"MOSROW/MOSCOL dans la grille 0..1 ({rw},{col})")
+
+
 # ── Main ───────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -446,6 +507,7 @@ sequence:
         test_mid_target_session_layout_and_journal()
         test_resume_interrupted_session()
         test_templates_crud()
+        test_mosaic_run()
     finally:
         print("\n\nShutting down...")
         kill_proc(web_proc)

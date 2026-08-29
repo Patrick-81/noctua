@@ -906,6 +906,10 @@ body {
 .seq-toolbar {
     display: flex; justify-content: flex-end; padding: 4px 8px 0;
 }
+.seq-mosaic-info {
+    margin-top: 4px; font-size: 0.6rem; color: var(--text-muted);
+    min-height: 12px;
+}
 .seq-frame-row {
     display: flex; align-items: center; gap: 4px; padding: 3px 8px;
     border-bottom: 1px solid rgba(0,255,204,0.06);

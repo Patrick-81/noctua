@@ -23,7 +23,7 @@ def _frame_meta(server, cam, frame: dict, target: str, t_obs=None) -> dict:
     from indigo.devices import fitsmeta
     telescope = (server.telescope or {}).get("name", "") or ""
     site = server.site or {}
-    return fitsmeta.frame_meta(
+    meta = fitsmeta.frame_meta(
         target=target,
         frame_type=frame.get("frame_type") or "LIGHT",
         filter_name=frame.get("filter") or "",
@@ -44,6 +44,44 @@ def _frame_meta(server, cam, frame: dict, target: str, t_obs=None) -> dict:
         sitelev=site.get("elevation"),
         date_obs=t_obs,
     )
+    if frame.get("tile") is not None:
+        meta.update({
+            "MOSN": int(frame.get("tiles_total") or 1),
+            "MOSROW": int(frame.get("tile_row") or 0),
+            "MOSCOL": int(frame.get("tile_col") or 0),
+        })
+    return meta
+
+
+async def _move_to_tile(server, tile: int, ra_hours: float, dec_deg: float, log=None):
+    """Slew to a mosaic tile centre then recenter by solve (Lot D1).
+
+    Best effort : without a ready mount, or when the solver fails, the run
+    simply continues (``moved`` stays False) — never raises.
+    """
+    async def _nolog(_lvl: str, _msg: str) -> None:
+        return None
+
+    log = log or _nolog
+    m = server.registry.get_mount()
+    if m is None or not getattr(m, "connected", False):
+        await log("warning", f"tuile {tile} : pas de monture prête — pas de déplacement")
+        return {"moved": False, "tile": tile, "error": "no mount"}
+    await log("info", f"mosaïque : tuile {tile} — RA {ra_hours}h DEC {dec_deg}°")
+    try:
+        await m.slew_to(ra_hours, dec_deg)
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 120.0
+        while loop.time() < deadline and getattr(m, "slewing", False):
+            await asyncio.sleep(0.2)
+    except Exception as e:  # noqa: BLE001
+        await log("warning", f"tuile {tile} : slew échoué ({e}) — on continue")
+        return {"moved": False, "tile": tile, "error": str(e)}
+    rec = await server._recenter_by_solve(ra_hours, dec_deg)
+    return {"moved": True, "tile": tile,
+            "recenter": {"done": bool(rec.get("done")),
+                         "passes": rec.get("passes", 0),
+                         "error": rec.get("error")}}
 
 
 def register(app, server: "WebServer") -> None:
@@ -90,6 +128,10 @@ def register(app, server: "WebServer") -> None:
         # Camera + baseline image for the current pose; lets the save hook
         # distinguish "freshly captured" frames from stale ones.
         seq_cam = {"name": None, "baseline": b""}
+
+        # Mosaic tile tracking (Lot D1): slew + recentre exactly once per tile,
+        # on the first frame that reaches it.
+        mosaic_ctx = {"current": None, "moves": 0}
 
         async def expose(duration: float, frame_type: str) -> None:
             cam = server.registry.get_camera()
@@ -251,18 +293,37 @@ def register(app, server: "WebServer") -> None:
         async def before_frame(frame: dict) -> dict | None:
             """Trigger automatic maintenance between poses when due.
 
-            Two independent policies, both only for LIGHT frames and both
-            running *before* the exposure so nothing is exposing:
-              1. meridian flip (when ``telescope.flip_enabled``),
-              2. automatic refocus (Lot B3) — time/altitude driven, runs the
+            Independent policies, all running *before* the exposure so nothing
+            is exposing:
+              1. mosaic tile move (Lot D1) — slew + recentre by solve the first
+                 time each tile is reached,
+              2. meridian flip (when ``telescope.flip_enabled``),
+              3. automatic refocus (Lot B3) — time/altitude driven, runs the
                  HFR V-curve entirely server-side and slews back to the best
                  focuser position.
             """
-            if frame.get("frame_type", "LIGHT").upper() != "LIGHT":
-                return None
-
-            # 1. Meridian flip (unchanged behaviour).
             act: dict | None = None
+
+            # 1. Mosaic — one move per tile, on the first frame of that tile.
+            tile = frame.get("tile")
+            if tile is not None:
+                ra_h = frame.get("goto_ra_hours")
+                dec_deg = frame.get("goto_dec_deg")
+                if (ra_h is not None and dec_deg is not None
+                        and mosaic_ctx["current"] != tile):
+                    move = await _move_to_tile(server, tile, ra_h, dec_deg, log=log)
+                    if move.get("moved"):
+                        mosaic_ctx["moves"] += 1
+                        act = {"mosaic": True,
+                               "tile": tile,
+                               "mosaic_move": mosaic_ctx["moves"],
+                               "recenter": move.get("recenter")}
+                    mosaic_ctx["current"] = tile
+
+            if frame.get("frame_type", "LIGHT").upper() != "LIGHT":
+                return act or None
+
+            # 2. Meridian flip (unchanged behaviour).
             if server.telescope.get("flip_enabled", False):
                 m = server.registry.get_mount()
                 if m and m.connected:
@@ -283,9 +344,13 @@ def register(app, server: "WebServer") -> None:
 
                     if due and not server._meridian_flipped:
                         await log("warning", "Méridien passé — flip automatique avant pose")
-                        act = await server._do_meridian_flip()
+                        _res = await server._do_meridian_flip()
+                        if act:
+                            act.update(_res or {})
+                        else:
+                            act = _res
 
-            # 2. Automatic refocus (Lot B3) — after the flip so the altitude
+            # 3. Automatic refocus (Lot B3) — after the flip so the altitude
             #    baseline of a freshly re-slewed mount is used.
             pol = getattr(server, "refocus_policy", None)
             if pol is None or not pol.enabled:
@@ -360,6 +425,7 @@ def register(app, server: "WebServer") -> None:
             "on_error": on_error,
             "on_end": on_end,
             "before_frame": before_frame,
+            "mosaic": mosaic_ctx,
         }
 
     @app.get("/api/sequence/status")
@@ -367,6 +433,8 @@ def register(app, server: "WebServer") -> None:
         st = server.sequence.status()
         st["refocus"] = server.refocus_policy.status()
         st["session_dir"] = server.sequence_cfg.get("session_dir", "")
+        st["target_coords"] = server.sequence_cfg.get("target_coords")
+        st["mosaic"] = server.sequence_cfg.get("mosaic")
         st["resumable"] = _session_is_resumable()
         return SanitizedJSONResponse(st)
 
@@ -378,6 +446,8 @@ def register(app, server: "WebServer") -> None:
             ]),
             "save_dir": server.sequence_cfg.get("save_dir", ""),
             "target": server.sequence_cfg.get("target", ""),
+            "target_coords": server.sequence_cfg.get("target_coords"),
+            "mosaic": server.sequence_cfg.get("mosaic"),
             "dither": server.sequence_cfg.get("dither", {
                 "enabled": False, "amount": 2.0, "settle_rms": 1.0,
                 "settle_timeout": 20.0, "settle_stable": 3}),
@@ -404,6 +474,40 @@ def register(app, server: "WebServer") -> None:
             server.sequence_cfg["save_dir"] = body["save_dir"]
         if body.get("target") is not None:
             server.sequence_cfg["target"] = str(body["target"] or "")
+        if body.get("target_coords") is not None:
+            server.sequence_cfg["target_coords"] = body["target_coords"]
+        # Mosaic (Lot D1) : étend chaque pose sur la grille de tuiles planifiée.
+        from indigo.devices import mosaic as mz
+        if body.get("mosaic") is not None:
+            mc = body["mosaic"]
+            fov_x = mc.get("fov_x_deg")
+            fov_y = mc.get("fov_y_deg")
+            if not fov_x or not fov_y:
+                cam = server.registry.get_camera()
+                fov = cam and mz.camera_fov(cam.width_px, cam.height_px,
+                                            cam.pixel_size_um, cam.focal_length_mm)
+                if not fov:
+                    return {"ok": False,
+                            "error": "FOV indisponible — passer fov_x_deg/fov_y_deg"}
+                fov_x, fov_y = fov
+            tc = server.sequence_cfg.get("target_coords") or {}
+            if tc.get("ra_hours") is None or tc.get("dec_deg") is None:
+                return {"ok": False,
+                        "error": "mosaïque : target_coords.ra_hours/dec_deg requis"}
+            sc = mc.get("size_arcmin") or {}
+            plan = mz.plan_mosaic(
+                (tc.get("ra_hours") or 0.0) * 15.0, tc.get("dec_deg") or 0.0,
+                sc.get("w"), sc.get("h"), fov_x, fov_y,
+                mc.get("overlap_frac", 0.15))
+            if not plan.get("ok"):
+                return {"ok": False, "error": plan.get("error", "plan mosaïque invalide")}
+            frames = mz.expand_frames(frames, plan)
+            server.sequence_cfg["mosaic"] = {
+                "rows": plan["rows"], "cols": plan["cols"],
+                "tiles": len(plan["tiles"]),
+                "size_arcmin": plan["size_arcmin"],
+                "overlap_frac": plan["overlap_frac"],
+            }
         if body.get("dither") is not None:
             cur = server.sequence_cfg.get("dither", {}) or {}
             merged = {**cur, **body["dither"]}
@@ -432,13 +536,15 @@ def register(app, server: "WebServer") -> None:
         session_dir = build_session_dir(root_dir, target)
         os.makedirs(session_dir, exist_ok=True)
         server.sequence_cfg["session_dir"] = session_dir
-        save_journal(session_dir, frames=frames, target=target,
-                     done=0, total=server.sequence.status().get("total", 0),
-                     running=True, complete=False)
         try:
             server.sequence.start(frames)
         except (RuntimeError, ValueError) as e:
             return {"ok": False, "error": str(e)}
+        # Journal with the authoritative total (post mosaic expansion) so the
+        # initial record reflects the real frame count.
+        save_journal(session_dir, frames=frames, target=target,
+                     done=0, total=server.sequence.status().get("total", 0),
+                     running=True, complete=False)
         task = asyncio.create_task(
             server.sequence.run(_seq_hooks(save_dir=session_dir, frames=frames, target=target)))
         server.sequence._task = task

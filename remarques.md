@@ -3,7 +3,7 @@
 Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 (nighttime-imaging), et évolutions envisagées.
 
-> **Vérifié au 28/08/2026** contre le code (état `master` + working tree) :
+> **Vérifié au 29/08/2026** contre le code (état `master` + working tree) :
 > les statuts ci-dessous (fait / pas commencé) sont à jour. Les manques restants
 > le sont réellement (cf. section « Prochaine suite » pour l'ordre proposé).
 
@@ -24,17 +24,19 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 1. **Flat Wizard & bibliothèque de darks/flats/biases** — ✅ **Flat Wizard fait**
    (machine à états `flat_wizard.py`, endpoints `camera.py`, UI repliable dans le
-   panneau capture — ADU cible, AUTO, filtre/binning). Point restant : la
-   **bibliothèque de masters** (association auto dark/flat par filtre/binning/
-   température) n'est pas faite.
+   panneau capture — ADU cible, AUTO, filtre/binning). ✅ **Bibliothèque de
+   masters faite (C1, 29/08)** : combine et associe bias/dark/flat par
+   filtre/binning/température (voir Lot C1). Reste un raffinement : la
+   **capture automatique de darks en fin de séquence** (item 16).
 
 2. **Gestion météo (Weather)** — Aucun endpoint ni UI dédié. N.I.N.A. s'arrête /
    alerte sur capteurs (pluie, vent, nuages) pendant une séquence.
 
-3. **Trigger Manager / actions conditionnelles** — Aucun système
-   "sur événement de séquence" (fin de pose, erreur) → action (script,
-   notification, changement de cible). La séquence est linéaire
-   (`sequence.py:76`) sans hooks conditionnels.
+3. **Trigger Manager / actions conditionnelles** — ✅ **Fait (A2, 28/08)** :
+   `indigo/devices/triggers.py` — événements de séquence (`frame_done`,
+   `series_done`, `error`…) → actions configurables (log, script, mount_goto)
+   avec conditions et templating. La séquence reste pilotée par
+   `SequenceRunner` avec hooks conditionnels (voir Lot A2).
 
 4. **Meridian flip automatique dans la séquence** — ✅ **Fait** : hook
    `before_frame` dans `SequenceRunner._run_one`, flip auto (marge post-méridien
@@ -87,15 +89,15 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
    mais pas l'assistant de cadrage (adapter le champ à la cible, pivot par angle,
    rotation du senseur). *Pas commencé.*
 
-7. **Planification cible/date** — `build_path` range par type + timestamp
-   (`_20260827_...`), mais sans structure `target/date/`. Pas de reprise d'une
-   séquence interrompue. *Pas commencé.*
+7. **Planification cible/date** — ✅ **Fait (C2, 28/08)** : structure
+   `<save_dir>/<cible>/<YYYY-MM-DD>/<HHMMSS>` (ou `capture_<TS>` sans cible),
+   journal `journal.json` et reprise d'une séquence interrompue (voir Lot C2).
 
 ## Évolutions auxquelles tu n'aurais pas pensé
 
-8. **Refocus automatique dépendant du temps/altitude** — politique
-   "refocus après X min / X° d'altitude" (N.I.N.A. refocalise selon température
-   / élévation).
+8. **Refocus automatique dépendant du temps/altitude** — ✅ **Fait (B3, 28/08)** :
+   politique `sequence.refocus` (`interval_min`, `alt_trigger_deg`) avec V-curve
+   HFR entièrement côté serveur (`refocus.py`, voir Lot B3).
 
 9. ~~**Dithering piloté réellement par le guide**~~ — **FAIT (A1, 28/08)** :
    `apply_dither()` dans `guide.py` décale la référence du guideur (= pulse de
@@ -109,23 +111,30 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 10. **Dôme / abri roulant (rolloff roof) automation** — contrôle des toits
     automatiques pour installation non supervisée.
 
-11. **Sequence templates / presets réutilisables** — plans nommés (L, RGB, Ha)
-    partageables.
+11. **Sequence templates / presets réutilisables** — ✅ **Fait (C3, 28/08)** :
+    plans nommés (L, RGB, Ha) partageables par export/import JSON (voir Lot C3).
 
-12. **Mosaïque automatique** — découpe de cibles trop larges en tuiles enchaînées.
+12. **Mosaïque automatique** — ✅ **Fait (D1, 29/08)** : planification d'une
+    grille N×M centrée sur la cible (`/api/mosaic/plan`, recouvrement 0–90 %,
+    correction cos(dec)), extension du plan d'exposition à autant de tuiles
+    (`MOSN`/`MOSROW`/`MOSCOL` dans l'entête FITS), déplacement automatique de
+    la monture avec recentrage par solve entre les tuiles (`before_frame`) et
+    aperçu de la grille sur la sky map.
 
 13. **Vision / "Live view" avec stretch** — autostretch + histogramme déjà en
     place dans l'aperçu (curseur Noir, AUTO) ; **reste** : LUT narrowband
     (Ha/OIII/SII) et stretch sauvegardé par caméra. *Partiel — autostretch OK.*
 
-14. **Journaling** — log des poses par cible avec métadonnées (settle, seeing,
-    température du senseur) pour analyse qualité.
+14. **Journaling** — ✅ **Fait (C4, 29/08)** : métadonnées par pose écrites
+    **dans l'entête FITS** des images (date/heure, cible, temps de pose, gain,
+    offset, température senseur, binning, optique, site) — voir Lot C4.
 
 15. **Alertes / notifications push** (webhook, Telegram, email) sur erreur /
     fin de nuit.
 
-16. **Darks automatiques en fin de séquence** — capture + réutilisation des
-    darks nécessaires.
+16. **Darks automatiques en fin de séquence** — ◐ **Partiel** : la bibliothèque
+    de masters (C1, 29/08) permet de construire et réutiliser les darks ; la
+    **capture automatique en fin de nuit** reste à faire.
 
 ---
 
@@ -156,19 +165,18 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ## Prochaine suite (planifiée le 28/08/2026)
 
-> **Préalable** : committer les chantiers terminés encore dans le working tree
-> (meridian flip + recentrage, pointing model, Flat Wizard, visibilité 24h) avant
-> d'entamer la suite.
+> **Préalable** : les chantiers terminés (A1, A2, B3, C1–C4 dont le C3 du working
+> tree) ont été committés le 29/08 (lots Lancés cochés ci-dessus).
 
 ### Lot A — Fiabiliser l'automatisation (fondations)
 
-- ~~**A1. Dithering piloté réellement par le guide**~~ — **FAIT (28/08)** :
+- [x] ~~**A1. Dithering piloté réellement par le guide**~~ — **FAIT (28/08)** :
   décalage serveur de la référence du guideur (`apply_dither`/`wait_settle`
   dans `guide.py`) + settle configurable (RMS ″ / timeout / stabilité),
   exposé dans l'UI séquenceur et les defaults de l'API. Reste un raffinement
   possible : dither via pulse monture direct (mode `pulse`) au lieu du seul
   shift de référence.
-- ~~**A2. Trigger Manager**~~ — **FAIT (28/08)** : `indigo/devices/triggers.py`
+- [x] ~~**A2. Trigger Manager**~~ — **FAIT (28/08)** : `indigo/devices/triggers.py`
   (TriggerManager) émet des événements de séquence (`sequence_start`,
   `frame_start`, `frame_done`, `dither_done`, `error`, `series_done`, `stop`)
   vers des actions configurables — `log`, `script` (shell + timeout), et
@@ -183,12 +191,12 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot B — Supervision & sécurité
 
-- **B1. Gestion météo** — **ÉCARTÉ** : le tour de contrôle Noctua n'a pas
+- [ ] **B1. Gestion météo** — **ÉCARTÉ** : le tour de contrôle Noctua n'a pas
   vocation à communiquer sur internet (décision au 28/08). Pas de drivers
   weather ni d'arrêt météo automatique.
-- **B2. Alertes push** — **ÉCARTÉ** (idem B1 : rien ne sort vers internet —
+- [ ] **B2. Alertes push** — **ÉCARTÉ** (idem B1 : rien ne sort vers internet —
   webhook/Telegram/email sans objet).
-- ~~**B3. Refocus auto**~~ — **FAIT (28/08)** : `indigo/devices/refocus.py`.
+- [x] ~~**B3. Refocus auto**~~ — **FAIT (28/08)** : `indigo/devices/refocus.py`.
   Politique `RefocusPolicy` (`sequence.refocus` : `interval_min`,
   `alt_trigger_deg` — 0 = dimension désactivée) déclenchant aux poses LIGHT,
   entre deux poses, un refocus **entièrement côté serveur** : V-curve HFR via
@@ -201,7 +209,7 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot C — Qualité & organisation
 
-- ~~**C1. Bibliothèque de masters**~~ — **FAIT (29/08)** :
+- [x] ~~**C1. Bibliothèque de masters**~~ — **FAIT (29/08)** :
   `indigo/devices/masters.py` (`MasterLibrary`) — combine les frames raw en
   masters de calibration (bias/dark/flat) catalogués par entête FITS normalisé
   : filtre, binning, température, exposition, NCOMBINE, provenance
@@ -212,7 +220,7 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
   le livestack). Racine par défaut `sequence.save_dir`, surcharge
   `masters.dir`. Le Flat Wizard peut ainsi produire des flats automatiques
   réutilisables. Unitaires `tests/test_masters.py` (8) + smoke E2E HTTP.
-- ~~**C2. Planification cible/date + reprise**~~ — **FAIT (28/08)** : structure
+- [x] ~~**C2. Planification cible/date + reprise**~~ — **FAIT (28/08)** : structure
   `<save_dir>/<slug-cible>/<YYYY-MM-DD>/<HHMMSS>` (sans cible → legacy
   `capture_<TS>`), journal `journal.json` (écriture atomique, `created_at`
   préservé) mis à jour à chaque pose ; bouton **Reprendre** (caché si session
@@ -221,7 +229,7 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
   fichiers** (aucun écrasement), journal marqué `complete` à la fin. Helpers
   `slugify`/`build_session_dir`/`save_journal`/`load_journal` (unitaires) +
   flux cible/date et reprise → **237 pytest OK, flux séquence 55 OK**.
-- ~~**C3. Templates de séquence nommés**~~ — **FAIT (28/08)** :
+- [x] ~~**C3. Templates de séquence nommés**~~ — **FAIT (28/08)** :
   `indigo/devices/templates.py` (`SequenceTemplateStore`, YAML persistant,
   validation via `validate_frames`). Endpoints `/api/sequence/templates`
   (GET/list, POST upsert, delete, import, export) ; UI : rangée Templates
@@ -229,7 +237,7 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
   collé). Plans réutilisables (L, RGB, Ha…) et partageables via
   `{version, exported_at, templates}`. Unitaires `tests/test_templates.py` +
   flux CRUD → **246 pytest OK, flux séquence 65 OK**.
-- ~~**C4. Journaling par cible**~~ — **FAIT (29/08)** : métadonnées **dans
+- [x] ~~**C4. Journaling par cible**~~ — **FAIT (29/08)** : métadonnées **dans
   l'entête FITS des images** (`indigo/devices/fitsmeta.py`, réécriture binaire
   sans astropy, data conservée bit-identique). Mots-clés normalisés :
   IMAGETYP/DATE-OBS, cible (OBJECT, OBJTHOUR, OBJTDEC), pose (EXPTIME), capteur
@@ -243,10 +251,10 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ### Lot D — Avancés (plus tard)
 
-- **D1.** Mosaïque automatique (découpe en tuiles enchaînées).
-- **D2.** Dôme / abri roulant (rolloff roof).
-- **D3.** Framing assistant complet (orientation senseur, pivot, cadrage cible).
-- **D4. LUT narrowband** — **ÉCARTÉ (28/08)** : la composition couleur finale
+- [x] **D1.** Mosaïque automatique (découpe en tuiles enchaînées).
+- [ ] **D2.** Dôme / abri roulant (rolloff roof).
+- [ ] **D3.** Framing assistant complet (orientation senseur, pivot, cadrage cible).
+- [ ] **D4. LUT narrowband** — **ÉCARTÉ (28/08)** : la composition couleur finale
   (palettes Ha/OIII/SII, étirements) relève du post-traitement (Siril
   ChannelCombination, PixInsight) sur les masters calibrés ; un aperçu
   false-color en direct ne compositerait qu'un seul filtre mono par pose.
@@ -255,9 +263,10 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 A1 → A2 → B3 → ~~C2~~ → ~~C3~~ → ~~C4~~ → ~~C1~~ → Lot D.
 (B1 météo et B2 alertes écartés — pas de communication internet.)
-Dans le Lot D, on adressera **préférentiellement D1 (mosaïque) et D3 (framing
-assistant)** ; D2 (dôme/roof) en retrait, D4 (LUT narrowband) écarté (post-traitement).
+Dans le Lot D, on adresse en premier **D1 (mosaïque)** — **fait au 29/08** —
+puis **D3 (framing assistant)** ; D2 (dôme/roof) en retrait, D4 (LUT narrowband)
+écarté (post-traitement).
 
 ---
 
-*Revu le 28/08/2026.*
+*Revu le 29/08/2026.*

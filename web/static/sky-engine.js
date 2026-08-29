@@ -37,6 +37,7 @@ export class SkyEngine {
         this.slewing = false;
         this.cameraFovX = 0;
         this.cameraFovY = 0;
+        this.mosaicTiles = null;
         this.hideNorth = false;
         this.hideSouth = false;
 
@@ -737,6 +738,9 @@ export class SkyEngine {
             this._renderCameraFov(ctx);
         }
 
+        // 17b. Tuiles mosaïque (Lot D1) — planifiées depuis le panneau séquence.
+        this._renderMosaicTiles(ctx);
+
         ctx.restore();
 
         // Update HUD
@@ -807,11 +811,12 @@ export class SkyEngine {
     _renderCameraFov(ctx) {
         const halfX = this.cameraFovX / 2;
         const halfY = this.cameraFovY / 2;
+        const cosDec = Math.max(Math.cos(this._telDecDeg * Math.PI / 180), 0.15);
         const corners = [
-            [this._telRaDeg - halfX * 15, this._telDecDeg - halfY],
-            [this._telRaDeg + halfX * 15, this._telDecDeg - halfY],
-            [this._telRaDeg + halfX * 15, this._telDecDeg + halfY],
-            [this._telRaDeg - halfX * 15, this._telDecDeg + halfY],
+            [this._telRaDeg - halfX / cosDec, this._telDecDeg - halfY],
+            [this._telRaDeg + halfX / cosDec, this._telDecDeg - halfY],
+            [this._telRaDeg + halfX / cosDec, this._telDecDeg + halfY],
+            [this._telRaDeg - halfX / cosDec, this._telDecDeg + halfY],
         ];
 
         const pts = [];
@@ -831,6 +836,44 @@ export class SkyEngine {
         for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.closePath();
         ctx.stroke();
+        ctx.restore();
+    }
+
+    // Grille de tuiles d'une mosaïque (Lot D1) : rectangles alignés RA/Dec.
+    _renderMosaicTiles(ctx) {
+        const { tiles, fov } = this.mosaicTiles || {};
+        if (!tiles || !tiles.length || !fov) return;
+        const current = this.mosaicTiles.current;
+        const halfY = fov.y_deg / 2;
+        ctx.save();
+        for (const tile of tiles) {
+            const cosDec = Math.max(Math.cos(tile.dec_deg * Math.PI / 180), 0.15);
+            const halfX = (fov.x_deg / 2) / cosDec;
+            const w = tile.ra_deg - halfX;
+            const e = tile.ra_deg + halfX;
+            if (e - w > 180) continue; // tuile chevauchant l'AD 0h — non dessinée
+            const corners = [
+                [w, tile.dec_deg - halfY], [e, tile.dec_deg - halfY],
+                [e, tile.dec_deg + halfY], [w, tile.dec_deg + halfY],
+            ].map(c => [((c[0] % 360) + 360) % 360, c[1]]);
+            const pts = [];
+            for (const c of corners) {
+                if (!this._celestialClip(c)) { pts.length = 0; break; }
+                const pt = this._projection(c);
+                if (pt) pts.push(pt);
+            }
+            if (pts.length < 3) continue;
+            const active = current != null && current === tile.index;
+            ctx.strokeStyle = active ? "rgba(255, 170, 0, 0.95)"
+                                     : "rgba(255, 170, 0, 0.45)";
+            ctx.lineWidth = active ? 2 : 1;
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(pts[0][0], pts[0][1]);
+            for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+            ctx.closePath();
+            ctx.stroke();
+        }
         ctx.restore();
     }
 
@@ -1167,6 +1210,28 @@ export class SkyEngine {
                     this._rafPending = false;
                 });
             }
+        }
+    }
+
+    // Lot D1 : affiche la grille de tuiles planifiée (ou l'efface si null).
+    setMosaicTiles(plan) {
+        this.mosaicTiles = plan || null;
+        if (this._initialized && this._mapReady) {
+            if (!this._rafPending) {
+                this._rafPending = true;
+                requestAnimationFrame(() => {
+                    this.render();
+                    this._rafPending = false;
+                });
+            }
+        }
+    }
+
+    // Met en évidence la tuile en cours d'acquisition (index du plan).
+    setMosaicCurrent(index) {
+        if (this.mosaicTiles) {
+            this.mosaicTiles.current = index;
+            this.setMosaicTiles(this.mosaicTiles);
         }
     }
 

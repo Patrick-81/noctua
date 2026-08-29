@@ -471,6 +471,12 @@ function seqNewTarget() {
         ra: '', dec: '', rotation: 0,
         steps: [seqNewStep()],
         enabled: true,
+        // Mosaïque (Lot D1)
+        mosaicOn: false,
+        mosaicW: 60,
+        mosaicH: 40,
+        mosaicOverlap: 15,
+        mosaicPlan: null,
     };
 }
 
@@ -731,14 +737,33 @@ function seqRenderTargetDetail() {
             </div>
         </div>
         <div class="seq-detail-section" style="margin-top:8px;">
+            <div class="hw-section-title">Mosaïque</div>
+            <label class="seq-chk"><input type="checkbox" class="seq-detail-mosaic" ${t.mosaicOn ? 'checked' : ''} ${running ? 'disabled' : ''}> Étendre en grille N×M</label>
+            <div class="hw-row" style="margin-top:4px;">
+                <span class="hw-label" style="width:52px;">Largeur</span>
+                <input type="number" class="cap-input seq-detail-mw" value="${t.mosaicW ?? 60}" min="1" step="1" ${running ? 'disabled' : ''} style="flex:1;" title="Largeur du champ à couvrir (arcmin)">
+                <span style="font-size:0.6rem; color:var(--text-muted); margin-left:4px;">am</span>
+                <span class="hw-label" style="width:52px; margin-left:8px;">Hauteur</span>
+                <input type="number" class="cap-input seq-detail-mh" value="${t.mosaicH ?? 40}" min="1" step="1" ${running ? 'disabled' : ''} style="flex:1;" title="Hauteur du champ à couvrir (arcmin)">
+                <span style="font-size:0.6rem; color:var(--text-muted); margin-left:4px;">am</span>
+            </div>
+            <div class="hw-row" style="margin-top:4px;">
+                <span class="hw-label" style="width:52px;">Recouvr.</span>
+                <input type="number" class="cap-input seq-detail-mo" value="${t.mosaicOverlap ?? 15}" min="0" max="90" step="1" ${running ? 'disabled' : ''} style="flex:1;" title="Recouvrement entre tuiles (%)">
+                <span style="font-size:0.6rem; color:var(--text-muted); margin-left:4px;">%</span>
+                <button class="btn-glass seq-mosaic-plan" ${running ? 'disabled' : ''} style="margin-left:8px; padding:2px 8px; font-size:0.6rem;">Planifier</button>
+            </div>
+            <div id="seq-mosaic-info" class="seq-mosaic-info">Mosaïque désactivée</div>
+        </div>
+        <div class="seq-detail-section" style="margin-top:8px;">
             <div class="hw-section-title">Catalogue</div>
             <input type="text" id="seq-catalog-search" class="cap-input" placeholder="Rechercher (M31, NGC7000, Aldébaran…)" style="width:100%; margin-bottom:6px;">
             <div id="seq-catalog-tree" class="seq-catalog-tree"></div>
         </div>
     `;
     det.querySelectorAll('.seq-detail-name').forEach(el => el.addEventListener('change', (e) => { t.name = e.target.value; seqRenderTargetList(); }));
-    det.querySelectorAll('.seq-detail-ra').forEach(el => el.addEventListener('change', (e) => { t.ra = e.target.value; }));
-    det.querySelectorAll('.seq-detail-dec').forEach(el => el.addEventListener('change', (e) => { t.dec = e.target.value; }));
+    det.querySelectorAll('.seq-detail-ra').forEach(el => el.addEventListener('change', (e) => { t.ra = e.target.value; seqPlanMosaic(t); }));
+    det.querySelectorAll('.seq-detail-dec').forEach(el => el.addEventListener('change', (e) => { t.dec = e.target.value; seqPlanMosaic(t); }));
     det.querySelectorAll('.seq-detail-rot').forEach(el => el.addEventListener('change', (e) => { t.rotation = parseFloat(e.target.value) || 0; }));
     det.querySelectorAll('.seq-detail-enabled').forEach(el => el.addEventListener('change', (e) => { t.enabled = e.target.checked; seqRenderTargetList(); }));
     det.querySelectorAll('.seq-add-step').forEach(el => el.addEventListener('click', () => {
@@ -764,6 +789,20 @@ function seqRenderTargetDetail() {
             seqRenderTargetList();
         });
     });
+    det.querySelectorAll('.seq-detail-mosaic').forEach(el => el.addEventListener('change', (e) => {
+        t.mosaicOn = e.target.checked;
+        seqRenderTargetList();
+        seqPlanMosaic(t);
+    }));
+    det.querySelectorAll('.seq-detail-mw,.seq-detail-mh,.seq-detail-mo').forEach(el => {
+        el.addEventListener('change', (e) => {
+            if (e.target.classList.contains('seq-detail-mw')) t.mosaicW = parseFloat(e.target.value) || 60;
+            else if (e.target.classList.contains('seq-detail-mh')) t.mosaicH = parseFloat(e.target.value) || 40;
+            else t.mosaicOverlap = parseFloat(e.target.value) || 0;
+            seqPlanMosaic(t);
+        });
+    });
+    det.querySelectorAll('.seq-mosaic-plan').forEach(el => el.addEventListener('click', () => seqPlanMosaic(t)));
     seqInitCatalogTree(t);
 }
 
@@ -780,6 +819,7 @@ function seqInitCatalogTree(target) {
         target.dec = decToSexa(o.dec, false);
         seqRenderTargetDetail();
         seqRenderTargetList();
+        seqPlanMosaic(target);
     });
 }
 
@@ -808,6 +848,71 @@ function seqFormatTime(seconds) {
     if (m > 0) return `${m}m${s}s`;
     return `${s}s`;
 }
+
+// ── Mosaïque (Lot D1) ─────────────────────────────────────────
+
+let seqMosaicFov = null;
+
+async function seqPlanMosaic(t) {
+    const infoEl = document.getElementById('seq-mosaic-info');
+    const show = (html) => { if (infoEl) infoEl.innerHTML = html; };
+    if (!infoEl) return;
+    if (!t.mosaicOn) {
+        show('Mosaïque désactivée');
+        if (window.skyEngine) skyEngine.setMosaicTiles(null);
+        return;
+    }
+    const raH = sexaToDec(t.ra, true);
+    const decD = sexaToDec(t.dec, false);
+    if (raH == null || decD == null) {
+        show('Coordonnées RA/DEC invalides');
+        if (window.skyEngine) skyEngine.setMosaicTiles(null);
+        return;
+    }
+    const w = parseFloat(t.mosaicW) || 0;
+    const h = parseFloat(t.mosaicH) || 0;
+    if (w <= 0 || h <= 0) { show('Dimensions de champ invalides'); return; }
+    if (!seqMosaicFov) {
+        try {
+            const r = await fetch('/api/mosaic/fov').then(r => r.json());
+            if (r && r.ok) seqMosaicFov = { x: r.fov_x_deg, y: r.fov_y_deg };
+        } catch (e) { /* FOV inconnu */ }
+    }
+    if (!seqMosaicFov) {
+        show('FOV caméra indisponible — focale non renseignée');
+        if (window.skyEngine) skyEngine.setMosaicTiles(null);
+        return;
+    }
+    let plan = null;
+    try {
+        plan = await fetch('/api/mosaic/plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_coords: { ra_hours: raH, dec_deg: decD },
+                size_arcmin: { w, h },
+                overlap_frac: (parseFloat(t.mosaicOverlap) || 0) / 100,
+                fov_x_deg: seqMosaicFov.x,
+                fov_y_deg: seqMosaicFov.y,
+            }),
+        }).then(r => r.json());
+    } catch (e) { /* réseau */ }
+    if (!plan || !plan.ok) {
+        show(`Plan impossible : ${plan?.error || 'erreur réseau'}`);
+        if (window.skyEngine) skyEngine.setMosaicTiles(null);
+        t.mosaicPlan = null;
+        return;
+    }
+    t.mosaicPlan = plan;
+    const fovTxt = `FOV ${seqMosaicFov.x.toFixed(2)}°×${seqMosaicFov.y.toFixed(2)}°`;
+    show(`${plan.rows}×${plan.cols} = <b>${plan.tiles.length} tuiles</b> · ${fovTxt}`);
+    if (window.skyEngine) {
+        skyEngine.setMosaicTiles({ tiles: plan.tiles, fov: plan.fov, current: null });
+        if (skyEngine.setTelPosition) skyEngine.setTelPosition(raH * 15, decD);
+    }
+}
+
+// ── Aplatissement du plan d'exposition ────────────────────────
 
 function seqFlattenFrames() {
     const frames = [];
@@ -851,15 +956,29 @@ async function seqStartSequence() {
     const saveDir = document.getElementById('seq-save-dir')?.value.trim() || '';
     const dith = document.getElementById('seq-dith-enabled')?.checked;
     addLog('info', 'sequencer', i18nFmt('log.capture.start', { n: total, dither: dith ? 'ON' : 'OFF' }));
+    // Cible + mosaïque (Lot D1) : la première cible activée avec un plan.
+    const mT = seqData.targets.find(tt => tt.enabled && tt.mosaicOn && tt.mosaicPlan);
+    const body = { frames, save_dir: saveDir, dither: seqDitherFromUi() };
+    if (mT) {
+        body.target_coords = {
+            ra_hours: mT.mosaicPlan.center.ra_deg / 15,
+            dec_deg: mT.mosaicPlan.center.dec_deg,
+        };
+        body.mosaic = {
+            size_arcmin: mT.mosaicPlan.size_arcmin,
+            overlap_frac: mT.mosaicPlan.overlap_frac,
+            fov_x_deg: mT.mosaicPlan.fov.x_deg,
+            fov_y_deg: mT.mosaicPlan.fov.y_deg,
+        };
+        addLog('info', 'sequencer', i18nFmt('log.capture.mosaic',
+            { n: mT.mosaicPlan.tiles.length, g: mT.mosaicPlan.rows + '×' + mT.mosaicPlan.cols }));
+    }
     let res = null;
     try {
         res = await fetch('/api/sequence/start', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                frames, save_dir: saveDir,
-                dither: seqDitherFromUi(),
-            }),
+            body: JSON.stringify(body),
         }).then(r => r.json());
     } catch (e) {
         addLog('error', 'sequencer', i18n('log.capture.start_failed'));

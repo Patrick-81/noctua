@@ -428,6 +428,7 @@
             'log.capture.filter_ignored': 'Filter wheel unavailable — filter "{filter}" ignored',
             'log.capture.seq_done': 'Sequence complete',
             'log.capture.start': 'Starting — {n} frame(s), dither {dither}',
+            'log.capture.mosaic': 'Mosaic — {n} tiles as a {g} grid',
             'log.capture.start_failed': 'Unable to start sequence',
             'log.capture.start_refused': 'Start refused: {err}',
             'log.capture.seq_finished': 'Sequence complete — {done}/{total} frames',

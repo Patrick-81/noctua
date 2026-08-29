@@ -450,6 +450,7 @@
             'log.capture.filter_ignored': 'Roue à filtres indisponible — filtre "{filter}" ignoré',
             'log.capture.seq_done': 'Séquence terminée',
             'log.capture.start': 'Démarrage — {n} pose(s), dither {dither}',
+            'log.capture.mosaic': 'Mosaïque — {n} tuiles en grille {g}',
             'log.capture.start_failed': 'Impossible de démarrer la séquence',
             'log.capture.start_refused': 'Démarrage refusé : {err}',
             'log.capture.seq_finished': 'Séquence terminée — {done}/{total} poses',
