@@ -167,7 +167,16 @@ Chaque `web/routers/<domaine>.py` expose `register(app, server)` et utilise `com
   cibles, plan par cible, mosaïque `seqPlanMosaic` via `/api/mosaic/*`, templates via `/api/sequence/templates/*`,
   options globales, `resume-session`).
 - **`sky-engine.js`** (module ES) — carte du ciel ; overlay **tuiles mosaïque** (`setMosaicTiles`,
-  `setMosaicCurrent`) ; FOV caméra correct (damier `halfX/cos(dec)`).
+  `setMosaicCurrent`) ; FOV caméra correct (damier `halfX/cos(dec)`) ; **Framing (D3)**
+  (`cameraRotDeg`, `cameraTarget`, `_fovCorners`, `_renderTargetBox`, `setCameraRotation`,
+  `setCameraTarget`) — FOV rotatif + bounding box de la cible à sa taille angulaire.
+- **`framing.js`** — panneau Framing (mode astrometry) : FOV auto caméra/focale ou manuel
+  (`_frameCameraFov`, même formule que `mount.js`), rotation 0–360° via slider
+  (`skyEngine.setCameraRotation`), boutons ⟳ Solve (rotation du dernier plate solve via
+  `solver:result`) / Nord ↑, cible par id (`/api/visibility?id=…`) ou RA/Dec saisi +
+  GOTO (correction de pointage + slew), **fit-check** (`_frameFitCheck` : boîte englobante
+  d'un rectangle tourné `w=maj·cosA+min·sinA`) ; sélection catalogue (target.js) →
+  `frameSetTargetObject`.
 - **`capture.js` / `stacking.js`** — consommé via `capture:progress` / `stacking:update`.
 - **`target.js` / `solver.js`** — `solver:result`, `record-solve` → modèle de pointage.
 - **`app.js`** — mode manager (`MODES`→applets dans `state.js`), `mode:changed`, `calibration:done`.
