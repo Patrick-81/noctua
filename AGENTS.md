@@ -32,6 +32,7 @@ indigo/
     refocus.py          # Refocus auto temps/altitude (Lot B3), V-curve serveur
     flat_wizard.py      # Machine à états du Flat Wizard (série de flat, ADU cible, AUTO)
     pointing.py         # Modèle d'erreur de pointage (fit paramétrique + résidu IDW)
+    mosaic.py           # Mosaïque (Lot D1) : camera_fov/plan_mosaic/expand_frames (pur, sans I/O)
 web/
   server.py             # WebServer : câblage FastAPI, broadcast WebSocket ; init MasterLibrary + injection FITS livestack (C4)
   astrometry.py cities.py weblog.py
@@ -44,7 +45,7 @@ web/
     api.js              # addLog() journal + consommateurs Hub (ws:log, ws:image)
     ...                 # panneaux : mount, capture, sequence, guide, solver, target, calibration, preview, ...
 tests/
-  test_*.py             # pytest unitaires/intégration (265 tests)
+  test_*.py             # pytest unitaires/intégration (284 tests)
   test_*_flow.py        # tests de flux : LANCÉS DIRECTEMENT (pas par pytest)
   test_*_*.js           # tests unitaires node lancés directement (ex. test_hub.js, test_polar_math.js)
   *.spec.js             # specs Playwright (UI)
@@ -52,7 +53,11 @@ tests/
   test_blanc_indigo.py  # test E2E complet
   polar_math.js         # maths polaires testées par node
 config.example.yaml     # modèle de config (copier vers config.yaml)
+docs/                   # UTILISATION.md (guide utilisateur), CONFIGURATION.md (référence config), ARCHITECTURE.md (vue dev)
 ```
+
+> Documentation : avant de répondre à une question d'utilisation ou de config, consulter
+> `docs/UTILISATION.md` et `docs/CONFIGURATION.md` ; pour une question d'implémentation, `docs/ARCHITECTURE.md`.
 
 ## 3. Commandes build / test
 
@@ -62,8 +67,8 @@ Un seul venv est présent : `.venv` (dépendances OK). **`start.sh` préfère `.
 |-------|----------|
 | Lancer le serveur | `./start.sh` ou `python run.py [indigo_host:port] [--port 8080]` |
 | Lancer le mock INDIGO | `./start-mock-server.sh` (mock INDIGO, port 17624) |
-| Tests pytest | `.venv/bin/python -m pytest tests/ -q` (265 tests, ~78 s) |
-| Tests flux (directement) | `python tests/test_exposure.py`, `python tests/test_guide_flow.py`, `python tests/test_sequence_flow.py` (75 checks) |
+| Tests pytest | `.venv/bin/python -m pytest tests/ -q` (284 tests, ~79 s) |
+| Tests flux (directement) | `python tests/test_exposure.py`, `python tests/test_guide_flow.py`, `python tests/test_sequence_flow.py` (98 checks), `python tests/test_mosaic_flow.py` |
 | Tests unitaires JS | `node tests/test_hub.js` (39 tests), `node tests/test_polar_math.js` |
 | Tests UI (Playwright) | `npx playwright test` (specs `tests/*.spec.js`) |
 | Test E2E complet | `python tests/test_blanc_indigo.py` (lançouter `indigo_server` simulateurs) |

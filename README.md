@@ -2,9 +2,14 @@
 
 Interface web (FastAPI + Vanilla JS) pour le contrôle d'équipements astronomiques via un serveur [INDIGO](https://www.indigo-astronomy.org/).
 
-![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-134%20pytest-green)
+![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-284%20pytest-green)
 
-Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : autoguidage en étoile, autofocus HFR, calibration, séquences d'acquisition et mise au point polaire assistée.
+Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : autoguidage en étoile, autofocus HFR, calibration,
+séquences d'acquisition multi-cibles (mosaïques incluses), bibliothèque de masters, refocus automatique et mise au point polaire assistée.
+
+| Guide utilisateur | Configuration | Architecture | Plan & état |
+|:--|:--|:--|:--|
+| [UTILISATION.md](docs/UTILISATION.md) | [CONFIGURATION.md](docs/CONFIGURATION.md) | [ARCHITECTURE.md](docs/ARCHITECTURE.md) | [PLAN.md](PLAN.md) · [remarques.md](remarques.md) |
 
 ## Captures d'écran
 
@@ -23,10 +28,21 @@ Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : aut
 - **Périphériques INDIGO** via client XML/INDI natif (mount, CCD, guide CCD, focuser, roue à filtres, dôme), auto-reconnect
 - **Panneau capteur / profils** : détection des appareils, profils persistants (YAML « profils »)
 - **Autoguidage** : boucle de guidage orchestrée côté front (mesure centroïde), calibration, dérive RA/DEC en temps réel, RMS/SNR, crosshair, bips de tolérance
+- **Dithering piloté par le guide** : décalage de référence gaussien entre poses + **settle** attendu (stabilisation sous seuil, avec timeout)
 - **Autofocus** : scan V-courbe, **HFR** (half-flux radius) par mesure du FWHM gaussien, adaptation
-- **Séquence d'acquisition** : plan éditable (type/durée/filtre/×/pause), pause/reprendre/stop/reset, dithering
-- **Capture** : exposition, réduction **BZERO/BSCALE**, sauvegarde des FITS nommés `capture_{filtre}_{timestamp}.fits`
-- **Sky map fluide** : orthographique canvas, projection des étoiles accélérée (vecteurs unitaires), catalogue **41 411 étoiles** (mag ≤ 8), recherche d'objets (NGC/IC/Sharpless + noms multilingues)
+- **Refocus automatique (B3)** : V-courbe HFR relancée côté serveur entre deux poses sur temps écoulé et/ou variation d'altitude (déclenchable, configurable)
+- **Séquenceur multi-cibles (C2/C3)** : liste de cibles (RA/DEC ou catalogue) à traiter l'une après l'autre, plan éditable par cible, templates nommés (YAML) exportables/importables en JSON, dithering, triggers
+- **Sessions cible/date + journal (C2)** : plan de rangement `<save_dir>/<cible>/<YYYY-MM-DD>/<HHMMSS>/`, journal.json persistant → **reprise** de session interrompue (seules les poses manquantes sont reprises, index continus)
+- **Mosaïque (D1)** : plan de grille N×M par cible (taille, recouvrement, FOV réel de l'instrument), déplacements monture + **recentrage par solve** entre tuiles, aperçu de la grille sur la sky map, keywords FITS `MOSN`/`MOSROW`/`MOSCOL`
+- **Bibliothèque de masters (C1)** : construction de masters bias/dark/flat depuis des séries de raws, résolution automatique par filtre/binning/température, intégration calibration
+- **Entêtes FITS normalisés (C4)** : réécriture binaire d'entête (sans astropy) — `OBJECT`, `IMAGETYP`, `FILTER`, `EXPTIME`, `DATE-OBS/END`, `INSTRUME`, `CCD-TEMP`, `GAIN`, `XBINNING`… données bit-identiques
+- **Flat wizard** : machine à états de série de flats (ADU cible, tolérance, durée conseillée, convergence AUTO)
+- **Modèle de pointage** : échantillonnage par solves + correction interpolée/paramétrique des go-tos
+- **Flip méridien** : détection/anticipation (marge, anti-re-flip) + recentrage de la cible après flip (optionnel, par solve)
+- **Triggers (A2)** : réactions automatiques aux événements de séquence (`sequence_start`, `frame_done`, `error`…) — log, script, goto monture — définies dans `config.yaml`
+- **Capture** : exposition, réduction **BZERO/BSCALE**, prévisualisation, sauvegarde des FITS
+- **Live stacking** : accumulation en direct de poses courtes (alignement d'étoiles, rejet des images décalées), calibration dark/flat, master sauvegardé automatiquement
+- **Sky map fluide** : orthographique canvas, projection des étoiles accélérée (vecteurs unitaires), catalogue **41 411 étoiles** (mag ≤ 8), recherche d'objets (NGC/IC/Sharpless + noms multilingues), couches catalogs
 - **Temps de pose idéal** : pose(s) test (bouton « Mesurer le ciel », 1 ou 3 prises) → mesure du fond de ciel en ADU/s, extrapolation vers un fond cible, fit linéaire bias-indépendant (3 prises) avec détection de saturation, garde anti-saturation des étoiles, SNR projeté
 - **Mise en station polaire** : calcul LST + assistant 3 étapes
 - **Orientation** : bascule au méridien (flip) gérée par la monture
@@ -165,10 +181,14 @@ cp config.example.yaml config.yaml   # puis éditez selon votre réseau
 - `web` : hôte/port d'écoute (défaut `0.0.0.0:8080`)
 - `site` : nom du site, coordonnées, fuseau (utilisés pour la distance LST et le flip méridien)
 - `telescope` : flip méridien, marge d'angle horaire, altitude min, taux de slew recherche
-- `sequence` : répertoire de sauvegarde des FITS, dither `{enabled, amount}`, plan par défaut
-  - `exposure` : pose idéale — `target_bg` (fond cible en ADU au-dessus du biais), `shots` (1 ou 3 prises de test), `test_min`/`test_mid`/`test_max` (durées de test), `min_exposure`/`max_exposure` (bornes), `saturation_frac` (seuil de saturation des étoiles)
+- `exposure` : pose idéale — `target_bg` (fond cible en ADU au-dessus du biais), `shots` (1 ou 3 prises de test), `test_min`/`test_mid`/`test_max` (durées de test), `min_exposure`/`max_exposure` (bornes), `saturation_frac` (seuil de saturation des étoiles), `recenter_duration` (durée de pose du recentrage par solve)
+- `masters` : racine de la bibliothèque de masters (C1)
+- `sequence` : répertoire de sauvegarde des FITS, layout cible/date, dither `{enabled, amount, settle_*}` (A1), refocus `{enabled, interval_min, alt_trigger_deg, …}` (B3), `stack`, `frames` (plan par défaut), `triggers` (A2)
+
+> **La référence complète de toutes les clés est dans [docs/CONFIGURATION.md](docs/CONFIGURATION.md)** (`config.example.yaml` sert de modèle).
 
 `profiles.yaml` : stocke les profils de matériel (monture/caméra/caméra guide/focuser/roue). Chemin surchargeable par `INDIGO_PROFILES_PATH`.
+`sequence_templates.yaml` : templates de séquences nommés (C3). Chemin surchargeable par `INDIGO_SEQUENCE_TEMPLATES_PATH`.
 
 > **Attention** : par défaut l'interface se bind sur `0.0.0.0`. **Ne pas exposer
 > sur Internet** — réservez à un LAN local ou derrière authentification (état :
@@ -196,36 +216,39 @@ python tests/test_blanc_indigo.py            # ports par défaut 17660/18110
 python tests/test_blanc_indigo.py --port 17660 --web-port 18110
 ```
 
-Vérifie : connexion + détection, application de profil, monture (unpark/goto/tracking/park), roue (WHEEL_SLOT natif), focuser (noms natifs + relatif), capture→FITS (vérifie BZERO/BSCALE), séquence (pause/resume/stop/reset/dither), guidage (référence + dérive).
+Vérifie : connexion + détection, application de profil, monture (unpark/goto/tracking/park), roue (WHEEL_SLOT natif), focuser (noms natifs + relatif), capture→FITS (vérifie BZERO/BSCALE et les entêtes normalisés C4), séquence (pause/resume/stop/reset/dither), guidage (référence + dérive).
 
 Suites unitaires / flux :
 
 ```bash
-python -m pytest tests/ -q
+python -m pytest tests/ -q                    # 284 tests unitaires/intégration
 python tests/test_exposure.py   # temps de pose idéal (fond de ciel, saturation)
-python tests/test_guide_flow.py
-python tests/test_sequence_flow.py
+python tests/test_guide_flow.py # autoguidage + calibration + settle
+python tests/test_sequence_flow.py  # séquences (multi-cibles, mosaïque, reprise…)
+python tests/test_mosaic_flow.py    # plan + exécution mosaïque
 npx playwright test   # tests UI (voir tests/)
 ```
 
 ## Structure
 
 ```
-config.yaml          # configuration (INDIGO, web, séquence, flip)
-ui.yaml, profiles.yaml # état runtime (positions panneaux, profils) — gitignorés
+config.yaml          # configuration (INDIGO, web, site, séquence, masters, refocus, triggers)
+config.example.yaml, ui.yaml, profiles.yaml, sequence_templates.yaml
 run.py               # point d'entrée serveur (INDIGO client + web)
 indigo/
   client.py          # client TCP XML INDIGO
   registry.py        # découverte + auto-connexion
-  devices/           # mount, camera, focuser, filterwheel, guide, autofocus, sequence, live_stack, solver
+  devices/           # mount, camera, focuser, filterwheel, guide, exposure, autofocus,
+                     # meridian, sequence, live_stack, solver, triggers, templates,
+                     # fitsmeta, masters, refocus, flat_wizard, pointing, mosaic
   profiles.py        # persistance profils YAML
 web/
-  server.py          # API FastAPI (REST + WS) — câblage
+  server.py          # API FastAPI (REST + WS) — câblage, MasterLibrary, pointing, recentrage
   routers/           # routes REST par domaine (register(app, server))
-  static/            # UI (index.html, i18n.{fr,en}.js, ws.js, panneaux *.js, style.css)
-tests/               # unit + flow + à-blanc + specs Playwright
-docs/screenshots/    # captures d'écran pour le README
-PLAN.md, CHECKPOINT.md, TODO_LIST.md, TESTS.md
+  static/            # UI (index.html, i18n.{fr,en}.js, hub.js, ws.js, panneaux *.js, style.css)
+tests/               # unit + flow + à-blanc + specs Playwright (tests/test_*_flow.py lancés directement)
+docs/                # UTILISATION.md, CONFIGURATION.md, ARCHITECTURE.md, screenshots/
+PLAN.md, CHECKPOINT.md, TODO_LIST.md, TESTS.md, remarques.md
 ```
 
 ## Licence

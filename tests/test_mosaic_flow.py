@@ -6,10 +6,15 @@ HTTP mosaïque est vérifiée par le flux `test_sequence_flow.py`.
 """
 
 import asyncio
+import os
+import sys
 import types
 
 import pytest
 from fastapi.testclient import TestClient
+
+ROOT = os.path.join(os.path.dirname(__file__), "..")
+sys.path.insert(0, ROOT)
 
 from indigo.devices.camera import Camera
 from indigo.devices.mosaic import expand_frames, plan_mosaic
