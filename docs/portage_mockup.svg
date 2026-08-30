@@ -1,0 +1,158 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 780" width="1200" height="780" font-family="Inter, system-ui, sans-serif">
+  <title>Noctua — Mockup Tablette / Téléphone</title>
+  <!-- fond -->
+  <rect width="1200" height="780" rx="16" fill="#0b0b0e"/>
+  <text x="600" y="28" text-anchor="middle" fill="#e0e0e0" font-size="16" font-weight="700">Noctua — Proposition d'interface multi-plateformes (thème sombre + orange)</text>
+  <text x="600" y="46" text-anchor="middle" fill="#9aa0a6" font-size="11">Téléphone portrait (monomode) — Tablette paysage (canvas + tiroirs) — Desktop ≥1100px inchangé</text>
+
+  <!-- ===== TELEPHONE ===== -->
+  <g id="phone">
+    <text x="190" y="78" text-anchor="middle" fill="#ff8c00" font-size="12" font-weight="700">TÉLÉPHONE — Portrait &lt;600px</text>
+    <text x="190" y="92" text-anchor="middle" fill="#7a8086" font-size="9">Monomode plein écran · nav basse · capture sticky</text>
+    <!-- device frame -->
+    <rect x="50" y="105" width="280" height="600" rx="28" fill="#1a1a1f" stroke="#3a3a42" stroke-width="1.5"/>
+    <rect x="145" y="105" width="90" height="14" rx="7" fill="#2a2a30"/>
+    <!-- top bar -->
+    <rect x="58" y="124" width="264" height="28" rx="8" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <text x="66" y="142" fill="#5cb85c" font-size="8" font-weight="700">● Idle</text>
+    <text x="102" y="142" fill="#e0e0e0" font-size="7">RA 02:34:40</text>
+    <text x="162" y="142" fill="#e0e0e0" font-size="7">DE +61:34</text>
+    <text x="215" y="142" fill="#ff8c00" font-size="7">−5°C  298</text>
+    <text x="260" y="142" fill="#9aa0a6" font-size="7">100% ▮</text>
+    <!-- canvas sky -->
+    <rect x="58" y="158" width="264" height="360" rx="10" fill="#070a14" stroke="#2a2a30" stroke-width="1"/>
+    <!-- stars -->
+    <circle cx="90" cy="190" r="1.2" fill="white" opacity="0.9"/><circle cx="140" cy="210" r="1" fill="white" opacity="0.7"/><circle cx="200" cy="180" r="1.3" fill="white" opacity="0.8"/><circle cx="270" cy="220" r="1" fill="white" opacity="0.6"/><circle cx="110" cy="280" r="1.1" fill="white" opacity="0.7"/><circle cx="250" cy="300" r="1" fill="white" opacity="0.8"/><circle cx="180" cy="250" r="1.4" fill="white" opacity="0.9"/><circle cx="100" cy="350" r="1" fill="white" opacity="0.6"/><circle cx="220" cy="380" r="1.2" fill="white" opacity="0.7"/>
+    <!-- nebula glow -->
+    <ellipse cx="190" cy="300" rx="70" ry="45" fill="#3a2a6a" opacity="0.25"/><ellipse cx="190" cy="300" rx="40" ry="28" fill="#ffb86c" opacity="0.18"/>
+    <!-- FOV rectangle rotaté -->
+    <g transform="rotate(-12 190 300)">
+      <rect x="125" y="255" width="130" height="90" rx="2" fill="none" stroke="#ff8c00" stroke-width="1.4" stroke-dasharray="0"/>
+      <text x="126" y="252" fill="#ff8c00" font-size="6">CCD 39.6'×21.0'</text>
+    </g>
+    <!-- crosshair -->
+    <g stroke="#ff8c00" stroke-width="1" opacity="0.9">
+      <line x1="190" y1="285" x2="190" y2="315"/><line x1="175" y1="300" x2="205" y2="300"/>
+      <circle cx="190" cy="300" r="12" fill="none"/>
+    </g>
+    <!-- popup cible -->
+    <rect x="68" y="168" width="120" height="52" rx="7" fill="#1e1e24" stroke="#3a3a42" stroke-width="1"/>
+    <text x="74" y="180" fill="#e0e0e0" font-size="7" font-weight="700">IC 1805</text><text x="74" y="189" fill="#9aa0a6" font-size="6">Gaseous Nebula · 7.03</text>
+    <rect x="72" y="193" width="32" height="14" rx="4" fill="#ff8c00"/><text x="88" y="202" text-anchor="middle" fill="white" font-size="6" font-weight="700">GOTO</text>
+    <rect x="108" y="193" width="36" height="14" rx="4" fill="#2a2a30" stroke="#3a3a42" stroke-width="0.8"/><text x="126" y="202" text-anchor="middle" fill="#e0e0e0" font-size="6">Solve</text>
+    <!-- zoom -->
+    <rect x="270" y="460" width="44" height="22" rx="6" fill="#1e1e24" stroke="#3a3a42" stroke-width="1"/>
+    <text x="278" y="474" fill="#e0e0e0" font-size="10">⊕</text><text x="296" y="474" fill="#7a8086" font-size="10">⊖</text>
+    <!-- overlay acquisition -->
+    <rect x="58" y="478" width="264" height="40" rx="10" fill="#14141a" stroke="#2a2a30" stroke-width="1"/>
+    <circle cx="80" cy="498" r="14" fill="#ff8c00"/><text x="80" y="503" text-anchor="middle" fill="white" font-size="12">▶</text>
+    <text x="102" y="492" fill="#9aa0a6" font-size="6">EXP 2.5s · Gain 100</text>
+    <rect x="102" y="496" width="110" height="6" rx="3" fill="#2a2a30"/><rect x="102" y="496" width="44" height="6" rx="3" fill="#ff8c00"/>
+    <text x="220" y="502" fill="#e0e0e0" font-size="6">1/7</text>
+    <!-- bottom nav -->
+    <rect x="58" y="538" width="264" height="48" rx="12" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <!-- nav icons -->
+    <g text-anchor="middle" font-size="7">
+      <text x="78" y="558" fill="#ff8c00">◎</text><text x="78" y="570" fill="#ff8c00" font-weight="700">Capture</text>
+      <text x="115" y="558" fill="#7a8086">✦</text><text x="115" y="570" fill="#7a8086">Sky</text>
+      <text x="150" y="558" fill="#7a8086">◉</text><text x="150" y="570" fill="#7a8086">Guide</text>
+      <text x="185" y="558" fill="#7a8086">▦</text><text x="185" y="570" fill="#7a8086">Séquence</text>
+      <text x="232" y="558" fill="#7a8086">⚙</text><text x="232" y="570" fill="#7a8086">Device</text>
+      <text x="272" y="558" fill="#7a8086">≡</text><text x="272" y="570" fill="#7a8086">Logs</text>
+    </g>
+    <!-- home indicator -->
+    <rect x="155" y="695" width="70" height="4" rx="2" fill="#3a3a42"/>
+  </g>
+
+  <!-- ===== TABLETTE ===== -->
+  <g id="tablet">
+    <text x="775" y="78" text-anchor="middle" fill="#ff8c00" font-size="12" font-weight="700">TABLETTE — Paysage 900–1099px</text>
+    <text x="775" y="92" text-anchor="middle" fill="#7a8086" font-size="9">Canvas central + tiroirs latéraux + top/bottom status bars</text>
+    <!-- device frame -->
+    <rect x="400" y="105" width="750" height="500" rx="18" fill="#1a1a1f" stroke="#3a3a42" stroke-width="1.5"/>
+    <!-- top bar -->
+    <rect x="408" y="112" width="734" height="26" rx="8" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <text x="416" y="129" fill="#5cb85c" font-size="7" font-weight="700">● Tracking</text>
+    <text x="468" y="129" fill="#e0e0e0" font-size="7">RA 00:09:56  DE +29:14:04</text>
+    <text x="580" y="129" fill="#e0e0e0" font-size="7">CCD Simulator</text>
+    <text x="660" y="129" fill="#ff6b6b" font-size="7">Red  0.0</text>
+    <text x="710" y="129" fill="#ff8c00" font-size="7">Capture</text>
+    <text x="780" y="129" fill="#9aa0a6" font-size="7">AZ 280:34:07  AL +53:20</text>
+    <text x="920" y="129" fill="#9aa0a6" font-size="7">Pier East</text>
+    <text x="1020" y="129" fill="#ff8c00" font-size="7">● Basic</text>
+    <rect x="1065" y="116" width="68" height="18" rx="5" fill="#ff8c00"/><text x="1099" y="128" text-anchor="middle" fill="white" font-size="7" font-weight="700">LIVE</text>
+
+    <!-- left drawer -->
+    <rect x="408" y="144" width="42" height="380" rx="10" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <g text-anchor="middle" font-size="13" fill="#e0e0e0">
+      <text x="429" y="170">⌕</text><text x="429" y="200">◎</text><text x="429" y="230">⬢</text><text x="429" y="260">ⓘ</text><text x="429" y="290">☰</text>
+    </g>
+    <text x="429" y="510" text-anchor="middle" fill="#5a6066" font-size="6">Canvas</text><text x="429" y="518" text-anchor="middle" fill="#5a6066" font-size="6">Ops</text>
+
+    <!-- main canvas -->
+    <rect x="458" y="144" width="480" height="380" rx="10" fill="#070a14" stroke="#2a2a30" stroke-width="1"/>
+    <circle cx="520" cy="200" r="1.1" fill="white" opacity="0.9"/><circle cx="600" cy="180" r="1" fill="white" opacity="0.7"/><circle cx="700" cy="210" r="1.2" fill="white" opacity="0.8"/><circle cx="850" cy="190" r="1" fill="white" opacity="0.6"/><circle cx="500" cy="320" r="1" fill="white" opacity="0.7"/><circle cx="880" cy="340" r="1" fill="white" opacity="0.7"/><circle cx="650" cy="280" r="1.3" fill="white" opacity="0.9"/>
+    <ellipse cx="700" cy="310" rx="110" ry="70" fill="#3a2a6a" opacity="0.22"/><ellipse cx="700" cy="310" rx="65" ry="42" fill="#ffb86c" opacity="0.16"/>
+    <!-- FOV rotaté -->
+    <g transform="rotate(-14 700 310)">
+      <rect x="610" y="255" width="180" height="110" rx="2" fill="none" stroke="#ff8c00" stroke-width="1.6"/>
+      <text x="610" y="252" fill="#ff8c00" font-size="7">CCD 55.2'×44.1' — 0° E of N</text>
+    </g>
+    <g stroke="#ff8c00" stroke-width="1.2" opacity="0.9">
+      <line x1="700" y1="292" x2="700" y2="328"/><line x1="682" y1="310" x2="718" y2="310"/><circle cx="700" cy="310" r="16" fill="none"/>
+    </g>
+    <!-- overlay bas canvas -->
+    <rect x="478" y="440" width="440" height="64" rx="10" fill="#14141a" stroke="#2a2a30" stroke-width="1"/>
+    <circle cx="510" cy="472" r="18" fill="#ff8c00"/><text x="510" y="478" text-anchor="middle" fill="white" font-size="14">▶</text>
+    <text x="540" y="462" fill="#9aa0a6" font-size="7">Method [Average ▼]  Weight [Equal ▼]</text>
+    <text x="540" y="476" fill="#9aa0a6" font-size="7">Downscale [4×4 ▼]</text>
+    <rect x="640" y="468" width="70" height="18" rx="5" fill="#2d7ff9"/><text x="675" y="480" text-anchor="middle" fill="white" font-size="7" font-weight="700">Masters</text>
+    <rect x="730" y="458" width="36" height="28" rx="6" fill="#ff8c00"/><text x="748" y="476" text-anchor="middle" fill="white" font-size="10">▦</text>
+
+    <!-- right controls (framing) -->
+    <rect x="946" y="144" width="196" height="380" rx="10" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <text x="1044" y="162" text-anchor="middle" fill="#e0e0e0" font-size="9" font-weight="700">M 33 — Framing</text>
+    <rect x="956" y="172" width="90" height="18" rx="5" fill="#ff8c00"/><text x="1001" y="184" text-anchor="middle" fill="white" font-size="6" font-weight="700">Pan &amp; Rotate</text>
+    <rect x="1050" y="172" width="52" height="18" rx="5" fill="#2a2a30" stroke="#3a3a42" stroke-width="1"/><text x="1076" y="184" text-anchor="middle" fill="#9aa0a6" font-size="6">Pan Only</text>
+    <rect x="1056" y="330" width="46" height="46" rx="23" fill="#ff8c00" stroke="#ff8c00"/><text x="1079" y="358" text-anchor="middle" fill="white" font-size="16">▶</text>
+    <rect x="986" y="330" width="46" height="46" rx="23" fill="#2a2a30" stroke="#3a3a42" stroke-width="1"/><text x="1009" y="358" text-anchor="middle" fill="#e0e0e0" font-size="14">⎙</text>
+    <text x="960" y="212" fill="#ff8c00" font-size="7" font-weight="700">Rotation</text>
+    <text x="960" y="228" fill="#9aa0a6" font-size="6">Target Position Angle  +000</text>
+    <rect x="960" y="236" width="168" height="4" rx="2" fill="#2a2a30"/><rect x="960" y="236" width="84" height="4" rx="2" fill="#ff8c00"/><circle cx="1044" cy="238" r="7" fill="white" stroke="#ff8c00" stroke-width="1"/>
+    <text x="960" y="262" fill="#9aa0a6" font-size="6">Angular Offset  0 ✓</text>
+    <rect x="960" y="270" width="168" height="1" fill="#2a2a30"/>
+    <text x="960" y="290" fill="#ff8c00" font-size="7" font-weight="700">Center</text>
+    <rect x="960" y="298" width="168" height="28" rx="6" fill="#1e1e24" stroke="#3a3a42" stroke-width="1"/>
+    <text x="968" y="310" fill="#e0e0e0" font-size="6">RA  01:33:05</text><text x="968" y="320" fill="#e0e0e0" font-size="6">DE +30:35:06</text>
+    <circle cx="1114" cy="312" r="9" fill="#2a2a30" stroke="#3a3a42" stroke-width="1"/><text x="1114" y="316" text-anchor="middle" fill="#9aa0a6" font-size="8">↺</text>
+    <!-- legend slider -->
+    <text x="960" y="400" fill="#5a6066" font-size="6">Slider pleine largeur · pouce 24px · piste 4px</text>
+    <text x="960" y="408" fill="#5a6066" font-size="6">Boutons ronds 56px · stepper −[val]+</text>
+
+    <!-- bottom status + nav -->
+    <rect x="408" y="532" width="734" height="22" rx="6" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <text x="416" y="546" fill="#ff8c00" font-size="6">AZ 280:34  AL +53:20  HA +02:49  Pier East</text>
+    <text x="620" y="546" fill="#9aa0a6" font-size="6">1280×1024  1×1  200  0</text>
+    <text x="820" y="546" fill="#5a6066" font-size="6">Status bars sticky (monture haut / caméra bas)</text>
+    <rect x="408" y="560" width="734" height="36" rx="10" fill="#111114" stroke="#2a2a30" stroke-width="1"/>
+    <g text-anchor="middle" font-size="8">
+      <text x="440" y="576" fill="#7a8086">⬡</text><text x="440" y="588" fill="#7a8086" font-size="6">Setup</text>
+      <text x="500" y="576" fill="#ff8c00">◎</text><text x="500" y="588" fill="#ff8c00" font-size="6" font-weight="700">Ekos</text>
+      <text x="560" y="576" fill="#ff8c00">✦</text><text x="560" y="588" fill="#ff8c00" font-size="6" font-weight="700">Sky</text>
+      <text x="620" y="576" fill="#7a8086">◉</text><text x="620" y="588" fill="#7a8086" font-size="6">Targets</text>
+      <text x="680" y="576" fill="#7a8086">▦</text><text x="680" y="588" fill="#7a8086" font-size="6">Commun.</text>
+      <text x="750" y="576" fill="#7a8086">⬢</text><text x="750" y="588" fill="#7a8086" font-size="6">Device</text>
+      <text x="820" y="576" fill="#7a8086">👁</text><text x="820" y="588" fill="#7a8086" font-size="6">Viewer</text>
+      <text x="890" y="576" fill="#7a8086">⚙</text><text x="890" y="588" fill="#7a8086" font-size="6">Settings</text>
+      <text x="1000" y="582" fill="#5a6066" font-size="6">Bottom nav globale · 48–56px · actif orange</text>
+    </g>
+  </g>
+
+  <!-- annotations -->
+  <g font-size="8" fill="#9aa0a6">
+    <text x="50" y="730" fill="#e0e0e0" font-weight="700">Légende :</text>
+    <text x="105" y="730">Fond #0a0a0e · Surface #111114 · Accent #ff8c00 · Texte #e0e0e0 — Top bar sticky 40px · Canvas + tiroirs · Overlays arrondis · Steppers −[val]+ · Slider plein-largeur</text>
+    <text x="50" y="748">Gestures : appui long sky → popup GOTO/Sync/Solve · pinch zoom · swipe logs (bord gauche) · swipe horizontal (téléphone) — Breakpoints : ≥1100 desktop · 900–1099 tablette paysage · 600–899 portrait · &lt;600 téléphone</text>
+    <text x="50" y="766" fill="#5a6066">Fichier : docs/portage_mockup.svg — Captures ref : /tmp/opencode/ui_refs/ — Doc : docs/PORTAGE_MOBILE.md</text>
+  </g>
+</svg>
