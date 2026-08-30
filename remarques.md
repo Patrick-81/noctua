@@ -3,7 +3,7 @@
 Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 (nighttime-imaging), et évolutions envisagées.
 
-> **Vérifié au 29/08/2026** contre le code (état `master` + working tree) :
+> **Vérifié au 30/08/2026** contre le code (état `master` + working tree) :
 > les statuts ci-dessous (fait / pas commencé) sont à jour. Les manques restants
 > le sont réellement (cf. section « Prochaine suite » pour l'ordre proposé).
 
@@ -85,9 +85,15 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 ## Manques intermédiaires
 
-6. **Framing assistant complet** — L'overlay FOV existe (`_renderCameraFov`),
-   mais pas l'assistant de cadrage (adapter le champ à la cible, pivot par angle,
-   rotation du senseur). *Pas commencé.*
+6. **Framing assistant complet** — ✅ **Fait (D3, 30/08)** : overlay FOV **rotatif**
+   (rotation du senseur paramétrable, 0 = nord en haut), **bounding box de la
+   cible** dessinée à sa taille angulaire réelle (`size_arcmin` du catalogue,
+   orientée par l'angle de position + rotation), panneau **Framing** dédié en
+   mode astrometry (FOV auto caméra/focale ou manuel, rotation 0–360° + boutons
+   « Solve » (rotation du dernier plate solve) / « Nord ↑ », cible par nom/id ou
+   RA/Dec avec boutons Définir/GOTO/✕, **fit-check** : la cible tient-elle dans
+   le champ ?). Sélection depuis le panneau Target (catalogue) alimente
+   automatiquement le cadrage.
 
 7. **Planification cible/date** — ✅ **Fait (C2, 28/08)** : structure
    `<save_dir>/<cible>/<YYYY-MM-DD>/<HHMMSS>` (ou `capture_<TS>` sans cible),
@@ -253,7 +259,7 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 - [x] **D1.** Mosaïque automatique (découpe en tuiles enchaînées).
 - [ ] **D2.** Dôme / abri roulant (rolloff roof).
-- [ ] **D3.** Framing assistant complet (orientation senseur, pivot, cadrage cible).
+- [x] **D3.** Framing assistant complet (orientation senseur, pivot, cadrage cible) — **FAIT (30/08)** : cf. manque 6. Panneau Framing dans le mode astrometry, overlay FOV rotatif + bounding box cible, fit-check, rotation auto depuis le solve.
 - [ ] **D4. LUT narrowband** — **ÉCARTÉ (28/08)** : la composition couleur finale
   (palettes Ha/OIII/SII, étirements) relève du post-traitement (Siril
   ChannelCombination, PixInsight) sur les masters calibrés ; un aperçu
@@ -263,10 +269,10 @@ Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 
 A1 → A2 → B3 → ~~C2~~ → ~~C3~~ → ~~C4~~ → ~~C1~~ → Lot D.
 (B1 météo et B2 alertes écartés — pas de communication internet.)
-Dans le Lot D, on adresse en premier **D1 (mosaïque)** — **fait au 29/08** —
-puis **D3 (framing assistant)** ; D2 (dôme/roof) en retrait, D4 (LUT narrowband)
-écarté (post-traitement).
+Dans le Lot D, **D1 (mosaïque)** fait au 29/08 et **D3 (framing assistant)** fait
+au 30/08 ; D2 (dôme/roof) en retrait, D4 (LUT narrowband) écarté
+(post-traitement).
 
 ---
 
-*Revu le 29/08/2026.*
+*Revu le 30/08/2026.*

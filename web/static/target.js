@@ -57,6 +57,9 @@ function initTargetPanel() {
             const decEl = document.getElementById('target-dec');
             if (raEl) raEl.value = decToSexa(o.ra / 15, true);
             if (decEl) decEl.value = decToSexa(o.dec, false);
+            if (typeof frameSetTargetObject === 'function') {
+                frameSetTargetObject(o);
+            }
         });
     }
 }

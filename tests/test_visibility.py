@@ -111,6 +111,19 @@ def test_enrich_unknown_returns_minimal_or_nearest():
     assert o["id"] is not None
 
 
+def test_enrich_without_id_nearest_star_leaves_id_needed_for_dso():
+    # M42's coordinates are a hair away from a bright BSC5 star (HR 1895);
+    # with bare coordinates the nearest match wins, so the framing assistant
+    # must carry the catalog id (M42) through — then the size is returned.
+    o = _enrich("", 83.82, -5.39)
+    assert o["id"] == "HR 1895"
+    assert not o["size_arcmin"] or o["size_arcmin"] == [1]
+    o = _enrich("M42", 83.82, -5.39)
+    assert o["id"] == "M42"
+    assert o["size_arcmin"]
+    assert o["surface_brightness"] is not None
+
+
 # ── Router integration ──────────────────────────────────────────
 
 def _make_client():

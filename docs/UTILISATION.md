@@ -282,6 +282,7 @@ normalisés (C4)** qui permettent précisément de construire et cataloguer les 
 - **Cible** : saisie RA/DEC, pointage, vignettage d'offset.
 - **Polaire** : calcul LST + assistant de mise en station en 3 étapes (captures manuelles ou automatiques).
 - **Modèle de pointage** : collection d'échantillons (ajout manuel ou automatique via `record-solve` — solveur « Indice » + centrage tolérance), **fit paramétrique** + correction **interpolée (IDW)** des erreurs résiduelles ; après ajustement, les go-tos (`correct`) reçoivent la correction du modèle. Panneau avec statut des échantillons.
+- **Framing assistant (Lot D3)** : panneau cadreur — FOV réglable (auto caméra/focale ou manuel), **rotation du senseur** 0–360° (boutons « Solve » : angle du dernier plate solve ; « Nord ↑ » : 0°), cible par **nom/id de catalogue** (ex. `M42`, sélection depuis le panneau Cible) ou RA/DEC saisie. Boutons « Définir » (superpose le rectangle de la cible à sa taille angulaire réelle sur la carte), « GOTO » (pointage centré) et « ✕ » (efface). Le **fit-check** indique si la cible (majeur/mineur + angle de position) tient dans le champ à la rotation choisie.
 
 ---
 

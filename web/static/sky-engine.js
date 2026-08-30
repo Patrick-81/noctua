@@ -37,6 +37,8 @@ export class SkyEngine {
         this.slewing = false;
         this.cameraFovX = 0;
         this.cameraFovY = 0;
+        this.cameraRotDeg = 0;           // rotation du senseur (0 = nord en haut)
+        this.cameraTarget = null;        // { ra, dec, size_arcmin:[maj,min], pa, name }
         this.mosaicTiles = null;
         this.hideNorth = false;
         this.hideSouth = false;
@@ -811,13 +813,8 @@ export class SkyEngine {
     _renderCameraFov(ctx) {
         const halfX = this.cameraFovX / 2;
         const halfY = this.cameraFovY / 2;
-        const cosDec = Math.max(Math.cos(this._telDecDeg * Math.PI / 180), 0.15);
-        const corners = [
-            [this._telRaDeg - halfX / cosDec, this._telDecDeg - halfY],
-            [this._telRaDeg + halfX / cosDec, this._telDecDeg - halfY],
-            [this._telRaDeg + halfX / cosDec, this._telDecDeg + halfY],
-            [this._telRaDeg - halfX / cosDec, this._telDecDeg + halfY],
-        ];
+        const corners = this._fovCorners(
+            this._telRaDeg, this._telDecDeg, halfX, halfY, this.cameraRotDeg);
 
         const pts = [];
         for (const c of corners) {
@@ -836,6 +833,89 @@ export class SkyEngine {
         for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
         ctx.closePath();
         ctx.stroke();
+        ctx.restore();
+
+        // Bounding box / taille de la cible dans le champ (Framing assistant).
+        this._renderTargetBox(ctx);
+    }
+
+    // Calcule les 4 coins RA/Dec d'un rectangle de demi-champ (halfX/halfY en
+    // degrés, dans le plan tangent) centré en (ra, dec) et tourné d'un angle de
+    // senseur rotDeg (0 = nord en haut, positif = sens horaire vu du ciel).
+    _fovCorners(raDeg, decDeg, halfX, halfY, rotDeg) {
+        const cosDec = Math.max(Math.cos(decDeg * Math.PI / 180), 0.15);
+        const a = (rotDeg || 0) * Math.PI / 180;
+        const c = Math.cos(a), s = Math.sin(a);
+        const around = [];
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+            // Offsets dans le plan tangent : x = est (RA), y = nord (DEC).
+            const xr = sx * halfX * c - sy * halfY * s;
+            const yr = sx * halfX * s + sy * halfY * c;
+            const ra = (((raDeg + xr / cosDec) % 360) + 360) % 360;
+            const dec = decDeg + yr;
+            around.push([ra, dec]);
+        }
+        return around;
+    }
+
+    // Dessine le rectangle de taille angulaire de la cible (si connue) centré
+    // sur le FOV, orienté par l'angle de position de la cible + rotation senseur.
+    _renderTargetBox(ctx) {
+        const t = this.cameraTarget;
+        if (!t || !t.size_arcmin) return;
+        const maj = Number(t.size_arcmin[0]);
+        const min = Number(t.size_arcmin[1] ?? t.size_arcmin[0]);
+        if (!maj || maj <= 0) return;
+
+        const ra = (t.ra ?? this._telRaDeg);
+        const dec = (t.dec ?? this._telDecDeg);
+        if (ra == null || dec == null) return;
+        const targRa = Number(ra);
+        const targDec = Number(dec);
+
+        const cosDec = Math.max(Math.cos(targDec * Math.PI / 180), 0.15);
+        const halfX = maj / 2 / 60;
+        const halfY = min / 2 / 60;
+        // Angle de position de la cible + rotation du senseur.
+        const targPa = Number(t.pa ?? t.position_angle_deg ?? 0);
+        const a = (targPa + (this.cameraRotDeg || 0)) * Math.PI / 180;
+        const c = Math.cos(a), s = Math.sin(a);
+
+        const pts = [];
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+            const xr = sx * halfX * c - sy * halfY * s;
+            const yr = sx * halfX * s + sy * halfY * c;
+            const cra = (((targRa + xr / cosDec) % 360) + 360) % 360;
+            const cdec = targDec + yr;
+            if (this._celestialClip([cra, cdec])) {
+                const pt = this._projection([cra, cdec]);
+                if (pt) pts.push(pt);
+            }
+        }
+        if (pts.length < 3) return;
+
+        ctx.save();
+        ctx.strokeStyle = "rgba(255, 215, 0, 0.85)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([6, 3]);
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        ctx.closePath();
+        ctx.stroke();
+
+        // Marqueur au centre de la cible.
+        ctx.strokeStyle = "rgba(255, 215, 0, 0.6)";
+        ctx.lineWidth = 1;
+        const cp = this._projection([targRa, targDec]);
+        if (cp) {
+            ctx.beginPath();
+            ctx.moveTo(cp[0] - 6, cp[1]);
+            ctx.lineTo(cp[0] + 6, cp[1]);
+            ctx.moveTo(cp[0], cp[1] - 6);
+            ctx.lineTo(cp[0], cp[1] + 6);
+            ctx.stroke();
+        }
         ctx.restore();
     }
 
@@ -1232,6 +1312,30 @@ export class SkyEngine {
         if (this.mosaicTiles) {
             this.mosaicTiles.current = index;
             this.setMosaicTiles(this.mosaicTiles);
+        }
+    }
+
+    // Lot D3 (Framing assistant) : rotation du senseur (0 = nord en haut).
+    setCameraRotation(deg) {
+        this.cameraRotDeg = Number(deg) || 0;
+        this._scheduleRender();
+    }
+
+    // Lot D3 (Framing assistant) : cible à cadrer (taille angulaire en arcmin).
+    // obj = { ra, dec, size_arcmin:[maj,min], pa, name } | null pour effacer.
+    setCameraTarget(obj) {
+        this.cameraTarget = obj || null;
+        this._scheduleRender();
+    }
+
+    _scheduleRender() {
+        if (!this._initialized || !this._mapReady) return;
+        if (!this._rafPending) {
+            this._rafPending = true;
+            requestAnimationFrame(() => {
+                this.render();
+                this._rafPending = false;
+            });
         }
     }
 

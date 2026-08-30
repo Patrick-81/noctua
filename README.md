@@ -2,7 +2,7 @@
 
 Interface web (FastAPI + Vanilla JS) pour le contrôle d'équipements astronomiques via un serveur [INDIGO](https://www.indigo-astronomy.org/).
 
-![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-284%20pytest-green)
+![App](https://img.shields.io/badge/python-3.10-blue) ![Tests](https://img.shields.io/badge/tests-285%20pytest-green)
 
 Piloter monture, caméras, focuser et roue à filtres depuis le navigateur : autoguidage en étoile, autofocus HFR, calibration,
 séquences d'acquisition multi-cibles (mosaïques incluses), bibliothèque de masters, refocus automatique et mise au point polaire assistée.
@@ -221,7 +221,7 @@ Vérifie : connexion + détection, application de profil, monture (unpark/goto/t
 Suites unitaires / flux :
 
 ```bash
-python -m pytest tests/ -q                    # 284 tests unitaires/intégration
+python -m pytest tests/ -q                    # 285 tests unitaires/intégration
 python tests/test_exposure.py   # temps de pose idéal (fond de ciel, saturation)
 python tests/test_guide_flow.py # autoguidage + calibration + settle
 python tests/test_sequence_flow.py  # séquences (multi-cibles, mosaïque, reprise…)

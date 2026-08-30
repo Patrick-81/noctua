@@ -406,6 +406,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initTargetPanel();
     initPolarPanel();
     initPointingPanel();
+    initFramingPanel();
     initVisibilityPanel();
     initFocuserPanel();
     initGuidePanel();

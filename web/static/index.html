@@ -42,6 +42,7 @@
     <script src="/session.js"></script>
     <script src="/flatwizard.js"></script>
     <script src="/pointing.js"></script>
+    <script src="/framing.js"></script>
     <script src="/visibility.js"></script>
 </head>
 <body>
@@ -1288,6 +1289,71 @@
                     <div class="solver-progress-fill" id="target-center-fill"></div>
                 </div>
                 <div class="solver-progress-text" id="target-center-text">Centrage en cours...</div>
+            </div>
+        </div>
+
+        <div id="applet-framing" class="glass-panel applet mode-specific" data-modes="astrometry" style="display:none; top:120px; left:350px; width:300px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;">▣ FRAMING — Cadrage</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+
+            <!-- Champ / optique -->
+            <div class="solver-section">
+                <div class="solver-label">Champ (FOV)</div>
+                <div class="solver-row">
+                    <span class="solver-param-label">L</span>
+                    <input type="number" id="frame-fov-x" class="solver-input" step="0.01" min="0" style="width:64px;">
+                    <span class="solver-param-label">° H</span>
+                    <input type="number" id="frame-fov-y" class="solver-input" step="0.01" min="0" style="width:64px;">
+                </div>
+                <div class="solver-row">
+                    <label class="seq-chk" style="font-size:0.6rem;">
+                        <input type="checkbox" id="frame-use-camera" checked>
+                        <span>Auto (caméra + focale)</span>
+                    </label>
+                </div>
+            </div>
+
+            <!-- Rotation du senseur -->
+            <div class="solver-section">
+                <div class="solver-label">Rotation du senseur</div>
+                <div class="solver-row">
+                    <input type="range" id="frame-rot" class="nudge-amount-btn" min="0" max="360" step="1" value="0" style="flex:1;">
+                    <span id="frame-rot-val" class="solver-param-value" style="width:52px; text-align:right;">0°</span>
+                </div>
+                <div class="solver-row" style="gap:4px;">
+                    <button id="frame-rot-solve" class="btn-glass" style="flex:1;" title="Aligner sur la rotation de la dernière image résolue">⟳ Solve</button>
+                    <button id="frame-rot-reset" class="btn-glass" style="flex:1;">Nord ↑</button>
+                </div>
+            </div>
+
+            <!-- Cible à cadrer -->
+            <div class="solver-section">
+                <div class="solver-label">Cible</div>
+                <div class="solver-row">
+                    <input type="text" id="frame-target-id" class="solver-input" placeholder="M42, NGC7000…" autocomplete="off" style="flex:1;">
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">RA</span>
+                    <input type="text" id="frame-ra" class="solver-input" placeholder="HH:MM:SS" style="width:86px;">
+                    <span class="solver-param-label">DEC</span>
+                    <input type="text" id="frame-dec" class="solver-input" placeholder="±DD:MM" style="width:74px;">
+                </div>
+                <div class="solver-row">
+                    <span class="solver-param-label">Taille</span>
+                    <span id="frame-size" class="solver-param-value" style="flex:1; text-align:right;">—</span>
+                </div>
+                <div class="solver-actions">
+                    <button id="frame-set" class="btn-glass solver-action-btn" title="Définir la cible de cadrage">◎ Définir</button>
+                    <button id="frame-goto" class="btn-glass success solver-action-btn">GOTO</button>
+                    <button id="frame-clear" class="btn-glass solver-action-btn">✕</button>
+                </div>
+            </div>
+
+            <!-- Fit check -->
+            <div id="frame-fit" class="solver-section" style="display:none;">
+                <div class="solver-label">Ajustement</div>
+                <div class="solver-row">
+                    <span id="frame-fit-text" class="solver-param-value" style="flex:1; white-space:normal; font-size:0.6rem;">—</span>
+                </div>
             </div>
         </div>
 
