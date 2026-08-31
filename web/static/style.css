@@ -2009,7 +2009,23 @@ body {
         -webkit-overflow-scrolling: touch;
     }
     /* Compactage : une seule colonne visible, les autres repliables */
-    #applet-connection { display: none !important; }
+    #applet-connection {
+        display: flex !important;
+        position: fixed !important;
+        top: calc(8px + var(--safe-top)) !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        max-width: calc(100vw - 70px) !important;
+        width: auto !important;
+        padding: 6px 8px !important;
+        gap: 4px !important;
+        font-size: 0.62rem !important;
+        z-index: 95 !important;
+    }
+    #applet-connection #indigo-ip { width: 90px !important; }
+    #applet-connection #indigo-port { width: 48px !important; }
+    #applet-connection #i18n-lang, #applet-connection #theme-select { font-size: 0.6rem !important; padding: 2px 4px !important; }
     #applet-legend, #applet-log { display: none !important; }
     /* Guidage : graphe trop grand sur téléphone → réduit */
     #applet-guiding-graph { width: 100% !important; max-width: calc(100vw - 16px) !important; }
@@ -2033,13 +2049,7 @@ body {
         -webkit-overflow-scrolling: touch;
     }
     #applet-mode-bar::-webkit-scrollbar { display: none; }
-    #applet-connection {
-        position: relative !important;
-        top: auto !important;
-        left: auto !important;
-        right: auto !important;
-        transform: none !important;
-    }
+    /* #applet-connection reste fixe en haut sur mobile (voir ci-dessus) */
     /* Panneaux ouverts : largeur réduite centrée, pas plein écran */
     .applet:not(.collapsed) {
         position: relative !important;
@@ -2158,7 +2168,7 @@ body {
         gap: 8px;
         padding: 0 2px 8px 2px;
         touch-action: pan-y;
-        margin: 0 auto;
+        margin: calc(52px + var(--safe-top)) auto 0 auto;
         box-sizing: border-box;
     }
     #mobile-stack .applet {
