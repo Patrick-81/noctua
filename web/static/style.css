@@ -2,7 +2,7 @@
    Noctua — Glassmorphisme + Applets Flottants
    ═══════════════════════════════════════════════════════════════ */
 
-@import url('themes.css?v=5');
+@import url('themes.css?v=6');
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -1971,22 +1971,9 @@ body {
     .glass-panel input, .glass-panel select { min-height: 36px; }
 }
 
-/* Tablette : <1100px — overlay compact + palette SVG */
+/* Tablette : <1100px — overlay compact */
 @media (max-width: 1099px) {
-    :root {
-        --bg-primary: #0b0b0e;
-        --bg-panel: rgba(17, 17, 20, 0.92);
-        --bg-panel-solid: #1a1a1f;
-        --accent: #ff8c00;
-        --accent-rgb: 255, 140, 0;
-        --accent-dim: rgba(255, 140, 0, 0.40);
-        --accent-subtle: rgba(255, 140, 0, 0.15);
-        --accent-faint: rgba(255, 140, 0, 0.08);
-        --text-primary: #e0e0e0;
-        --border-default: rgba(255, 140, 0, 0.18);
-        --border-strong: rgba(255, 140, 0, 0.32);
-    }
-    body { overflow: hidden; background: #0b0b0e; }
+    body { overflow: hidden; background: var(--bg-primary); }
     #canvas-container { position: fixed; inset: 0; touch-action: none; }
     #applets-layer {
         position: absolute;
