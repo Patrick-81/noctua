@@ -75,6 +75,8 @@ son plan, sa possible mosaïque et ses options. Le panneau **SÉQUENCE** du mode
 
 Chaque panneau est **mobile** (glisser par sa barre de titre), **réductible** (bouton `−` / `+`) et **épinglable** (📌 fige la position). Positions et états sont mémorisés par mode dans `ui.yaml` via `POST /api/ui`.
 
+> **Tablette / téléphone (`<1100px`)** : barre de modes remplacée par `#bottom-nav` (7 icônes en bas), panneaux centrés `≤520px` empilés verticalement dans `#mobile-stack` scrollable (carte fixe derrière, gap 8px, pas de recouvrement), dock vertical droit `#mobile-dock` icônes `44×44` uniformes (survol = titre du panneau, tap = afficher/masquer, cadre clignotant `dock-pulse` cyan si panneau visible, orange si masqué), swipe horizontal entre modes, boutons `−` masqués.
+
 ### Langue de l'interface
 
 Un sélecteur **FR / EN** se trouve dans la barre de connexion (à droite de l'état de connexion).

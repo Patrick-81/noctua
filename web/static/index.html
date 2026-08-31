@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Noctua — INDIGO Control</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
@@ -125,6 +125,7 @@
                 <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.update">MAJ</button>
             </div>
         </div>
+        <div id="mobile-stack">
 
         <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
         <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
@@ -1516,7 +1517,7 @@
         <div id="applet-props" class="glass-panel applet" style="display:none;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title" data-i18n="props.title">PROPRIÉTÉS</span></div>
         </div>
-
+        </div> <!-- /mobile-stack -->
     </div><!-- /applets-layer -->
 
     <!-- Context menu for sky objects -->
@@ -1621,6 +1622,17 @@
             </div>
         </div>
     </div>
+
+    <nav id="bottom-nav" aria-label="Navigation modes">
+        <button class="bnav-btn active" data-mode="hardware" title="Matériel"><span class="bnav-icon">🔧</span><span class="bnav-label">Matériel</span></button>
+        <button class="bnav-btn" data-mode="mount" title="Monture"><span class="bnav-icon">🔭</span><span class="bnav-label">Monture</span></button>
+        <button class="bnav-btn" data-mode="focuser" title="Focuser"><span class="bnav-icon">🔍</span><span class="bnav-label">Focuser</span></button>
+        <button class="bnav-btn" data-mode="guiding" title="Guidage"><span class="bnav-icon">🎯</span><span class="bnav-label">Guidage</span></button>
+        <button class="bnav-btn" data-mode="capture" title="Capture"><span class="bnav-icon">📷</span><span class="bnav-label">Capture</span></button>
+        <button class="bnav-btn" data-mode="sequencer" title="Séquence"><span class="bnav-icon">📋</span><span class="bnav-label">Séquence</span></button>
+        <button class="bnav-btn" data-mode="astrometry" title="Astro"><span class="bnav-icon">⭐</span><span class="bnav-label">Astro</span></button>
+    </nav>
+    <div id="mobile-dock" aria-label="Panneaux"></div>
 
     <script type="module" src="/app.js"></script>
 </body>

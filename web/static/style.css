@@ -1944,3 +1944,302 @@ body {
 .vis-time { display: flex; flex-direction: column; }
 .vis-window { margin-top: 6px; font-size: 0.62rem; color: var(--text-muted); }
 .vis-window .vis-metric-label { margin-right: 6px; }
+
+/* ═══════════════════════════════════════════════════════════════
+   P0 — Responsive foundations (portage tablette/téléphone)
+   Desktop ≥1100px : inchangé (absolute + drag).
+   <1100px et <600px : grille verticale + safe-area + tactile
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    --safe-top: env(safe-area-inset-top, 0px);
+    --safe-right: env(safe-area-inset-right, 0px);
+    --safe-bottom: env(safe-area-inset-bottom, 0px);
+    --safe-left: env(safe-area-inset-left, 0px);
+}
+html { -webkit-text-size-adjust: 100%; touch-action: manipulation; }
+body {
+    padding-top: var(--safe-top);
+    padding-right: var(--safe-right);
+    padding-bottom: var(--safe-bottom);
+    padding-left: var(--safe-left);
+}
+
+/* Cibles tactiles ≥44px sur écrans à pointeur grossier */
+@media (pointer: coarse) {
+    .btn-glass, .mode-btn, .joy-btn, .dpad-btn { min-height: 44px; }
+    .glass-panel input, .glass-panel select { min-height: 36px; }
+}
+
+/* Tablette : <1100px — overlay compact + palette SVG */
+@media (max-width: 1099px) {
+    :root {
+        --bg-primary: #0b0b0e;
+        --bg-panel: rgba(17, 17, 20, 0.92);
+        --bg-panel-solid: #1a1a1f;
+        --accent: #ff8c00;
+        --accent-rgb: 255, 140, 0;
+        --accent-dim: rgba(255, 140, 0, 0.40);
+        --accent-subtle: rgba(255, 140, 0, 0.15);
+        --accent-faint: rgba(255, 140, 0, 0.08);
+        --text-primary: #e0e0e0;
+        --border-default: rgba(255, 140, 0, 0.18);
+        --border-strong: rgba(255, 140, 0, 0.32);
+    }
+    body { overflow: hidden; background: #0b0b0e; }
+    #canvas-container { position: fixed; inset: 0; touch-action: none; }
+    #applets-layer {
+        position: absolute;
+        inset: 0;
+        display: block;
+        padding: 0;
+        pointer-events: none;
+        overflow: visible;
+        min-height: 0;
+        height: 100vh;
+    }
+    .glass-panel { background: var(--bg-panel) !important; backdrop-filter: blur(8px) !important; -webkit-backdrop-filter: blur(8px) !important; border-color: var(--border-default) !important; }
+    .applet {
+        position: absolute !important;
+        pointer-events: auto;
+        width: 320px !important;
+        max-width: calc(100vw - 16px) !important;
+        max-height: min(52vh, 420px);
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    /* Compactage : une seule colonne visible, les autres repliables */
+    #applet-connection { display: none !important; }
+    #applet-legend, #applet-log { display: none !important; }
+    /* Guidage : graphe trop grand sur téléphone → réduit */
+    #applet-guiding-graph { width: 100% !important; max-width: calc(100vw - 16px) !important; }
+    #guide-drift-canvas { height: 110px !important; }
+    #guide-star-canvas { width: 80px !important; height: 80px !important; }
+    #applet-guiding-settings, #applet-guide-checklist, #applet-calibration { max-height: 38vh !important; }
+    /* Panneaux repliés : masqués, leur icône est dans #mobile-dock */
+    .glass-panel.collapsed {
+        display: none !important;
+    }
+    .applet-pin { display: none !important; }
+    #applet-mode-bar {
+        position: fixed !important;
+        top: calc(8px + var(--safe-top)) !important;
+        left: 8px !important;
+        right: 8px !important;
+        transform: none !important;
+        z-index: 100;
+        overflow-x: auto;
+        scrollbar-width: none;
+        -webkit-overflow-scrolling: touch;
+    }
+    #applet-mode-bar::-webkit-scrollbar { display: none; }
+    #applet-connection {
+        position: relative !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+        transform: none !important;
+    }
+    /* Panneaux ouverts : largeur réduite centrée, pas plein écran */
+    .applet:not(.collapsed) {
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        top: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        width: min(520px, calc(100vw - 20px)) !important;
+        max-width: min(520px, calc(100vw - 20px)) !important;
+        margin: 8px auto !important;
+    }
+    /* Layer en colonne centrée + scroll si plusieurs panneaux ouverts */
+    #applets-layer {
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        padding: calc(8px + var(--safe-top)) 10px calc(80px + var(--safe-bottom)) 10px !important;
+        overflow-y: auto !important;
+        gap: 8px;
+        height: 100vh !important;
+    }
+    #applet-hardware-mode { max-height: none !important; }
+    #applet-log { max-height: 180px; }
+}
+
+/* Téléphone portrait : <600px */
+@media (max-width: 599px) {
+    #applet-mode-bar { gap: 4px; padding: 6px 6px; }
+    #applet-mode-bar .mode-btn { width: 48px; height: 48px; min-height: 48px; }
+    #applet-mode-bar .mode-btn .mode-icon { font-size: 1.2rem; }
+    #applet-mode-bar .mode-btn .mode-label { font-size: 0.45rem; }
+    #conn-row-top, #conn-row-location { gap: 4px; }
+    #applet-pilotage, #applet-hud, #applet-status, #applet-legend {
+        width: 100% !important;
+        min-width: 0 !important;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   P1 — Shell tablette/téléphone : bottom nav + slide horizontal
+   <1100px : bottom nav visible, mode-bar masquée, swipe entre modes
+   ≥1100px : bottom nav masquée, mode-bar classique
+   ═══════════════════════════════════════════════════════════════ */
+
+#bottom-nav {
+    display: none;
+    position: fixed;
+    left: 0; right: 0; bottom: 0;
+    z-index: 100;
+    background: rgba(8, 8, 25, 0.92);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--border-default);
+    padding: 4px 4px calc(4px + var(--safe-bottom)) 4px;
+    gap: 2px;
+    justify-content: space-around;
+    align-items: stretch;
+    touch-action: pan-y;
+}
+#bottom-nav .bnav-btn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    min-height: 48px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 10px;
+    color: #667;
+    cursor: pointer;
+    font-family: monospace;
+    transition: all 0.2s ease;
+    padding: 4px 2px;
+}
+#bottom-nav .bnav-btn .bnav-icon { font-size: 1.3rem; line-height: 1; transition: transform 0.2s; }
+#bottom-nav .bnav-btn .bnav-label { font-size: 0.45rem; letter-spacing: 0.3px; white-space: nowrap; }
+#bottom-nav .bnav-btn.active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    border-color: var(--accent);
+    box-shadow: 0 0 10px var(--accent-subtle);
+}
+#bottom-nav .bnav-btn:active { transform: scale(0.96); }
+
+@media (max-width: 1099px) {
+    #bottom-nav { display: flex; }
+    #applet-mode-bar { display: none !important; }
+    #applets-layer {
+        /* colonne centrée scrollable indépendante de la carte */
+        pointer-events: none;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: flex-start !important;
+        padding-top: calc(8px + var(--safe-top)) !important;
+        padding-bottom: calc(80px + var(--safe-bottom)) !important;
+        padding-left: 8px !important;
+        padding-right: 58px !important; /* réserve dock 50px + marge */
+        overflow: visible !important;
+        box-sizing: border-box !important;
+    }
+    /* conteneur scroll interne : seul ce bloc scrolle, la carte reste fixe */
+    #mobile-stack {
+        pointer-events: auto;
+        width: min(520px, calc(100vw - 70px));
+        max-width: 520px;
+        max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom));
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        padding: 0 2px 8px 2px;
+        touch-action: pan-y;
+        margin: 0 auto;
+        box-sizing: border-box;
+    }
+    #mobile-stack .applet {
+        position: relative !important;
+        left: auto !important;
+        right: auto !important;
+        top: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        inset: auto !important;
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        flex-shrink: 0;
+    }
+    #mobile-stack .applet.collapsed {
+        display: none !important;
+    }
+    /* boutons réduire inutiles en mobile */
+    .applet-minimize, .applet-pin { display: none !important; }
+}
+@media (min-width: 1100px) {
+    #bottom-nav { display: none !important; }
+    #mobile-dock { display: none !important; }
+    #mobile-stack { display: contents; }
+}
+
+/* ── Mobile dock : icônes uniformes verticales ────────────────── */
+#mobile-dock {
+    display: none;
+    position: fixed;
+    right: 0;
+    top: calc(70px + var(--safe-top));
+    bottom: calc(74px + var(--safe-bottom));
+    width: 50px;
+    z-index: 90;
+    flex-direction: column;
+    gap: 6px;
+    align-items: center;
+    justify-content: flex-start;
+    padding: 6px 0;
+    pointer-events: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-width: none;
+}
+#mobile-dock::-webkit-scrollbar { display: none; }
+@media (max-width: 1099px) {
+    #mobile-dock { display: flex; pointer-events: auto; }
+}
+.dock-btn {
+    width: 44px;
+    height: 44px;
+    min-height: 44px;
+    border-radius: 10px 0 0 10px;
+    border: 1px solid #e67e00;
+    background: #ff8c00;
+    color: #1a1a1f;
+    font-size: 1.25rem;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    flex-shrink: 0;
+    box-shadow: -2px 2px 8px rgba(0,0,0,0.4);
+    transition: all 0.2s ease;
+    touch-action: manipulation;
+}
+.dock-btn:hover { filter: brightness(1.08); transform: translateX(-1px); }
+.dock-btn:active { transform: scale(0.96); }
+.dock-btn.active {
+    background: rgba(0,255,204,0.18);
+    border-color: #00ffcc;
+    color: #00ffcc;
+    box-shadow: 0 0 0 2px rgba(0,255,204,0.35), -2px 2px 10px rgba(0,0,0,0.45);
+    animation: dock-pulse 1.8s ease-in-out infinite;
+}
+.dock-btn.active:hover { background: rgba(0,255,204,0.28); }
+@keyframes dock-pulse {
+    0% { box-shadow: 0 0 0 2px rgba(0,255,204,0.35), -2px 2px 10px rgba(0,0,0,0.45); }
+    50% { box-shadow: 0 0 0 4px rgba(0,255,204,0.18), 0 0 12px rgba(0,255,204,0.35), -2px 2px 10px rgba(0,0,0,0.45); }
+    100% { box-shadow: 0 0 0 2px rgba(0,255,204,0.35), -2px 2px 10px rgba(0,0,0,0.45); }
+}

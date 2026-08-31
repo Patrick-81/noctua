@@ -180,6 +180,7 @@ Chaque `web/routers/<domaine>.py` expose `register(app, server)` et utilise `com
 - **`capture.js` / `stacking.js`** — consommé via `capture:progress` / `stacking:update`.
 - **`target.js` / `solver.js`** — `solver:result`, `record-solve` → modèle de pointage.
 - **`app.js`** — mode manager (`MODES`→applets dans `state.js`), `mode:changed`, `calibration:done`.
+- **`layout.js` / `app.js` responsive (`<1100px`)** — `#mobile-stack` (colonne centrée `min(520px,calc(100vw-70px))` scroll indépendant `overflow-y:auto`, carte fixe derrière), `#mobile-dock` (colonne fixe droite `44×44` icônes uniformes `PANEL_ICONS`, `title` hover, `.active` pulse cyan `dock-pulse`), `#bottom-nav` (7 modes), `initSwipeNav()` (swipe horizontal entre modes), `updateMobileDock()` (génération + état `active` = panneau visible). `toggleMinimize` masqué sur mobile, panneaux `position:relative` empilés verticalement (`gap:8px`) sans recouvrement Z.
 
 Modules ES vs scripts classiques : `app.js`, `sky-engine.js`, `sky-projection.js` sont des modules ; ils
 communiquent avec le reste via des globales `window.*` exposées par `preview.js` (ex. `setOffsetTarget`) et le bus
