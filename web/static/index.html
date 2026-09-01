@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#020205">
-    <link rel="stylesheet" href="/style.css?v=6">
+    <link rel="stylesheet" href="/style.css?v=18">
     <script src="/lib/d3.min.js"></script>
     <script src="/i18n.fr.js"></script>
     <script src="/i18n.en.js"></script>
@@ -85,7 +85,7 @@
             </button>
         </div>
 
-        <!-- APPLET: Connexion INDIGO (toujours visible) -->
+        <!-- Bandeau connexion — pleine largeur en haut (hors stack, ne contraint pas les panneaux) -->
         <div id="applet-connection" class="glass-panel applet">
             <div id="conn-row-top">
                 <select id="indigo-protocol" title="Protocole INDIGO" data-i18n-title="conn.protocol.title">
@@ -126,6 +126,7 @@
                 <input id="obs-lon" value="1.568" style="width:60px;">
                 <span style="color:#666;">°E</span>
                 <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.update">MAJ</button>
+                <span id="conn-device-leds" class="conn-leds" title="Devices"></span>
             </div>
         </div>
         <div id="mobile-stack">
@@ -155,6 +156,21 @@
             </div>
             <div class="hw-section-title" data-i18n="hw.roles">RÔLES</div>
             <div id="hw-role-assign" class="hw-role-assign"></div>
+            <div class="hw-section-title">MONTURE — CONNEXION</div>
+            <div id="hw-mount-conn" class="hw-mount-conn" style="padding:4px 8px; display:flex; flex-direction:column; gap:6px;">
+                <div class="hw-row" style="padding:0;">
+                    <span class="hw-label">Interface:</span>
+                    <select id="hw-mount-interface" style="flex:1;">
+                        <option value="serial">Série</option>
+                        <option value="network">Réseau host:port</option>
+                    </select>
+                </div>
+                <div class="hw-row" style="padding:0;">
+                    <span class="hw-label" id="hw-mount-endpoint-label">Port:</span>
+                    <input id="hw-mount-endpoint" placeholder="/dev/ttyUSB0 ou 192.168.1.10:7624" style="flex:1;" title="Série: /dev/ttyUSB0 • Réseau: host:port">
+                </div>
+                <div style="font-size:0.55rem; color:#666;">Sauvegardé dans le profil • appliqué à la connexion</div>
+            </div>
             <div class="hw-section-title" data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</div>
             <div class="hw-row">
                 <select id="hw-mode-device-select" class="hw-mode-device-select" style="flex:1;">

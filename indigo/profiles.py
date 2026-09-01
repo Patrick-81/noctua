@@ -14,7 +14,8 @@ import yaml
 
 log = logging.getLogger("indigo.profiles")
 
-PROFILE_FIELDS = ["mount", "camera", "guide_camera", "focuser", "filter_wheel", "optics"]
+PROFILE_FIELDS = ["mount", "camera", "guide_camera", "focuser", "filter_wheel", "optics",
+                  "mount_interface", "mount_endpoint"]
 
 ROLE_LABELS = {
     "mount": "Monture",
@@ -73,6 +74,10 @@ class ProfileStore:
         clean = {"name": name}
         for field in PROFILE_FIELDS:
             val = profile.get(field)
+            if field == "mount_interface":
+                v = str(val).strip().lower() if isinstance(val, str) else ""
+                clean[field] = v if v in ("serial", "network") else None
+                continue
             if isinstance(val, str) and val.strip():
                 clean[field] = val.strip()
             else:

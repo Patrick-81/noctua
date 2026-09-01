@@ -143,6 +143,15 @@ body {
     display: flex; gap: 6px; align-items: center; justify-content: center;
     flex-wrap: wrap;
 }
+/* LEDs compactes bandeau : 6-8px, ne prennent pas de rangée */
+.conn-leds { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; min-height: 10px; }
+.conn-led-item { display: inline-flex; align-items: center; gap: 2px; }
+.conn-led { width: 7px; height: 7px; border-radius: 50%; background: #444; border: 1px solid #333; display: inline-block; flex-shrink: 0; }
+.conn-led.on { background: #44cc44; box-shadow: 0 0 6px #44cc44; border-color: #44cc44; }
+.conn-led.off { background: #3a3a42; border-color: #6a6a72; }
+.conn-led.warn { background: #ffcc33; box-shadow: 0 0 4px #ffcc33; border-color: #ffcc33; }
+.conn-led-label { font-size: 0.52rem; line-height: 1; color: #888; font-family: monospace; min-width: 6px; text-align: center; }
+.conn-led-item:has(.on) .conn-led-label { color: var(--text-secondary); }
 
 #applet-status {
     position: absolute;
@@ -2128,35 +2137,75 @@ body {
 @media (max-width: 1099px) {
     #bottom-nav { display: flex; }
     #applet-mode-bar { display: none !important; }
+    /* Bandeau connexion : pleine largeur en haut, hors stack */
+    #applet-connection {
+        position: relative !important;
+        top: auto !important;
+        left: auto !important;
+        right: auto !important;
+        transform: none !important;
+        width: calc(100vw - 16px) !important;
+        max-width: calc(100vw - 16px) !important;
+        margin: 0 !important;
+        flex-shrink: 0 !important;
+        z-index: 5 !important;
+        pointer-events: auto !important;
+        box-sizing: border-box !important;
+        /* compact horizontal — moins haut, réparti sur la largeur */
+        flex-direction: row !important;
+        flex-wrap: wrap !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        gap: 6px 10px !important;
+        padding: 8px 10px !important;
+        font-size: 0.6rem !important;
+    }
+    #applet-connection #indigo-ip { width: clamp(82px, 22vw, 130px) !important; flex: 1 1 auto !important; }
+    #applet-connection #indigo-port { width: 56px !important; }
+    #applet-connection #indigo-driver { width: clamp(120px, 28vw, 180px) !important; }
+    #applet-connection #indigo-serial { width: clamp(90px, 24vw, 130px) !important; }
+    #applet-connection #obs-lat, #applet-connection #obs-lon { width: clamp(52px, 14vw, 72px) !important; }
+    #applet-connection > div { flex-wrap: wrap !important; gap: 4px 8px !important; flex: 1 1 auto !important; justify-content: space-between !important; }
+    #applet-connection #conn-row-top, #applet-connection #conn-row-location { flex: 1 1 100% !important; }
+    /* Masque ligne driver en mobile : géré par atelier Matériel */
+    #applet-connection #conn-row-attach, #applet-connection #conn-row-serial { display: none !important; }
+    /* LEDs compactes : restent inline, pas de rangée supplémentaire */
+    #applet-connection .conn-leds { gap: 3px !important; margin-left: 6px !important; }
+    #applet-connection .conn-led { width: 6px !important; height: 6px !important; }
+    #applet-connection .conn-led-label { font-size: 0.48rem !important; }
+    #applet-connection .conn-led-item { gap: 1px !important; }
     #applets-layer {
-        /* colonne centrée scrollable indépendante de la carte */
-        pointer-events: none;
+        /* colonne verticale : bandeau pleine largeur en haut + zone centrale (skymap/panneaux) + bottom nav */
+        pointer-events: none !important;
         display: flex !important;
-        justify-content: center !important;
-        align-items: flex-start !important;
-        padding-top: calc(8px + var(--safe-top)) !important;
-        padding-bottom: calc(80px + var(--safe-bottom)) !important;
-        padding-left: 8px !important;
-        padding-right: 58px !important; /* réserve dock 50px + marge */
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: calc(8px + var(--safe-top)) 8px calc(80px + var(--safe-bottom)) 8px !important;
         overflow: visible !important;
         box-sizing: border-box !important;
+        height: 100vh !important;
     }
-    /* conteneur scroll interne : seul ce bloc scrolle, la carte reste fixe */
+    /* stack : occupe tout le reste à gauche de la colonne d'icônes (schéma) */
     #mobile-stack {
-        pointer-events: auto;
-        width: min(520px, calc(100vw - 70px));
-        max-width: 520px;
-        max-height: calc(100vh - 90px - var(--safe-top) - var(--safe-bottom));
-        overflow-y: auto;
-        overflow-x: hidden;
+        pointer-events: auto !important;
+        width: calc(100vw - 66px) !important;
+        max-width: calc(100vw - 66px) !important;
+        max-height: calc(100vh - 16px - var(--safe-top) - var(--safe-bottom) - 80px - 110px) !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
         -webkit-overflow-scrolling: touch;
         display: flex;
         flex-direction: column;
         gap: 8px;
-        padding: 0 2px 8px 2px;
+        padding: 0 2px 8px 0 !important;
         touch-action: pan-y;
-        margin: calc(52px + var(--safe-top)) auto 0 auto;
+        margin: 0 !important;
         box-sizing: border-box;
+        flex-shrink: 1 !important;
+        min-height: 0;
+        align-self: flex-start !important;
     }
     #mobile-stack .applet {
         position: relative !important;
@@ -2188,7 +2237,7 @@ body {
     display: none;
     position: fixed;
     right: 0;
-    top: calc(70px + var(--safe-top));
+    top: calc(124px + var(--safe-top));
     bottom: calc(74px + var(--safe-bottom));
     width: 50px;
     z-index: 90;
@@ -2205,6 +2254,10 @@ body {
 #mobile-dock::-webkit-scrollbar { display: none; }
 @media (max-width: 1099px) {
     #mobile-dock { display: flex; pointer-events: auto; }
+}
+@media (max-width: 599px) {
+    #mobile-dock { top: calc(144px + var(--safe-top)); }
+    #mobile-stack { max-height: calc(100vh - 16px - var(--safe-top) - var(--safe-bottom) - 80px - 130px) !important; }
 }
 .dock-btn {
     width: 44px;

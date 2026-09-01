@@ -30,7 +30,7 @@ indigo/
   client.py            # IndigoClient : TCP XML, auto-reconnect (RECONNECT_DELAY=3.0, MAX_RECONNECT=10)
   protocol.py          # PropertyVector, parse_xml_message, build_* (XML INDIGO)
   registry.py          # DeviceRegistry : découverte, auto-connexion, dispatch des def/set
-  profiles.py          # ProfileStore : profils YAML
+   profiles.py          # ProfileStore : profils YAML (fields mount_interface/mount_endpoint)
   plate_solve.py       # solveur astrométrique backend (Seiza)
   devices/             # logique pure (pas de dépendance HTTP)
     base.py            # BaseDevice (à étendre), GenericDevice ; _sanitize NaN/Inf
@@ -162,7 +162,7 @@ Chaque `web/routers/<domaine>.py` expose `register(app, server)` et utilise `com
   `request/respond` / `setState`/`getState`/`watchState`. Enveloppes `{id, ts, topic, source, targets, kind, reqId,
   payload}` ; un handler qui lève n'empêche jamais la diffusion. Traces `[Hub]` en niveau de log `debug`.
 - **`ws.js`** — traducteur WebSocket → topics `Hub` (`ws:state`, `ws:log`, `ws:image`, `ws:stacking`…).
-- **`hardware.js`** — `ws:state` + `device:connected` (débouncing 1200 ms), panneau matériel.
+- **`hardware.js`** — `ws:state` + `device:connected` (débouncing 1200 ms), panneau matériel + bandeau LEDs `T C A F R/W` compact `renderConnLeds()` (5 rôles toujours visibles gris→vert `#44cc44`, `R`/`W` selon `I18N.current`) + section `MONTURE — CONNEXION` (sélecteur `série|réseau` + endpoint `/dev/ttyUSB0` ou `host:port` sauvegardés dans le profil `mount_interface/mount_endpoint`).
 - **`sequence.js`** — pilote les deux panels (SÉQUENCE simple en mode Capture ; **SÉQUENCEUR** du mode Séquenceur :
   cibles, plan par cible, mosaïque `seqPlanMosaic` via `/api/mosaic/*`, templates via `/api/sequence/templates/*`,
   options globales, `resume-session`).
@@ -180,7 +180,7 @@ Chaque `web/routers/<domaine>.py` expose `register(app, server)` et utilise `com
 - **`capture.js` / `stacking.js`** — consommé via `capture:progress` / `stacking:update`.
 - **`target.js` / `solver.js`** — `solver:result`, `record-solve` → modèle de pointage.
 - **`app.js`** — mode manager (`MODES`→applets dans `state.js`), `mode:changed`, `calibration:done`.
-- **`layout.js` / `app.js` responsive (`<1100px`)** — `#mobile-stack` (colonne centrée `min(520px,calc(100vw-70px))` scroll indépendant `overflow-y:auto`, carte fixe derrière), `#mobile-dock` (colonne fixe droite `44×44` icônes uniformes `PANEL_ICONS`, `title` hover, `.active` pulse cyan `dock-pulse`), `#bottom-nav` (7 modes), `initSwipeNav()` (swipe horizontal entre modes), `updateMobileDock()` (génération + état `active` = panneau visible). `toggleMinimize` masqué sur mobile, panneaux `position:relative` empilés verticalement (`gap:8px`) sans recouvrement Z.
+- **`layout.js` / `app.js` responsive (`<1100px`)** — bandeau `Connexion` pleine largeur `calc(100vw-16px)` en haut (2 rangées `row wrap space-between`, `clamp()` inputs, `conn-row-attach/serial` masqués), `#applets-layer{flex-direction:column;pointer-events:none}` (laisse la skymap manipulable hors panneaux), `#mobile-stack` à gauche de la colonne d'icônes `width:calc(100vw-66px)` `max-height:calc(100vh-...-110px)` scroll `overflow-y:auto`, `#mobile-dock` fixe droite `44×44` `top:124px` (`144px` en `<599px`) `gap:6px` icônes `PANEL_ICONS` `title` hover `.active` pulse, `#bottom-nav` 7 modes en bas, `initSwipeNav()` (swipe horizontal). `toggleMinimize` masqué sur mobile, panneaux `position:relative` `gap:8px` sans recouvrement, LEDs `T C A F R/W` compact `6×6` `conn-led` neutre gris → vert `#44cc44` (indépendant du thème).
 
 Modules ES vs scripts classiques : `app.js`, `sky-engine.js`, `sky-projection.js` sont des modules ; ils
 communiquent avec le reste via des globales `window.*` exposées par `preview.js` (ex. `setOffsetTarget`) et le bus
