@@ -1,5 +1,7 @@
 # Noctua — Guide d'utilisation
 
+*English version: [UTILISATION_EN.md](UTILISATION_EN.md)*
+
 Interface web de pilotage d'équipements astronomiques INDIGO (monture, caméras, focuser, roue à filtres).
 Ce guide décrit les modes, panneaux et réglages disponibles côté navigateur.
 

@@ -1,5 +1,7 @@
 # Noctua — Référence de configuration
 
+*English version: [CONFIGURATION_EN.md](CONFIGURATION_EN.md)*
+
 Référence exhaustive des fichiers de configuration. Le modèle est `config.example.yaml` (copiez-le vers
 `config.yaml` puis ajustez) :
 

@@ -1,24 +1,44 @@
 # Contribuer à Noctua
 
-Merci de votre intérêt pour Noctua ! Ce projet est un cadeau à la communauté des astronomes amateurs. Les contributions sont les bienvenues, mais sont soumises à évaluation pour maintenir la qualité et la cohérence du projet.
+*English version: [CONTRIBUTING_EN.md](CONTRIBUTING_EN.md)*
+
+Merci de votre intérêt pour Noctua ! Ce projet est un cadeau à la communauté des astronomes amateurs. Les contributions sont les bienvenues et revues pour garder qualité et cohérence.
+
+> **Alpha : le meilleur moment pour rejoindre.** L'app tourne en labo (mock INDIGO), pas encore sur le terrain. Votre test terrain, screen ou petit fix façonne directement la bêta.
+
+## Pourquoi contribuer maintenant ?
+
+- **Test terrain** sur votre setup (monture série `/dev/ttyUSB0` ou réseau `host:port`) vaut autant que du code
+- **MIT, vanilla JS, sans build** — lisible, forkable en 5 minutes
+- Un `good first issue` = une amélioration concrète pour la bêta
 
 ## Types de contributions acceptées
 
-- **Suggestions d'amélioration** — ouvrez une issue avec le tag `enhancement`
-- **Signalement de bugs** — ouvrez une issue avec le tag `bug`
+- **Retours** — ouvrez une issue `enhancement`/`bug` + screen mobile
 - **Corrections de bugs** — fork → fix → PR
-- **Nouvelles fonctionnalités** — discutez d'abord dans une issue avant de coder
-- **Améliorations de documentation**
-- **Traductions** (i18n)
+- **Nouvelles fonctionnalités** — discutez d'abord dans une issue
+- **Docs & traductions** (i18n FR/EN)
+
+## Démarrage rapide (alpha)
+
+```bash
+git clone https://github.com/Patrick-81/noctua.git && cd noctua
+git checkout portage-mobile
+./install.sh
+./start-mock-server.sh --port 17624  # terminal 1 : INDIGO simulé
+./start.sh 127.0.0.1:17624 --port 8080 # terminal 2 : Noctua sur mock
+# puis http://localhost:8080 depuis n'importe quel appareil
+```
+
+Avec vrai matériel : `./start.sh 192.168.1.x:7624`
 
 ## Processus de contribution
 
-1. **Ouvrez une issue** d'abord pour discuter de l'amélioration ou du bug
-2. **Forkez** le dépôt
-3. **Créez une branche** pour votre travail (`git checkout -b feat/ma-fonctionnalite`)
-4. **Codez** en suivant les conventions du projet
-5. **Testez** — les tests doivent passer (`pytest tests/ -q`)
-6. **Envoyez une PR** avec une description claire
+1. **Ouvrez une issue** d'abord pour discuter
+2. **Forkez** et créez une branche (`git checkout -b feat/ma-fonctionnalite`)
+3. **Codez** en suivant les conventions
+4. **Testez** : `pytest tests/ -q` doit passer, plus `node --check web/static/*.js`
+5. **Envoyez une PR** avec description claire + capture si UI
 
 ## Règles de contribution
 

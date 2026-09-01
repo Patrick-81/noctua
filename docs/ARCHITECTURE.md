@@ -1,5 +1,7 @@
 # Noctua — Architecture (vue développeur)
 
+*English version: [ARCHITECTURE_EN.md](ARCHITECTURE_EN.md)*
+
 Noctua est une **interface web** (FastAPI + Vanilla JS, sans build step) pilotant des équipements astronomiques
 via un serveur [INDIGO](https://www.indigo-astronomy.org/) (protocole INDI/XML sur TCP, port 7624).
 
