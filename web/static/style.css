@@ -2232,6 +2232,16 @@ body {
     #bottom-nav { display: none !important; }
     #mobile-dock { display: none !important; }
     #mobile-stack { display: contents; }
+    /* PC : bandeau toujours centré en haut (atelier astrométrie inclus) */
+    #applet-connection {
+        position: absolute !important;
+        top: 12px !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
+        width: auto !important;
+        max-width: none !important;
+    }
 }
 
 /* ── Mobile dock : icônes uniformes verticales ────────────────── */
