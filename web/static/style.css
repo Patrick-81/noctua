@@ -143,6 +143,8 @@ body {
     display: flex; gap: 6px; align-items: center; justify-content: center;
     flex-wrap: wrap;
 }
+/* Ligne driver du bandeau supérieur supprimée (géré par atelier Matériel) — PC + mobile */
+#conn-row-attach, #conn-row-serial { display: none !important; }
 /* LEDs compactes bandeau : 6-8px, ne prennent pas de rangée */
 .conn-leds { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; min-height: 10px; }
 .conn-led-item { display: inline-flex; align-items: center; gap: 2px; }
