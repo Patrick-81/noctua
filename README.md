@@ -21,7 +21,11 @@ séquences d'acquisition multi-cibles (mosaïques incluses), bibliothèque de ma
 |:---:|:---:|:---:|
 | ![Sky Map](docs/screenshots/skymap.png) | ![Dashboard](docs/screenshots/dashboard.png) | ![Polaire](docs/screenshots/polar.png) |
 
-> Pour prendre les screenshots : lancez le serveur avec le mock (`./start-mock-server.sh`), ouvrez l'interface, naviguez dans chaque onglet, et faites un screenshot du navigateur (Ctrl+Shift+S dans Firefox, ou F12 → screenshot node).
+| Matériel | Focuser | Séquenceur |
+|:---:|:---:|:---:|
+| ![Matériel](docs/screenshots/hardware.png) | ![Focuser](docs/screenshots/focuser.png) | ![Séquenceur](docs/screenshots/sequencer.png) |
+
+> Pour prendre les screenshots : lancez le serveur avec le mock (`./start-mock-server.sh`), ouvrez l'interface, naviguez dans chaque onglet, et faites un screenshot du navigateur (Ctrl+Shift+S dans Firefox, ou F12 → screenshot node). Manquants : `hardware.png`, `focuser.png`, `sequencer.png` (+ `skymap.png`, `dashboard.png` à régénérer) — à générer depuis l'atelier concerné.
 
 ## Fonctionnalités
 
