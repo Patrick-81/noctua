@@ -1089,8 +1089,11 @@ def main():
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: loop.stop())
+    try:
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, lambda s=sig: loop.stop())
+    except NotImplementedError:
+        pass  # Windows: ProactorEventLoop ne supporte pas add_signal_handler
 
     try:
         loop.run_until_complete(server.start())
