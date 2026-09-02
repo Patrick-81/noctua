@@ -334,6 +334,7 @@ class MockMount:
         self._motion_we_dir: str | None = None
         self._motion_task: asyncio.Task | None = None
         self.slew_rate = "Find"
+        self.homing = False
         self.drift_enabled = True
         # Mock observing site (Mirrors config.yaml defaults)
         self.lat_deg = 43.952
