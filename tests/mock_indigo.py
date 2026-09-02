@@ -319,6 +319,9 @@ class MockMount:
         self.drift_sim = drift_sim  # Optional: guide drift sim to correct
         self._guide_moving_ns = False
         self._guide_moving_we = False
+        self._motion_ns_dir: str | None = None
+        self._motion_we_dir: str | None = None
+        self._motion_task: asyncio.Task | None = None
         self.drift_enabled = True
         # Mock observing site (Mirrors config.yaml defaults)
         self.lat_deg = 43.952
@@ -444,27 +447,37 @@ class MockMount:
             self.slewing = False
             self._target_ra = None
             self._target_dec = None
+            self._guide_moving_ns = False
+            self._guide_moving_we = False
+            self._motion_ns_dir = None
+            self._motion_we_dir = None
             log.info("Abort — RA=%.4fh DEC=%.4f°", self.ra_hours, self.dec_deg)
             responses.append(self.coords_xml())
+            responses.append(self.motion_ns_xml())
+            responses.append(self.motion_we_xml())
         elif prop_name == "MOUNT_MOTION_NS":
             on_dir = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on_dir:
                 self._guide_moving_ns = True
+                self._motion_ns_dir = on_dir
                 if self.drift_sim:
                     self.drift_sim.apply_correction_ns(on_dir)
                 responses.append(self.motion_ns_xml(on_dir))
             else:
                 self._guide_moving_ns = False
+                self._motion_ns_dir = None
                 responses.append(self.motion_ns_xml())
         elif prop_name == "MOUNT_MOTION_WE":
             on_dir = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on_dir:
                 self._guide_moving_we = True
+                self._motion_we_dir = on_dir
                 if self.drift_sim:
                     self.drift_sim.apply_correction_we(on_dir)
                 responses.append(self.motion_we_xml(on_dir))
             else:
                 self._guide_moving_we = False
+                self._motion_we_dir = None
                 responses.append(self.motion_we_xml())
         elif prop_name == "DRIFT_SIM_ENABLE":
             enabled = items.get("ENABLED", "off").lower() in ("on", "true", "1")
@@ -492,6 +505,31 @@ class MockMount:
             writer.write((xml + "\n").encode())
             await writer.drain()
             await asyncio.sleep(0.03)
+
+    async def motion_loop(self, writer):
+        """Continuously update RA/DEC while handpad motion is active."""
+        try:
+            while True:
+                if self._guide_moving_ns or self._guide_moving_we:
+                    # Vitesse ~0.02° DEC et 0.005h RA par 0.1s (≈ 0.2°/s)
+                    if self._motion_ns_dir == "NORTH":
+                        self.dec_deg = min(90, self.dec_deg + 0.05)
+                    elif self._motion_ns_dir == "SOUTH":
+                        self.dec_deg = max(-90, self.dec_deg - 0.05)
+                    if self._motion_we_dir == "WEST":
+                        self.ra_hours += 0.008
+                        if self.ra_hours >= 24:
+                            self.ra_hours -= 24
+                    elif self._motion_we_dir == "EAST":
+                        self.ra_hours -= 0.008
+                        if self.ra_hours < 0:
+                            self.ra_hours += 24
+                    writer.write((self.coords_xml("Busy") + "\n").encode())
+                    writer.write((self.horizontal_xml() + "\n").encode())
+                    await writer.drain()
+                await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+            pass
 
 
 # ── Mock focuser ────────────────────────────────────────────────
@@ -782,6 +820,7 @@ class MockIndigoServer:
         addr = writer.get_extra_info("peername")
         log.info("Client connected: %s", addr)
         self._writer = writer
+        motion_task = asyncio.create_task(self.mount.motion_loop(writer))
         try:
             xml_buf = b""
             while True:
@@ -896,6 +935,10 @@ class MockIndigoServer:
         except (ConnectionResetError, BrokenPipeError):
             log.info("Client disconnected")
         finally:
+            try:
+                motion_task.cancel()
+            except Exception:
+                pass
             writer.close()
             self._writer = None
 
