@@ -36,10 +36,17 @@ function renderMountPanel() {
 
     const parkingEl = document.getElementById('status-parking');
     if (parkingEl) {
-        const parking = d.park_state === 'Busy';
-        parkingEl.textContent = parking ? '● ACTIVE' : '● IDLE';
-        parkingEl.className = 'value ' + (parking ? 'status-parking' : '');
-        parkingEl.style.color = parking ? cssVar('--status-warning') : '#666';
+        const isParked = !!d.parked;
+        const isBusy = d.park_state === 'Busy';
+        if (isBusy) {
+            parkingEl.textContent = '● ACTIVE';
+            parkingEl.className = 'value status-parking';
+            parkingEl.style.color = cssVar('--status-warning');
+        } else {
+            parkingEl.textContent = isParked ? '● PARKED' : '● UNPARKED';
+            parkingEl.className = 'value ' + (isParked ? 'status-stopped' : 'status-online');
+            parkingEl.style.color = isParked ? cssVar('--status-error') : cssVar('--status-online');
+        }
     }
 
     const homingEl = document.getElementById('status-homing');
@@ -197,6 +204,7 @@ function mountGoto() {
 function mountMove(dir) {
     const m = findMount();
     if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
+    if (m.dev.parked) { addLog('warning', 'mount', 'Monture parquée — déparquez d\'abord (UNPARK)'); return; }
     const speed = document.getElementById('slew-speed')?.value;
     addLog('debug', 'mount', i18nFmt('log.mount.move_rate', { dir, speed }));
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });

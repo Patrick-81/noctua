@@ -106,6 +106,7 @@ function initJoystick() {
     function startSlew(dir) {
         const m = findMount();
         if (!m) { addLog('warning', 'mount', 'Pas de monture detectee'); return; }
+        if (m.dev.parked) { addLog('warning', 'mount', 'Monture parquée — déparquez d\'abord (UNPARK)'); return; }
         if (currentDir === dir) return;
         stopSlew();
         currentDir = dir;
