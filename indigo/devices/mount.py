@@ -291,6 +291,43 @@ class Mount(BaseDevice):
             log.warning("[%s] home: no HOME property found in %s",
                         self.name, list(self._properties.keys()))
 
+    async def set_park_position(self) -> None:
+        """Mémorise la position actuelle comme position de PARK."""
+        for prop_name in ("MOUNT_PARK_SET", "TELESCOPE_PARK_SET", "MOUNT_PARK_POSITION_SET"):
+            pv = self._properties.get(prop_name)
+            if pv is not None:
+                for cand in ("SET", "PARK_SET", "SET_PARK", "PARK"):
+                    if pv.get_item(cand):
+                        log.info("[%s] set park position via %s.%s", self.name, prop_name, cand)
+                        await self.send_switch(prop_name, [{"name": cand, "value": True}])
+                        return
+        # Fallback: certains drivers utilisent MOUNT_PARK avec item SET
+        park_prop = self._resolve_prop_name("MOUNT_PARK")
+        pv = self._properties.get(park_prop)
+        if pv and pv.get_item("SET"):
+            await self.send_switch(park_prop, [{"name": "SET", "value": True}])
+            log.info("[%s] set park position via %s.SET", self.name, park_prop)
+            return
+        log.warning("[%s] set_park: no PARK_SET property found in %s", self.name, list(self._properties.keys()))
+
+    async def set_home_position(self) -> None:
+        """Mémorise la position actuelle comme position HOME."""
+        for prop_name in ("MOUNT_HOME_SET", "TELESCOPE_HOME_SET", "MOUNT_HOME_POSITION_SET"):
+            pv = self._properties.get(prop_name)
+            if pv is not None:
+                for cand in ("SET", "HOME_SET", "SET_HOME", "HOME"):
+                    if pv.get_item(cand):
+                        log.info("[%s] set home position via %s.%s", self.name, prop_name, cand)
+                        await self.send_switch(prop_name, [{"name": cand, "value": True}])
+                        return
+        home_prop = self._resolve_prop_name("MOUNT_HOME")
+        pv = self._properties.get(home_prop)
+        if pv and pv.get_item("SET"):
+            await self.send_switch(home_prop, [{"name": "SET", "value": True}])
+            log.info("[%s] set home position via %s.SET", self.name, home_prop)
+            return
+        log.warning("[%s] set_home: no HOME_SET property found in %s", self.name, list(self._properties.keys()))
+
     async def set_tracking(self, on: bool) -> None:
         track_prop = self._resolve_prop_name("MOUNT_TRACKING")
         # Determine correct item names for the server's naming scheme

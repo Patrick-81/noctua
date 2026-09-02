@@ -23,30 +23,28 @@ function renderMountPanel() {
 
     const trackEl = document.getElementById('status-tracking');
     if (trackEl) {
-        trackEl.textContent = d.tracking ? '● ON' : '● OFF';
-        trackEl.className = 'value ' + (d.tracking ? 'status-online' : 'status-stopped');
+        trackEl.textContent = '● TRACK';
+        trackEl.className = 'mount-led ' + (d.tracking ? 'on' : 'off');
     }
 
     const slewingEl = document.getElementById('status-slewing');
     if (slewingEl) {
-        slewingEl.textContent = d.slewing ? '● ACTIVE' : '● IDLE';
-        slewingEl.className = 'value ' + (d.slewing ? 'status-slewing' : '');
-        slewingEl.style.color = d.slewing ? cssVar('--status-warning') : '#666';
+        slewingEl.textContent = '● SLEW';
+        slewingEl.className = 'mount-led ' + (d.slewing ? 'busy' : 'off');
     }
 
     const parkingEl = document.getElementById('status-parking');
     if (parkingEl) {
-        const parking = d.park_state === 'Busy';
-        parkingEl.textContent = parking ? '● ACTIVE' : '● IDLE';
-        parkingEl.className = 'value ' + (parking ? 'status-parking' : '');
-        parkingEl.style.color = parking ? cssVar('--status-warning') : '#666';
+        parkingEl.textContent = '● PARK';
+        const isBusy = d.park_state === 'Busy';
+        if (isBusy) parkingEl.className = 'mount-led busy';
+        else parkingEl.className = 'mount-led ' + (d.parked ? 'on' : 'off');
     }
 
     const homingEl = document.getElementById('status-homing');
     if (homingEl) {
-        homingEl.textContent = d.homing ? '● ACTIVE' : '● IDLE';
-        homingEl.className = 'value ' + (d.homing ? 'status-parking' : '');
-        homingEl.style.color = d.homing ? cssVar('--status-warning') : '#666';
+        homingEl.textContent = '● HOME';
+        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : 'off');
     }
 
     const busy = d.park_state === 'Busy' || d.slewing || d.homing;
@@ -59,7 +57,7 @@ function renderMountPanel() {
         const statusProp = d.props.find(p => p.name === 'OnStep Status');
         // OnStep status currently not in an applet, could be added later
 
-        const slewProp = d.props.find(p => p.name === 'TELESCOPE_SLEW_RATE');
+        const slewProp = d.props.find(p => p.name === 'MOUNT_SLEW_RATE' || p.name === 'TELESCOPE_SLEW_RATE');
         if (slewProp && slewProp.items.length > 0) {
             const sel = document.getElementById('slew-speed');
             if (sel && sel.dataset.count !== String(slewProp.items.length)) {
@@ -197,6 +195,7 @@ function mountGoto() {
 function mountMove(dir) {
     const m = findMount();
     if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
+    if (m.dev.parked) { addLog('warning', 'mount', 'Monture parquée — déparquez d\'abord (UNPARK)'); return; }
     const speed = document.getElementById('slew-speed')?.value;
     addLog('debug', 'mount', i18nFmt('log.mount.move_rate', { dir, speed }));
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });

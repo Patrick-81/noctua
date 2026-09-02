@@ -1,5 +1,7 @@
 # Remarques — Noctua vs N.I.N.A.
 
+*English version: [REMARKS_EN.md](docs/REMARKS_EN.md)*
+
 Comparaison des fonctionnalités de Noctua (indigo_devices) avec N.I.N.A.
 (nighttime-imaging), et évolutions envisagées.
 

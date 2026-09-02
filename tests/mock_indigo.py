@@ -131,6 +131,13 @@ PROP_DEFS = [
     '<defSwitch name="WEST" value="Off" label="West"/>'
     '</defSwitchVector>',
 
+    '<defSwitchVector device="Mount" name="MOUNT_SLEW_RATE" state="Ok" perm="rw" rule="OneOfMany" label="Slew Rate">'
+    '<defSwitch name="Guide" value="Off" label="Guide"/>'
+    '<defSwitch name="Centering" value="Off" label="Centering"/>'
+    '<defSwitch name="Find" value="On" label="Find"/>'
+    '<defSwitch name="Max" value="Off" label="Max"/>'
+    '</defSwitchVector>',
+
     '<defSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok" perm="rw" rule="OneOfMany" label="Drift Simulation">'
     '<defSwitch name="ENABLED" value="On" label="Enabled"/>'
     '<defSwitch name="DISABLED" value="Off" label="Disabled"/>'
@@ -319,6 +326,10 @@ class MockMount:
         self.drift_sim = drift_sim  # Optional: guide drift sim to correct
         self._guide_moving_ns = False
         self._guide_moving_we = False
+        self._motion_ns_dir: str | None = None
+        self._motion_we_dir: str | None = None
+        self._motion_task: asyncio.Task | None = None
+        self.slew_rate = "Find"
         self.drift_enabled = True
         # Mock observing site (Mirrors config.yaml defaults)
         self.lat_deg = 43.952
@@ -404,6 +415,11 @@ class MockMount:
             f'</setSwitchVector>'
         )
 
+    def slew_rate_xml(self):
+        rates = ["Guide", "Centering", "Find", "Max"]
+        parts = "".join(f'<oneSwitch name="{r}" value="{"On" if r == self.slew_rate else "Off"}"/>' for r in rates)
+        return f'<setSwitchVector device="Mount" name="MOUNT_SLEW_RATE" state="Ok" perm="rw" rule="OneOfMany">{parts}</setSwitchVector>'
+
     def handle_number(self, prop_name, items):
         if prop_name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
             self._start_ra = self.ra_hours
@@ -444,28 +460,48 @@ class MockMount:
             self.slewing = False
             self._target_ra = None
             self._target_dec = None
+            self._guide_moving_ns = False
+            self._guide_moving_we = False
+            self._motion_ns_dir = None
+            self._motion_we_dir = None
             log.info("Abort — RA=%.4fh DEC=%.4f°", self.ra_hours, self.dec_deg)
             responses.append(self.coords_xml())
+            responses.append(self.motion_ns_xml())
+            responses.append(self.motion_we_xml())
         elif prop_name == "MOUNT_MOTION_NS":
             on_dir = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on_dir:
                 self._guide_moving_ns = True
+                self._motion_ns_dir = on_dir
+                log.info("Motion NS %s", on_dir)
                 if self.drift_sim:
                     self.drift_sim.apply_correction_ns(on_dir)
                 responses.append(self.motion_ns_xml(on_dir))
             else:
                 self._guide_moving_ns = False
+                self._motion_ns_dir = None
+                log.info("Motion NS stop")
                 responses.append(self.motion_ns_xml())
         elif prop_name == "MOUNT_MOTION_WE":
             on_dir = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on_dir:
                 self._guide_moving_we = True
+                self._motion_we_dir = on_dir
+                log.info("Motion WE %s", on_dir)
                 if self.drift_sim:
                     self.drift_sim.apply_correction_we(on_dir)
                 responses.append(self.motion_we_xml(on_dir))
             else:
                 self._guide_moving_we = False
+                self._motion_we_dir = None
+                log.info("Motion WE stop")
                 responses.append(self.motion_we_xml())
+        elif prop_name in ("MOUNT_SLEW_RATE", "TELESCOPE_SLEW_RATE"):
+            on = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
+            if on:
+                self.slew_rate = on
+                log.info("Slew rate: %s", on)
+            responses.append(self.slew_rate_xml())
         elif prop_name == "DRIFT_SIM_ENABLE":
             enabled = items.get("ENABLED", "off").lower() in ("on", "true", "1")
             self.drift_enabled = enabled
@@ -484,7 +520,7 @@ class MockMount:
         coord_state = "Busy" if self.slewing else "Ok"
         for xml in [self.connection_xml(), self.coords_xml(coord_state), self.horizontal_xml(),
                      self.tracking_xml(),
-                     self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(),
+                     self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(), self.slew_rate_xml(),
                      f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
                      f'<oneSwitch name="ENABLED">{enabled}</oneSwitch>'
                      f'<oneSwitch name="DISABLED">{disabled}</oneSwitch>'
@@ -492,6 +528,33 @@ class MockMount:
             writer.write((xml + "\n").encode())
             await writer.drain()
             await asyncio.sleep(0.03)
+
+    async def motion_loop(self, writer):
+        """Continuously update RA/DEC while handpad motion is active."""
+        factor_map = {"Guide": 0.2, "Centering": 0.5, "Find": 1.0, "Max": 3.0}
+        try:
+            while True:
+                if self._guide_moving_ns or self._guide_moving_we:
+                    factor = factor_map.get(self.slew_rate, 1.0)
+                    log.info("Motion tick NS=%s WE=%s rate=%s → RA=%.4fh DEC=%.4f", self._motion_ns_dir, self._motion_we_dir, self.slew_rate, self.ra_hours, self.dec_deg)
+                    if self._motion_ns_dir == "NORTH":
+                        self.dec_deg = min(90, self.dec_deg + 0.05 * factor)
+                    elif self._motion_ns_dir == "SOUTH":
+                        self.dec_deg = max(-90, self.dec_deg - 0.05 * factor)
+                    if self._motion_we_dir == "WEST":
+                        self.ra_hours += 0.008 * factor
+                        if self.ra_hours >= 24:
+                            self.ra_hours -= 24
+                    elif self._motion_we_dir == "EAST":
+                        self.ra_hours -= 0.008 * factor
+                        if self.ra_hours < 0:
+                            self.ra_hours += 24
+                    writer.write((self.coords_xml("Busy") + "\n").encode())
+                    writer.write((self.horizontal_xml() + "\n").encode())
+                    await writer.drain()
+                await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError):
+            pass
 
 
 # ── Mock focuser ────────────────────────────────────────────────
@@ -782,6 +845,7 @@ class MockIndigoServer:
         addr = writer.get_extra_info("peername")
         log.info("Client connected: %s", addr)
         self._writer = writer
+        motion_task = asyncio.create_task(self.mount.motion_loop(writer))
         try:
             xml_buf = b""
             while True:
@@ -896,6 +960,10 @@ class MockIndigoServer:
         except (ConnectionResetError, BrokenPipeError):
             log.info("Client disconnected")
         finally:
+            try:
+                motion_task.cancel()
+            except Exception:
+                pass
             writer.close()
             self._writer = None
 

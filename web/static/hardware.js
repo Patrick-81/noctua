@@ -37,6 +37,39 @@ async function hwLoad() {
     } catch (e) { addLog('error', 'hw', e.message); }
 }
 
+function renderConnLeds() {
+    const el = document.getElementById('conn-device-leds');
+    if (!el) return;
+    el.innerHTML = '';
+    const ap = typeof hwActiveProfile === 'function' ? hwActiveProfile() : null;
+    const order = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel'];
+    let shown = 0;
+    for (const role of order) {
+        const types = HW_ROLE_TYPES[role] || [];
+        let name = null, connected = false;
+        if (ap && ap[role] && _hwDevices[ap[role]]) { name = ap[role]; connected = !!_hwDevices[name].connected; }
+        else {
+            const cand = Object.keys(_hwDevices).find(n => types.includes(_hwDevices[n].type));
+            if (cand) { name = cand; connected = !!_hwDevices[cand].connected; }
+        }
+        // Toujours afficher T C A F R/W en neutre (gris) → vert quand connecté
+        const isEn = (typeof I18N !== 'undefined' && I18N.current === 'en');
+        const letter = { mount: 'T', camera: 'C', guide_camera: 'A', focuser: 'F', filter_wheel: isEn ? 'W' : 'R' }[role] || '?';
+        const item = document.createElement('span');
+        item.className = 'conn-led-item';
+        const titleName = name || letter;
+        item.title = name ? `${name} — ${connected ? 'connecté' : 'hors ligne'}` : `${letter} — non assigné`;
+        const dot = document.createElement('span');
+        dot.className = 'conn-led ' + (connected ? 'on' : 'off');
+        const lab = document.createElement('span');
+        lab.className = 'conn-led-label';
+        lab.textContent = letter;
+        item.appendChild(dot);
+        item.appendChild(lab);
+        el.appendChild(item);
+    }
+}
+
 function renderHardwarePanel() {
     const list = document.getElementById('hw-device-list');
     const sel = document.getElementById('hw-profile-select');
@@ -66,6 +99,18 @@ function renderHardwarePanel() {
     const ap = hwActiveProfile();
     if (opticsInput && opticsInput !== document.activeElement) {
         opticsInput.value = ap?.optics || '';
+    }
+    // Monture — connexion (interface + endpoint) liée au profil
+    const mountIf = document.getElementById('hw-mount-interface');
+    const mountEp = document.getElementById('hw-mount-endpoint');
+    const mountEpLabel = document.getElementById('hw-mount-endpoint-label');
+    if (mountIf && mountEp) {
+        const curIf = ap?.mount_interface || 'serial';
+        const curEp = ap?.mount_endpoint || '';
+        if (document.activeElement !== mountIf) mountIf.value = curIf;
+        if (document.activeElement !== mountEp) mountEp.value = curEp;
+        if (mountEpLabel) mountEpLabel.textContent = curIf === 'network' ? 'Host:port:' : 'Port:';
+        mountEp.placeholder = curIf === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
     }
 
     // Device rows
@@ -98,6 +143,7 @@ function renderHardwarePanel() {
     }).catch(() => {});
 
     renderHardwareRoles();
+    renderConnLeds();
 }
 
 // Per-role selectors: for each role, list the detected devices compatible with it.
@@ -151,6 +197,8 @@ async function hwAssignRole(role, name) {
     }
     update[role] = name;
     update.optics = ap.optics || '';
+    update.mount_interface = ap.mount_interface || null;
+    update.mount_endpoint = ap.mount_endpoint || null;
     await fetch('/api/profiles', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(update),
@@ -188,6 +236,8 @@ function initHardwarePanel() {
         const body = { name };
         for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
         body.optics = ap.optics || '';
+        body.mount_interface = ap.mount_interface || null;
+        body.mount_endpoint = ap.mount_endpoint || null;
         await fetch('/api/profiles', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -207,6 +257,8 @@ function initHardwarePanel() {
         const body = { name: ap.name };
         for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
         body.optics = ap.optics || '';
+        body.mount_interface = document.getElementById('hw-mount-interface')?.value || ap.mount_interface || null;
+        body.mount_endpoint = document.getElementById('hw-mount-endpoint')?.value.trim() || ap.mount_endpoint || null;
         await fetch('/api/profiles', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -264,12 +316,39 @@ function initHardwarePanel() {
         await hwAssignRole(sel.dataset.role, sel.value);
     });
 
+    const mountIf = document.getElementById('hw-mount-interface');
+    const mountEp = document.getElementById('hw-mount-endpoint');
+    async function saveMountConn() {
+        const ap = hwActiveProfile();
+        if (!ap) return;
+        const body = { name: ap.name };
+        for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
+        body.optics = ap.optics || '';
+        body.mount_interface = mountIf ? mountIf.value : ap.mount_interface || 'serial';
+        body.mount_endpoint = mountEp ? mountEp.value.trim() : ap.mount_endpoint || '';
+        await fetch('/api/profiles', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        await hwLoad();
+        renderHardwarePanel();
+    }
+    if (mountIf) mountIf.addEventListener('change', async () => {
+        const lab = document.getElementById('hw-mount-endpoint-label');
+        if (lab) lab.textContent = mountIf.value === 'network' ? 'Host:port:' : 'Port:';
+        if (mountEp) mountEp.placeholder = mountIf.value === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
+        await saveMountConn();
+    });
+    if (mountEp) mountEp.addEventListener('change', saveMountConn);
+
     if (optics) optics.addEventListener('change', async () => {
         const ap = hwActiveProfile();
         if (!ap) return;
         const body = { name: ap.name };
         for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
         body.optics = optics.value.trim();
+        body.mount_interface = ap.mount_interface || null;
+        body.mount_endpoint = ap.mount_endpoint || null;
         await fetch('/api/profiles', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -298,7 +377,7 @@ function initHardwarePanel() {
         renderHardwarePanel();
     });
 
-    hwLoad().then(() => renderHardwarePanel());
+    hwLoad().then(() => { renderHardwarePanel(); renderConnLeds(); });
 }
 
 // ── Hardware mode (mode dédié, grand panneau) ────────────────
@@ -395,6 +474,7 @@ Hub.subscribe('ws:state', 'hardware', (env) => {
     _hwDevices = next;
     renderHardwarePanel();
     renderHardwareMode();
+    renderConnLeds();
 });
 
 // Consommateur mode:changed : rafraîchit le mode matériel à l'entrée.

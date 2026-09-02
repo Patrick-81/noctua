@@ -1,5 +1,7 @@
 # Noctua — Guide d'utilisation
 
+*English version: [UTILISATION_EN.md](UTILISATION_EN.md)*
+
 Interface web de pilotage d'équipements astronomiques INDIGO (monture, caméras, focuser, roue à filtres).
 Ce guide décrit les modes, panneaux et réglages disponibles côté navigateur.
 
@@ -39,19 +41,18 @@ Puis ouvrir **http://<hôte>:8080**.
 
 ## 2. Barre de connexion
 
-Toujours visible en haut au centre :
+Toujours visible en haut, pleine largeur `calc(100vw-16px)` :
 
 | Champ | Rôle |
 | ----- | ---- |
 | Protocole | `Connect` (connexion auto) ou `Attach` (sélection d'un driver manuel) |
 | Hôte / Port | Adresse du serveur INDIGO |
 | ● CONN | Établit / rétablit la connexion |
-| Driver (Attach) | Sélection du driver à attacher, puis **ATTACHER** |
-| Port (série) | Port série pour périphériques connectés par câble (monture, focuser…) — masqué en modes capture/astro |
-| Coordonnées 📍 | Latitude / longitude du site |
-| Langue FR/EN | Sélecteur de langue de l'interface (voir § 3) |
+| FR/EN · Thème | Sélecteur de langue (voir § 3) et palette (`Noctua/Sobre/Graphite/Twilight/Ember`) |
+| 📍 lat/lon + LEDs | Coordonnées du site + **LEDs compactes** `T` (monture) `C` (caméra) `A` (autoguidage) `F` (focuser) `R`/`W` (roue) — gris neutre → vert `#44cc44` quand le device du rôle est connecté (visible même en `graphite/sobre`) |
+| Driver / Port série | Masqués en mobile (`<1100px`) — gérés depuis le panneau Matériel |
 
-L'état de la connexion est affiché en ligne (`● Hors ligne` / `● En ligne`).
+L'état de la connexion est affiché en ligne (`● Hors ligne` / `● En ligne`). La ligne driver n'est plus affichée en mobile, la colonne d'icônes démarre sous le bandeau (`top 124px`, `144px` en téléphone) pour ne pas mordre dessus.
 
 ---
 
@@ -75,6 +76,8 @@ son plan, sa possible mosaïque et ses options. Le panneau **SÉQUENCE** du mode
 
 Chaque panneau est **mobile** (glisser par sa barre de titre), **réductible** (bouton `−` / `+`) et **épinglable** (📌 fige la position). Positions et états sont mémorisés par mode dans `ui.yaml` via `POST /api/ui`.
 
+> **Tablette / téléphone (`<1100px`)** : bandeau pleine largeur en haut, `#bottom-nav` (7 icônes en bas), zone centrale `skymap/panneaux` `width:calc(100vw-66px)` à gauche de la colonne d'icônes, `#mobile-stack` scrollable (carte fixe derrière, `pointer-events:none` sur la couche, gap 8px, pas de recouvrement), dock vertical droit `#mobile-dock` `top:124px` (`144px` en `<599px`) `44×44` uniformes (survol = titre, tap = afficher/masquer, pulse cyan, `off` orange), swipe horizontal entre modes, boutons `−` masqués.
+
 ### Langue de l'interface
 
 Un sélecteur **FR / EN** se trouve dans la barre de connexion (à droite de l'état de connexion).
@@ -89,7 +92,8 @@ Un sélecteur **FR / EN** se trouve dans la barre de connexion (à droite de l'�
 
 - Liste des périphériques détectés avec leur rôle et état (connecté / erreur).
 - Connexion **par rôle** ou **tout d'un coup** (boutons dédiés).
-- Profils persistants : enregistrer / charger / appliquer un profil = connecter son set de périphériques.
+- **MONTURE — CONNEXION** : sélecteur `Série` vs `Réseau host:port` + champ endpoint (`/dev/ttyUSB0` ou `192.168.1.10:7624`), sauvegardé dans le profil (`mount_interface`, `mount_endpoint`) et appliqué à la connexion.
+- Profils persistants : enregistrer / charger / appliquer un profil = connecter son set de périphériques (profils stockent aussi l'interface monture).
 - Édition des propriétés INDIGO de l'objet sélectionné.
 
 ---
@@ -328,7 +332,7 @@ Actions : `log` (message via journal, niveau), `script` (commande externe avec t
 | Fichier | Contenu |
 | ------- | ------- |
 | `config.yaml` | INDIGO (hôte/port), web (hôte/port), site, telescope (flip), exposure (pose idéale + recentrage), masters, sequence (save_dir, dither+settle, refocus, stack, frames, triggers) |
-| `profiles.yaml` | Profils matériel : `{ name, mount, camera, guide_camera, focuser, filter_wheel, optics }` |
+| `profiles.yaml` | Profils matériel : `{ name, mount, camera, guide_camera, focuser, filter_wheel, optics, mount_interface, mount_endpoint }` (`mount_interface: serial|network`, `mount_endpoint: /dev/ttyUSB0` ou `host:port`) |
 | `ui.yaml` | Disposition des panneaux par mode, log levels, couches du ciel, histogramme, driver sélectionné |
 | `sequence_templates.yaml` | Templates de séquences nommés (C3) |
 | `web/static/i18n.{fr,en}.js` | Dictionnaires FR/EN de l'interface |

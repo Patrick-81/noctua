@@ -1,5 +1,7 @@
 # Noctua — Plan du projet
 
+*English version: [PLAN_EN.md](docs/PLAN_EN.md)*
+
 ## Objectif
 Contrôler des périphériques INDIGO (monture, caméra, focuser, roue à filtres) via une interface web minimaliste.
 

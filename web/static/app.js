@@ -23,8 +23,33 @@ function switchMode(mode) {
         const el = document.getElementById(id);
         if (el) el.style.display = '';
     }
+    // Mobile : repli latéral par défaut pour libérer la carte
+    if (window.innerWidth < 1100) {
+        const ids = MODES[mode].applets;
+        // Garde le 1er panneau ouvert, replie les autres en onglet latéral
+        ids.slice(1).forEach(id => {
+            const el = document.getElementById(id);
+            if (el && !el.classList.contains('collapsed')) {
+                el.classList.add('collapsed');
+                const btn = el.querySelector('.applet-minimize');
+                if (btn) btn.classList.add('collapsed-label');
+            }
+        });
+        // Réduit aussi le tableau de bord si guidage (trop dense)
+        if (mode === 'guiding') {
+            const dash = document.getElementById('applet-status');
+            if (dash && !dash.classList.contains('collapsed')) {
+                dash.classList.add('collapsed');
+                const btn = dash.querySelector('.applet-minimize');
+                if (btn) btn.classList.add('collapsed-label');
+            }
+        }
+    }
 
     document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.mode === mode);
+    });
+    document.querySelectorAll('#bottom-nav .bnav-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
     });
 
@@ -66,6 +91,7 @@ function switchMode(mode) {
     refreshDriverList();
     loadAppletPositions();
     saveUiConfig();
+    if (typeof positionMobileDrawers === 'function') positionMobileDrawers();
 }
 
 function configureViewerForMode(mode) {
@@ -124,6 +150,59 @@ function initModeBar() {
     });
 }
 
+function initBottomNav() {
+    document.querySelectorAll('#bottom-nav .bnav-btn').forEach(btn => {
+        btn.addEventListener('click', () => switchMode(btn.dataset.mode));
+    });
+}
+
+function initSwipeNav() {
+    const modes = Object.keys(MODES);
+    let startX = 0, startY = 0, tracking = false;
+    const threshold = 70, restraint = 90;
+    const layer = document.getElementById('applets-layer');
+    if (!layer) return;
+    // Swipe sur la zone des applets (pas sur le canvas) pour changer de mode
+    const onStart = (e) => {
+        if (window.innerWidth >= 1100) return;
+        const t = e.touches ? e.touches[0] : e;
+        if (t.target.closest('button, input, select, textarea, canvas, a, #canvas-container')) return;
+        // Ne tracker que si le touch part de l'area des applets (pas du fond carte)
+        if (!t.target.closest('#applets-layer') && !t.target.closest('#bottom-nav')) return;
+        startX = t.clientX; startY = t.clientY; tracking = true;
+    };
+    const onEnd = (e) => {
+        if (!tracking) return;
+        tracking = false;
+        if (window.innerWidth >= 1100) return;
+        const t = e.changedTouches ? e.changedTouches[0] : e;
+        const dx = t.clientX - startX, dy = t.clientY - startY;
+        if (Math.abs(dy) > restraint) return;
+        if (Math.abs(dx) < threshold) return;
+        const idx = modes.indexOf(currentMode);
+        if (dx < 0 && idx < modes.length - 1) switchMode(modes[idx + 1]);
+        else if (dx > 0 && idx > 0) switchMode(modes[idx - 1]);
+    };
+    layer.addEventListener('touchstart', onStart, { passive: true });
+    layer.addEventListener('touchend', onEnd, { passive: true });
+    // Desktop drag horizontal
+    let mouseDown = false;
+    layer.addEventListener('mousedown', (e) => {
+        if (window.innerWidth >= 1100) return;
+        if (e.target.closest('button, input, select, textarea, canvas, a')) return;
+        mouseDown = true; startX = e.clientX; startY = e.clientY;
+    });
+    layer.addEventListener('mouseup', (e) => {
+        if (!mouseDown) return; mouseDown = false;
+        const dx = e.clientX - startX, dy = e.clientY - startY;
+        if (Math.abs(dy) > restraint) return;
+        if (Math.abs(dx) < threshold) return;
+        const idx = modes.indexOf(currentMode);
+        if (dx < 0 && idx < modes.length - 1) switchMode(modes[idx + 1]);
+        else if (dx > 0 && idx > 0) switchMode(modes[idx - 1]);
+    });
+}
+
 // ── Internationalisation ──────────────────────────────────────
 
 function initI18nSelector() {
@@ -132,6 +211,20 @@ function initI18nSelector() {
     sel.value = I18N.current;
     sel.addEventListener('change', () => {
         I18N.setLang(sel.value);
+    });
+}
+
+function initBandeauMenu() {
+    const btn = document.getElementById('btn-bandeau-menu');
+    const menu = document.getElementById('bandeau-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = menu.style.display !== 'none';
+        menu.style.display = open ? 'none' : 'flex';
+    });
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && e.target !== btn) menu.style.display = 'none';
     });
 }
 
@@ -320,9 +413,17 @@ function initDraggableApplets() {
             }
             saveUiConfig();
         });
+        // Tap sur onglet replié (mobile latéral) → déplie
+        handle.addEventListener('click', (e) => {
+            if (panel.classList.contains('collapsed') && !e.target.closest('button')) {
+                e.stopPropagation();
+                toggleMinimize(panel);
+            }
+        });
 
         // Drag from any non-interactive area of the panel
         panel.addEventListener('mousedown', (e) => {
+            if (window.innerWidth < 1100) return;
             // Don't drag on interactive elements
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' ||
                 e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA' ||
@@ -379,7 +480,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadUiConfig();
 
     initModeBar();
+    initBottomNav();
+    initSwipeNav();
     initI18nSelector();
+    initBandeauMenu();
     initConnectionBar();
     initHardwarePanel();
     initHardwareMode();
@@ -420,8 +524,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     connectWS();
 
     // Re-check overlap on resize
+    let _prevW = window.innerWidth;
     window.addEventListener('resize', () => {
-        requestAnimationFrame(() => resolvePanelLayout());
+        const w = window.innerWidth;
+        const crossed = (_prevW < 1100) !== (w < 1100);
+        _prevW = w;
+        if (crossed && w >= 1100) requestAnimationFrame(() => loadAppletPositions());
+        else requestAnimationFrame(() => resolvePanelLayout());
+        if (typeof positionMobileDrawers === 'function') requestAnimationFrame(() => positionMobileDrawers());
     });
 
     // Apply UI config: mode

@@ -54,7 +54,7 @@ séquences d'acquisition multi-cibles (mosaïques incluses), bibliothèque de ma
 ## Stack
 
 - **Backend** : Python 3.10+, FastAPI, uvicorn, PyYAML
-- **Frontend** : JS vanilla (scripts classiques, pas de build step), Canvas, CSS glassmorphisme
+- **Frontend** : JS vanilla (scripts classiques, pas de build step), Canvas, CSS glassmorphisme, responsive `<1100px` (bandeau pleine largeur + bottom-nav + colonne d'icônes `124px` sous bandeau + stack `calc(100vw-66px)` scrollable, carte fixe derrière, LEDs `T C A F R/W` gris→vert)
 - **Protocole** : INDIGO/INDI XML via TCP (le client parlé INDI au serveur ; le navigateur rejoint le serveur web via WebSocket pour l'état temps réel)
 
 ## Compatibilité matérielle — INDIGO comme passerelle universelle

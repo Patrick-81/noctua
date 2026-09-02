@@ -49,6 +49,105 @@ class ChecklistPanel {
     }
 }
 
+const PANEL_ICONS = {
+    'applet-status': '◈', 'applet-pilotage': '🔭', 'applet-hud': '🗺',
+    'applet-focuser-control': '🔍', 'applet-focuser-position': '📈', 'applet-autofocus': '◎',
+    'applet-guide-checklist': '☑', 'applet-guide-preview': '👁', 'applet-guiding-graph': '📉',
+    'applet-guiding-settings': '⚙', 'applet-calibration': '🎯', 'applet-session': '📋',
+    'applet-capture-settings': '📷', 'applet-capture-preview': '🖼', 'applet-sequence': '📋',
+    'applet-sequencer': '📋', 'applet-stacking': '🥞', 'applet-solver': '⭐',
+    'applet-target': '🎯', 'applet-framing': '🖼', 'applet-polar': '🧭',
+    'applet-pointing': '📍', 'applet-hardware-mode': '🔧', 'applet-legend': '▦', 'applet-log': '≡'
+};
+const PANEL_TITLES = {
+    'applet-status': 'Tableau de bord', 'applet-pilotage': 'Pilotage monture',
+    'applet-hud': 'Console de pointage', 'applet-focuser-control': 'Focuser',
+    'applet-focuser-position': 'Focus — HFR', 'applet-autofocus': 'Autofocus V-curve',
+    'applet-guide-checklist': 'Guidage — Checklist', 'applet-guide-preview': 'Guidage — Aperçu',
+    'applet-guiding-graph': 'Guidage — Dérive', 'applet-guiding-settings': 'Guidage — Paramètres',
+    'applet-calibration': 'Calibration monture', 'applet-session': 'Session',
+    'applet-capture-settings': 'Capture', 'applet-capture-preview': 'Aperçu',
+    'applet-sequence': 'Séquence', 'applet-sequencer': 'Séquenceur',
+    'applet-stacking': 'Live stacking', 'applet-solver': 'Plate solver',
+    'applet-target': 'Cible — Centrage', 'applet-framing': 'Framing — Cadrage',
+    'applet-polar': 'Mise en station polaire', 'applet-pointing': 'Pointing model',
+    'applet-hardware-mode': 'Matériel', 'applet-legend': 'Légende', 'applet-log': 'Log'
+};
+function getPanelTitle(id) {
+    const el = document.getElementById(id);
+    if (!el) return PANEL_TITLES[id] || id;
+    const t = el.querySelector('.hud-title');
+    if (t && t.textContent.trim()) return t.textContent.trim().replace(/^[◈◎▣▦≡]+\s*/, '');
+    return PANEL_TITLES[id] || id;
+}
+function updateMobileDock() {
+    const dock = document.getElementById('mobile-dock');
+    if (!dock) return;
+    if (window.innerWidth >= 1100) { dock.innerHTML = ''; dock.style.display = 'none'; return; }
+    dock.style.display = 'flex';
+    const ids = (MODES[currentMode]?.applets || []).slice();
+    // Inclure le dashboard s'il est visible dans ce mode (toujours visible sauf hardware)
+    if (!ids.includes('applet-status') && document.getElementById('applet-status')?.style.display !== 'none') {
+        ids.unshift('applet-status');
+    }
+    dock.innerHTML = '';
+    ids.forEach(id => {
+        const panel = document.getElementById(id);
+        if (!panel) return;
+        if (panel.style.display === 'none' && panel.classList.contains('mode-specific')) return;
+        // Ne pas dupliquer les panneaux masqués par le mode (display none)
+        if (getComputedStyle(panel).display === 'none' && !ids.includes(id)) return;
+        const isVisible = !panel.classList.contains('collapsed') && getComputedStyle(panel).display !== 'none' && panel.offsetParent !== null;
+        // Sur mobile, offsetParent null si display none, mais on veut quand même une icône pour les cachés
+        const isHidden = panel.classList.contains('collapsed') || panel.style.display === 'none';
+        const btn = document.createElement('button');
+        btn.className = 'dock-btn' + (!isHidden ? ' active' : '');
+        btn.dataset.panel = id;
+        const icon = PANEL_ICONS[id] || '◈';
+        btn.textContent = icon;
+        const title = getPanelTitle(id);
+        btn.title = title + (!isHidden ? ' — affiché' : ' — masqué');
+        btn.setAttribute('aria-label', title);
+        btn.addEventListener('click', () => {
+            const p = document.getElementById(id);
+            if (!p) return;
+            const willShow = p.classList.contains('collapsed') || getComputedStyle(p).display === 'none';
+            if (willShow) {
+                p.classList.remove('collapsed');
+                p.style.display = '';
+                // Retire l'état collapsed persisté
+                if (['applet-log','applet-legend'].includes(id)) {
+                    if (uiConfig.fixedCollapsed) uiConfig.fixedCollapsed[id] = false;
+                } else {
+                    if (currentModeConfig().collapsed) currentModeConfig().collapsed[id] = false;
+                }
+                const minBtn = p.querySelector('.applet-minimize');
+                if (minBtn) minBtn.classList.remove('collapsed-label');
+                // Scroll doux vers le panneau sans déplacer la carte (stack scroll)
+                requestAnimationFrame(() => {
+                    const stack = document.getElementById('mobile-stack');
+                    if (stack && p.closest('#mobile-stack')) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                });
+            } else {
+                p.classList.add('collapsed');
+                const minBtn = p.querySelector('.applet-minimize');
+                if (minBtn) minBtn.classList.add('collapsed-label');
+                if (['applet-log','applet-legend'].includes(id)) {
+                    uiConfig.fixedCollapsed = uiConfig.fixedCollapsed || {};
+                    uiConfig.fixedCollapsed[id] = true;
+                } else {
+                    currentModeConfig().collapsed = currentModeConfig().collapsed || {};
+                    currentModeConfig().collapsed[id] = true;
+                }
+            }
+            saveUiConfig();
+            updateMobileDock();
+        });
+        dock.appendChild(btn);
+    });
+}
+// Compat : ancien nom appelé par app.js
+function positionMobileDrawers() { updateMobileDock(); }
 function toggleMinimize(panel) {
     const wasCollapsed = panel.classList.contains('collapsed');
     panel.classList.toggle('collapsed');
@@ -62,7 +161,17 @@ function toggleMinimize(panel) {
         currentModeConfig().collapsed = currentModeConfig().collapsed || {};
         currentModeConfig().collapsed[panel.id] = !wasCollapsed;
     }
+    if (wasCollapsed) {
+        // Expansion : retire le positionnement tiroir (important inclus)
+        panel.style.removeProperty('top');
+        panel.style.removeProperty('right');
+        panel.style.removeProperty('left');
+        panel.style.removeProperty('bottom');
+        const di = panel.querySelector('.drag-icon');
+        if (di) di.textContent = '⣿⣿';
+    }
     saveUiConfig();
+    positionMobileDrawers();
 }
 
 function applyCollapsedState() {
@@ -76,9 +185,12 @@ function applyCollapsedState() {
         const btn = el.querySelector('.applet-minimize');
         if (btn) btn.classList.add('collapsed-label');
     }
+    positionMobileDrawers();
 }
 
 function loadAppletPositions() {
+    // P0 responsive : en <1100px on laisse le flux CSS vertical, pas d'absolute
+    if (window.innerWidth < 1100) { applyCollapsedState(); return; }
     const modeCfg = currentModeConfig();
     const positions = modeCfg.applets || {};
     const FIXED_PANELS = ['applet-log', 'applet-legend'];
@@ -109,6 +221,7 @@ function resolvePanelLayout() {
 // Clamp every visible applet inside the viewport and clear of the
 // mode bar / connection bar. Panels may freely overlap each other.
 function sanitizePanelLayout() {
+    if (window.innerWidth < 1100) return;
     const margin = 8;
     const vw = window.innerWidth, vh = window.innerHeight;
 
@@ -153,6 +266,7 @@ function sanitizePanelLayout() {
 }
 
 function saveAppletPositions() {
+    if (window.innerWidth < 1100) return;
     const modeCfg = currentModeConfig();
     const positions = {};
     const FIXED_PANELS = ['applet-log', 'applet-legend'];

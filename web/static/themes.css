@@ -107,3 +107,123 @@
     --mode-btn-active-bg: #7a9ab0;
     --mode-btn-active-fg: #0e1220;
 }
+
+/* ── Thème graphite — gris-bleu très désaturé, ultra sobre ─────── */
+[data-theme="graphite"] {
+    --bg-primary: #1a1e24;
+    --bg-secondary: #141820;
+    --bg-panel: rgba(38, 44, 54, 0.88);
+    --bg-panel-solid: rgba(42, 48, 60, 0.92);
+    --bg-input: rgba(30, 36, 46, 0.9);
+    --bg-hover: rgba(130, 145, 160, 0.10);
+    --bg-active: rgba(130, 145, 160, 0.18);
+    --accent: #a8b8c8;
+    --accent-rgb: 168, 184, 200;
+    --accent-dim: rgba(168, 184, 200, 0.45);
+    --accent-subtle: rgba(168, 184, 200, 0.18);
+    --accent-faint: rgba(168, 184, 200, 0.08);
+    --text-primary: #e0e6ee;
+    --text-secondary: #b8c2d0;
+    --text-muted: #8894a6;
+    --text-dim: #5a6678;
+    --status-online: #7a9a8a;
+    --status-offline: #8a6a6a;
+    --status-warning: #9e9a7a;
+    --status-error: #9a6e7a;
+    --border-subtle: rgba(130, 145, 160, 0.07);
+    --border-default: rgba(130, 145, 160, 0.14);
+    --border-strong: rgba(130, 145, 160, 0.26);
+    --border-active: #8a9baa;
+    --shadow-panel: 0 8px 28px rgba(0, 0, 0, 0.55);
+    --shadow-glow: 0 0 8px rgba(130, 145, 160, 0.08);
+    --pinned-border: rgba(138, 154, 170, 0.35);
+    --drag-handle-bg: rgba(130, 145, 160, 0.05);
+    --btn-success: #7a9a8a;
+    --btn-warning: #9e9a7a;
+    --btn-danger: #9a6e7a;
+    --slider-track: rgba(130, 145, 160, 0.16);
+    --slider-thumb: rgba(138, 154, 170, 0.5);
+    --checkbox-accent: #8a9baa;
+    --mode-btn-active-bg: #8a9baa;
+    --mode-btn-active-fg: #0c0f13;
+}
+
+/* ── Thème twilight — navy profond / bleu acier ────────────────── */
+[data-theme="twilight"] {
+    --bg-primary: #0c1428;
+    --bg-secondary: #080f20;
+    --bg-panel: rgba(22, 38, 68, 0.88);
+    --bg-panel-solid: rgba(28, 44, 78, 0.92);
+    --bg-input: rgba(18, 30, 52, 0.9);
+    --bg-hover: rgba(90, 120, 160, 0.10);
+    --bg-active: rgba(90, 120, 160, 0.16);
+    --accent: #6ea8d0;
+    --accent-rgb: 110, 168, 208;
+    --accent-dim: rgba(110, 168, 208, 0.45);
+    --accent-subtle: rgba(110, 168, 208, 0.18);
+    --accent-faint: rgba(110, 168, 208, 0.08);
+    --text-primary: #dce8f5;
+    --text-secondary: #a8b8d0;
+    --text-muted: #7a8eb0;
+    --text-dim: #526a88;
+    --status-online: #7ab8a0;
+    --status-offline: #8a6a7a;
+    --status-warning: #b8a86a;
+    --status-error: #b86e7a;
+    --border-subtle: rgba(90, 120, 160, 0.08);
+    --border-default: rgba(90, 120, 160, 0.15);
+    --border-strong: rgba(90, 120, 160, 0.28);
+    --border-active: #7aa5c2;
+    --shadow-panel: 0 8px 28px rgba(2, 8, 20, 0.6);
+    --shadow-glow: 0 0 10px rgba(90, 120, 160, 0.09);
+    --pinned-border: rgba(122, 165, 194, 0.38);
+    --drag-handle-bg: rgba(90, 120, 160, 0.06);
+    --btn-success: #7ab8a0;
+    --btn-warning: #b8a86a;
+    --btn-danger: #b86e7a;
+    --slider-track: rgba(90, 120, 160, 0.16);
+    --slider-thumb: rgba(122, 165, 194, 0.52);
+    --checkbox-accent: #7aa5c2;
+    --mode-btn-active-bg: #7aa5c2;
+    --mode-btn-active-fg: #0a0f1e;
+}
+
+/* ── Thème ember — charcoal chaud / ambre doux (vision nocturne) ─ */
+[data-theme="ember"] {
+    --bg-primary: #1a140f;
+    --bg-secondary: #140f0a;
+    --bg-panel: rgba(52, 36, 22, 0.88);
+    --bg-panel-solid: rgba(58, 40, 24, 0.92);
+    --bg-input: rgba(42, 28, 16, 0.9);
+    --bg-hover: rgba(196, 154, 108, 0.10);
+    --bg-active: rgba(196, 154, 108, 0.16);
+    --accent: #e0a86a;
+    --accent-rgb: 224, 168, 106;
+    --accent-dim: rgba(224, 168, 106, 0.45);
+    --accent-subtle: rgba(224, 168, 106, 0.18);
+    --accent-faint: rgba(224, 168, 106, 0.08);
+    --text-primary: #f5e8d5;
+    --text-secondary: #d8c4a8;
+    --text-muted: #a89078;
+    --text-dim: #7a6a58;
+    --status-online: #9ab87a;
+    --status-offline: #8a6a60;
+    --status-warning: #c4a86a;
+    --status-error: #b87a6a;
+    --border-subtle: rgba(196, 154, 108, 0.07);
+    --border-default: rgba(196, 154, 108, 0.14);
+    --border-strong: rgba(196, 154, 108, 0.26);
+    --border-active: #c49a6c;
+    --shadow-panel: 0 8px 28px rgba(12, 8, 6, 0.55);
+    --shadow-glow: 0 0 8px rgba(196, 154, 108, 0.08);
+    --pinned-border: rgba(196, 154, 108, 0.35);
+    --drag-handle-bg: rgba(196, 154, 108, 0.06);
+    --btn-success: #9ab87a;
+    --btn-warning: #c4a86a;
+    --btn-danger: #b87a6a;
+    --slider-track: rgba(196, 154, 108, 0.16);
+    --slider-thumb: rgba(196, 154, 108, 0.5);
+    --checkbox-accent: #c49a6c;
+    --mode-btn-active-bg: #c49a6c;
+    --mode-btn-active-fg: #11100f;
+}

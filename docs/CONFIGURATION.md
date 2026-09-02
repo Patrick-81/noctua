@@ -1,5 +1,7 @@
 # Noctua — Référence de configuration
 
+*English version: [CONFIGURATION_EN.md](CONFIGURATION_EN.md)*
+
 Référence exhaustive des fichiers de configuration. Le modèle est `config.example.yaml` (copiez-le vers
 `config.yaml` puis ajustez) :
 
@@ -251,6 +253,8 @@ mon_profil:
   focuser: "Focuser Simulator"
   filter_wheel: "Wheel Simulator"
   optics: {}
+  mount_interface: serial        # serial | network
+  mount_endpoint: /dev/ttyUSB0   # /dev/ttyUSB0 ou host:port (ex. 192.168.1.10:7624)
 ```
 
 Chaque profil associe un rôle à un device (par nom). Activé depuis le mode Matériel. Chemin surchargeable par
@@ -264,6 +268,8 @@ Chaque profil associe un rôle à un device (par nom). Activé depuis le mode Ma
 | `focuser` | Nom du device focuser |
 | `filter_wheel` | Nom du device roue à filtres |
 | `optics` | Données optiques éventuelles (non obligatoires) |
+| `mount_interface` | Interface monture : `serial` ou `network` |
+| `mount_endpoint` | Endpoint monture : `/dev/ttyUSB0` (série) ou `host:port` (réseau) |
 
 ---
 

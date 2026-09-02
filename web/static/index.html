@@ -2,7 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Noctua — INDIGO Control</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="/icon-32.png">
@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#020205">
-    <link rel="stylesheet" href="/style.css">
+    <link rel="stylesheet" href="/style.css?v=20">
     <script src="/lib/d3.min.js"></script>
     <script src="/i18n.fr.js"></script>
     <script src="/i18n.en.js"></script>
@@ -31,7 +31,6 @@
     <script src="/sequence.js"></script>
     <script src="/stacking.js"></script>
     <script src="/preview.js"></script>
-    <script src="/testharness.js"></script>
     <script src="/solver.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
@@ -85,7 +84,7 @@
             </button>
         </div>
 
-        <!-- APPLET: Connexion INDIGO (toujours visible) -->
+        <!-- Bandeau connexion — pleine largeur en haut (hors stack, ne contraint pas les panneaux) -->
         <div id="applet-connection" class="glass-panel applet">
             <div id="conn-row-top">
                 <select id="indigo-protocol" title="Protocole INDIGO" data-i18n-title="conn.protocol.title">
@@ -96,14 +95,24 @@
                 <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;" data-i18n-placeholder="conn.port">
                 <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
                 <span id="indigo-status" class="status-offline">● Hors ligne</span>
-                <select id="i18n-lang" title="Langue" style="margin-left:4px; font-size:0.55rem;">
-                    <option value="fr">FR</option>
-                    <option value="en">EN</option>
-                </select>
-                <select id="theme-select" title="Thème" style="margin-left:4px; font-size:0.55rem;">
-                    <option value="noctua">Noctua</option>
-                    <option value="sober">Sobre</option>
-                </select>
+                <button id="btn-bandeau-menu" class="btn-glass" style="font-size:0.7rem; padding:2px 6px; margin-left:4px;" title="Réglages" aria-label="Réglages">⋮</button>
+                <div id="bandeau-menu" class="bandeau-menu" style="display:none;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.6rem; color:#aaa;">Langue
+                        <select id="i18n-lang" title="Langue" style="font-size:0.6rem;">
+                            <option value="fr">FR</option>
+                            <option value="en">EN</option>
+                        </select>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.6rem; color:#aaa;">Thème
+                        <select id="theme-select" title="Thème" style="font-size:0.6rem;">
+                            <option value="noctua">Noctua</option>
+                            <option value="sober">Sobre</option>
+                            <option value="graphite">Graphite</option>
+                            <option value="twilight">Twilight</option>
+                            <option value="ember">Ember</option>
+                        </select>
+                    </label>
+                </div>
             </div>
             <div id="conn-row-attach" style="display:none;">
                 <span style="color:#666; font-size:0.6rem;" data-i18n="conn.driver">Driver:</span>
@@ -123,8 +132,10 @@
                 <input id="obs-lon" value="1.568" style="width:60px;">
                 <span style="color:#666;">°E</span>
                 <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.update">MAJ</button>
+                <span id="conn-device-leds" class="conn-leds" title="Devices"></span>
             </div>
         </div>
+        <div id="mobile-stack">
 
         <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
         <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
@@ -151,6 +162,21 @@
             </div>
             <div class="hw-section-title" data-i18n="hw.roles">RÔLES</div>
             <div id="hw-role-assign" class="hw-role-assign"></div>
+            <div class="hw-section-title">MONTURE — CONNEXION</div>
+            <div id="hw-mount-conn" class="hw-mount-conn" style="padding:4px 8px; display:flex; flex-direction:column; gap:6px;">
+                <div class="hw-row" style="padding:0;">
+                    <span class="hw-label">Interface:</span>
+                    <select id="hw-mount-interface" style="flex:1;">
+                        <option value="serial">Série</option>
+                        <option value="network">Réseau host:port</option>
+                    </select>
+                </div>
+                <div class="hw-row" style="padding:0;">
+                    <span class="hw-label" id="hw-mount-endpoint-label">Port:</span>
+                    <input id="hw-mount-endpoint" placeholder="/dev/ttyUSB0 ou 192.168.1.10:7624" style="flex:1;" title="Série: /dev/ttyUSB0 • Réseau: host:port">
+                </div>
+                <div style="font-size:0.55rem; color:#666;">Sauvegardé dans le profil • appliqué à la connexion</div>
+            </div>
             <div class="hw-section-title" data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</div>
             <div class="hw-row">
                 <select id="hw-mode-device-select" class="hw-mode-device-select" style="flex:1;">
@@ -251,13 +277,23 @@
                 <button id="btn-goto" class="btn-glass success" title="Pointer la cible sélectionnée" data-i18n-title="pil.goto_btn">➤ GOTO</button>
             </div>
             <div style="font-size:0.55rem; color:#666; margin-top:6px;" data-i18n="pil.hold_hint">Maintien pour déplacement continu</div>
-            <div class="control-grid" style="margin-top:8px;">
+            <div class="mount-status-bar" style="display:flex; gap:6px; justify-content:center; margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:0.6rem; font-family:monospace;">
+                <span id="status-parking" class="mount-led" title="Park">● PARK</span>
+                <span id="status-homing" class="mount-led" title="Home">● HOME</span>
+                <span id="status-tracking" class="mount-led" title="Tracking">● TRACK</span>
+                <span id="status-slewing" class="mount-led" title="Slewing">● SLEW</span>
+            </div>
+            <div class="control-grid" style="margin-top:6px;">
                 <button id="btn-park" class="btn-glass warning" data-i18n="pil.park">⏸ PARK</button>
                 <button id="btn-unpark" class="btn-glass success" data-i18n="pil.unpark">▶ UNPARK</button>
                 <button id="btn-home" class="btn-glass" data-i18n="pil.home">🏠 HOME</button>
                 <button id="btn-tracking" class="btn-glass success" data-i18n="pil.track">🔭 TRACK</button>
                 <button id="btn-abort" class="btn-glass danger" data-i18n="pil.stop">⏹ STOP</button>
                 <button id="btn-emergency" class="btn-glass danger full" data-i18n="pil.emergency">🛑 EMERGENCY</button>
+            </div>
+            <div class="control-grid" style="margin-top:4px;">
+                <button id="btn-set-park" class="btn-glass" style="font-size:0.55rem;" title="Mémorise position actuelle comme PARK">SET PARK</button>
+                <button id="btn-set-home" class="btn-glass" style="font-size:0.55rem;" title="Mémorise position actuelle comme HOME">SET HOME</button>
             </div>
             <div id="flip-panel" class="flip-panel" style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
                 <div class="control-grid" style="grid-template-columns:1fr auto;">
@@ -1516,7 +1552,7 @@
         <div id="applet-props" class="glass-panel applet" style="display:none;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title" data-i18n="props.title">PROPRIÉTÉS</span></div>
         </div>
-
+        </div> <!-- /mobile-stack -->
     </div><!-- /applets-layer -->
 
     <!-- Context menu for sky objects -->
@@ -1621,6 +1657,17 @@
             </div>
         </div>
     </div>
+
+    <nav id="bottom-nav" aria-label="Navigation modes">
+        <button class="bnav-btn active" data-mode="hardware" title="Matériel"><span class="bnav-icon">🔧</span><span class="bnav-label">Matériel</span></button>
+        <button class="bnav-btn" data-mode="mount" title="Monture"><span class="bnav-icon">🔭</span><span class="bnav-label">Monture</span></button>
+        <button class="bnav-btn" data-mode="focuser" title="Focuser"><span class="bnav-icon">🔍</span><span class="bnav-label">Focuser</span></button>
+        <button class="bnav-btn" data-mode="guiding" title="Guidage"><span class="bnav-icon">🎯</span><span class="bnav-label">Guidage</span></button>
+        <button class="bnav-btn" data-mode="capture" title="Capture"><span class="bnav-icon">📷</span><span class="bnav-label">Capture</span></button>
+        <button class="bnav-btn" data-mode="sequencer" title="Séquence"><span class="bnav-icon">📋</span><span class="bnav-label">Séquence</span></button>
+        <button class="bnav-btn" data-mode="astrometry" title="Astro"><span class="bnav-icon">⭐</span><span class="bnav-label">Astro</span></button>
+    </nav>
+    <div id="mobile-dock" aria-label="Panneaux"></div>
 
     <script type="module" src="/app.js"></script>
 </body>
