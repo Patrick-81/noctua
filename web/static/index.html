@@ -96,17 +96,24 @@
                 <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;" data-i18n-placeholder="conn.port">
                 <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
                 <span id="indigo-status" class="status-offline">● Hors ligne</span>
-                <select id="i18n-lang" title="Langue" style="margin-left:4px; font-size:0.55rem;">
-                    <option value="fr">FR</option>
-                    <option value="en">EN</option>
-                </select>
-                <select id="theme-select" title="Thème" style="margin-left:4px; font-size:0.55rem;">
-                    <option value="noctua">Noctua</option>
-                    <option value="sober">Sobre</option>
-                    <option value="graphite">Graphite</option>
-                    <option value="twilight">Twilight</option>
-                    <option value="ember">Ember</option>
-                </select>
+                <button id="btn-bandeau-menu" class="btn-glass" style="font-size:0.7rem; padding:2px 6px; margin-left:4px;" title="Réglages" aria-label="Réglages">⋮</button>
+                <div id="bandeau-menu" class="bandeau-menu" style="display:none;">
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.6rem; color:#aaa;">Langue
+                        <select id="i18n-lang" title="Langue" style="font-size:0.6rem;">
+                            <option value="fr">FR</option>
+                            <option value="en">EN</option>
+                        </select>
+                    </label>
+                    <label style="display:flex; align-items:center; gap:6px; font-size:0.6rem; color:#aaa;">Thème
+                        <select id="theme-select" title="Thème" style="font-size:0.6rem;">
+                            <option value="noctua">Noctua</option>
+                            <option value="sober">Sobre</option>
+                            <option value="graphite">Graphite</option>
+                            <option value="twilight">Twilight</option>
+                            <option value="ember">Ember</option>
+                        </select>
+                    </label>
+                </div>
             </div>
             <div id="conn-row-attach" style="display:none;">
                 <span style="color:#666; font-size:0.6rem;" data-i18n="conn.driver">Driver:</span>

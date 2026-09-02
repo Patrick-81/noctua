@@ -10,6 +10,8 @@ function switchMode(mode) {
     if (!MODES[mode]) return;
     currentMode = mode;
     uiConfig.mode = mode;
+    const layer = document.getElementById('applets-layer');
+    if (layer) layer.dataset.mode = mode;
 
     document.querySelectorAll('.mode-specific').forEach(el => {
         el.style.display = 'none';
@@ -214,6 +216,20 @@ function initI18nSelector() {
     });
 }
 
+function initBandeauMenu() {
+    const btn = document.getElementById('btn-bandeau-menu');
+    const menu = document.getElementById('bandeau-menu');
+    if (!btn || !menu) return;
+    btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const open = menu.style.display !== 'none';
+        menu.style.display = open ? 'none' : 'flex';
+    });
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target) && e.target !== btn) menu.style.display = 'none';
+    });
+}
+
 // ── Sky engine init ───────────────────────────────────────────
 
 async function initSkyEngine() {
@@ -408,7 +424,9 @@ function initDraggableApplets() {
         });
 
         // Drag from any non-interactive area of the panel
+        // Épure : grille fixe — drag désactivé (ordre par mode)
         panel.addEventListener('mousedown', (e) => {
+            return;
             if (window.innerWidth < 1100) return;
             // Don't drag on interactive elements
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' ||
@@ -469,6 +487,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initBottomNav();
     initSwipeNav();
     initI18nSelector();
+    initBandeauMenu();
     initConnectionBar();
     initHardwarePanel();
     initHardwareMode();

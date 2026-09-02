@@ -189,6 +189,8 @@ function applyCollapsedState() {
 }
 
 function loadAppletPositions() {
+    // Épure : grille desktop (≥1100px) — plus de positions absolute sauvegardées
+    if (window.innerWidth >= 1100) { applyCollapsedState(); return; }
     // P0 responsive : en <1100px on laisse le flux CSS vertical, pas d'absolute
     if (window.innerWidth < 1100) { applyCollapsedState(); return; }
     const modeCfg = currentModeConfig();
@@ -221,6 +223,8 @@ function resolvePanelLayout() {
 // Clamp every visible applet inside the viewport and clear of the
 // mode bar / connection bar. Panels may freely overlap each other.
 function sanitizePanelLayout() {
+    // Épure : grille gère le placement, plus de clamp
+    return;
     if (window.innerWidth < 1100) return;
     const margin = 8;
     const vw = window.innerWidth, vh = window.innerHeight;

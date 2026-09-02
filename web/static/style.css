@@ -145,6 +145,15 @@ body {
 }
 /* Ligne driver du bandeau supérieur supprimée (géré par atelier Matériel) — PC + mobile */
 #conn-row-attach, #conn-row-serial { display: none !important; }
+/* Bandeau menu ⋮ (langue/thème épurés) */
+#conn-row-top { position: relative; }
+.bandeau-menu {
+    position: absolute; top: 100%; right: 0; margin-top: 6px;
+    display: flex; flex-direction: column; gap: 6px;
+    background: var(--bg-panel); border: 1px solid var(--border-default);
+    border-radius: 8px; padding: 8px 10px; z-index: 40;
+    box-shadow: var(--shadow-panel); min-width: 160px;
+}
 /* LEDs compactes bandeau : 6-8px, ne prennent pas de rangée */
 .conn-leds { display: inline-flex; gap: 4px; align-items: center; margin-left: 8px; min-height: 10px; }
 .conn-led-item { display: inline-flex; align-items: center; gap: 2px; }
@@ -2234,7 +2243,32 @@ body {
 @media (min-width: 1100px) {
     #bottom-nav { display: none !important; }
     #mobile-dock { display: none !important; }
-    #mobile-stack { display: contents; }
+    #mobile-stack {
+        display: grid !important;
+        grid-template-columns: 340px 1fr;
+        gap: 12px;
+        align-items: start;
+        max-width: 1100px;
+        margin: 80px auto 0 auto !important;
+        padding: 0 12px !important;
+        pointer-events: auto !important;
+    }
+    #mobile-stack .applet {
+        position: relative !important;
+        left: auto !important;
+        top: auto !important;
+        right: auto !important;
+        bottom: auto !important;
+        transform: none !important;
+        width: auto !important;
+        max-width: none !important;
+        margin: 0 !important;
+    }
+    #applets-layer {
+        overflow-y: auto !important;
+        pointer-events: none !important;
+    }
+    #applets-layer .glass-panel { pointer-events: auto; }
     /* PC : bandeau toujours centré en haut (atelier astrométrie inclus) */
     #applet-connection {
         position: absolute !important;
