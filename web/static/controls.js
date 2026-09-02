@@ -61,12 +61,14 @@ function initButtons() {
 
     bind('btn-goto', mountGoto);
     bind('btn-tracking', mountToggleTracking);
-    bind('btn-park', mountPark);
-    bind('btn-unpark', mountUnpark);
+    bind('btn-park-toggle', () => {
+        const m = findMount();
+        if (!m) return;
+        if (m.dev.parked) mountUnpark(); else mountPark();
+    });
     bind('btn-home', mountHome);
     bind('btn-set-park', () => { addLog('info','mount','SET PARK demandé'); apiPost('/api/mount/park/set'); });
     bind('btn-set-home', () => { addLog('info','mount','SET HOME demandé'); apiPost('/api/mount/home/set'); });
-    bind('btn-abort', mountAbort);
     bind('btn-flip', mountFlip);
     bind('flip-enabled', () => { saveFlipConfig(); });
     bind('flip-margin', () => { saveFlipConfig(); });

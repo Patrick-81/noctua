@@ -48,10 +48,21 @@ function renderMountPanel() {
     }
 
     const busy = d.park_state === 'Busy' || d.slewing || d.homing;
-    ['btn-goto', 'btn-park', 'btn-unpark', 'btn-home'].forEach(id => {
+    ['btn-goto', 'btn-park-toggle', 'btn-home', 'btn-tracking'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = busy;
     });
+    const parkBtn = document.getElementById('btn-park-toggle');
+    if (parkBtn) {
+        if (d.parked) {
+            parkBtn.textContent = '▶ UNPARK';
+            parkBtn.className = 'btn-glass success';
+        } else {
+            parkBtn.textContent = '⏸ PARK';
+            parkBtn.className = 'btn-glass warning';
+        }
+        parkBtn.disabled = busy;
+    }
 
     if (d.props) {
         const statusProp = d.props.find(p => p.name === 'OnStep Status');
