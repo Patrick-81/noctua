@@ -131,6 +131,10 @@ PROP_DEFS = [
     '<defSwitch name="WEST" value="Off" label="West"/>'
     '</defSwitchVector>',
 
+    '<defSwitchVector device="Mount" name="MOUNT_HOME" state="Ok" perm="rw" rule="OneOfMany" label="Home">'
+    '<defSwitch name="HOME" value="Off" label="Home"/>'
+    '</defSwitchVector>',
+
     '<defSwitchVector device="Mount" name="MOUNT_SLEW_RATE" state="Ok" perm="rw" rule="OneOfMany" label="Slew Rate">'
     '<defSwitch name="Guide" value="Off" label="Guide"/>'
     '<defSwitch name="Centering" value="Off" label="Centering"/>'
@@ -415,6 +419,15 @@ class MockMount:
             f'</setSwitchVector>'
         )
 
+    def home_xml(self):
+        state = "Busy" if self.homing else "Ok"
+        val = "On" if self.homing else "Off"
+        return (
+            f'<setSwitchVector device="Mount" name="MOUNT_HOME" state="{state}">'
+            f'<oneSwitch name="HOME">{val}</oneSwitch>'
+            f'</setSwitchVector>'
+        )
+
     def slew_rate_xml(self):
         rates = ["Guide", "Centering", "Find", "Max"]
         parts = "".join(f'<oneSwitch name="{r}" value="{"On" if r == self.slew_rate else "Off"}"/>' for r in rates)
@@ -496,6 +509,23 @@ class MockMount:
                 self._motion_we_dir = None
                 log.info("Motion WE stop")
                 responses.append(self.motion_we_xml())
+        elif prop_name in ("MOUNT_HOME", "TELESCOPE_HOME"):
+            on = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
+            if on:
+                self.homing = True
+                log.info("Homing started")
+                responses.append(f'<setSwitchVector device="Mount" name="{prop_name}" state="Busy"><oneSwitch name="{on}">On</oneSwitch></setSwitchVector>')
+                # Simulate homing completion after 1.5s
+                async def _finish_homing():
+                    await asyncio.sleep(1.5)
+                    self.homing = False
+                    self.ra_hours = 0
+                    self.dec_deg = 90
+                    log.info("Homing complete: RA=%.4fh DEC=%.4f", self.ra_hours, self.dec_deg)
+                asyncio.create_task(_finish_homing())
+            else:
+                self.homing = False
+                responses.append(f'<setSwitchVector device="Mount" name="{prop_name}" state="Ok"><oneSwitch name="HOME">Off</oneSwitch></setSwitchVector>')
         elif prop_name in ("MOUNT_SLEW_RATE", "TELESCOPE_SLEW_RATE"):
             on = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on:
@@ -520,7 +550,7 @@ class MockMount:
         coord_state = "Busy" if self.slewing else "Ok"
         for xml in [self.connection_xml(), self.coords_xml(coord_state), self.horizontal_xml(),
                      self.tracking_xml(),
-                     self.park_xml(), self.motion_ns_xml(), self.motion_we_xml(), self.slew_rate_xml(),
+                     self.park_xml(), self.home_xml(), self.motion_ns_xml(), self.motion_we_xml(), self.slew_rate_xml(),
                      f'<setSwitchVector device="Mount" name="DRIFT_SIM_ENABLE" state="Ok">'
                      f'<oneSwitch name="ENABLED">{enabled}</oneSwitch>'
                      f'<oneSwitch name="DISABLED">{disabled}</oneSwitch>'
