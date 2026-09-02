@@ -104,16 +104,14 @@ function initJoystick() {
     let currentDir = null;
 
     function startSlew(dir) {
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
         const m = findMount();
-        if (!m) return;
+        if (!m) { addLog('warning', 'mount', 'Pas de monture detectee'); return; }
         if (currentDir === dir) return;
         stopSlew();
         currentDir = dir;
-        const speed = document.getElementById('slew-speed')?.value || 'Find';
         mountMove(dir);
         slewInterval = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) renderMountPanel();
+            renderMountPanel();
         }, 500);
     }
 
@@ -129,13 +127,29 @@ function initJoystick() {
         const dir = btn.dataset.dir;
         if (dir === 'stop') {
             btn.addEventListener('click', stopSlew);
+            btn.addEventListener('pointerdown', (e) => { e.preventDefault(); stopSlew(); mountAbort(); });
             return;
         }
+        // Pointer events couvrent souris + tactile + stylet (robuste)
+        btn.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            try { btn.setPointerCapture(e.pointerId); } catch (_) {}
+            startSlew(dir);
+        });
+        btn.addEventListener('pointerup', (e) => {
+            e.preventDefault();
+            if (currentDir === dir) stopSlew();
+        });
+        btn.addEventListener('pointercancel', () => { if (currentDir === dir) stopSlew(); });
+        // Fallbacks legacy (si pointer events non supportés)
         btn.addEventListener('mousedown', (e) => { e.preventDefault(); startSlew(dir); });
         btn.addEventListener('mouseup', (e) => { e.preventDefault(); if (currentDir === dir) stopSlew(); });
-        btn.addEventListener('mouseleave', (e) => { if (currentDir === dir) stopSlew(); });
-        btn.addEventListener('touchstart', (e) => { e.preventDefault(); startSlew(dir); });
-        btn.addEventListener('touchend', (e) => { e.preventDefault(); if (currentDir === dir) stopSlew(); });
+        btn.addEventListener('mouseleave', () => { if (currentDir === dir) stopSlew(); });
+        btn.addEventListener('touchstart', (e) => { e.preventDefault(); startSlew(dir); }, { passive: false });
+        btn.addEventListener('touchend', (e) => { e.preventDefault(); if (currentDir === dir) stopSlew(); }, { passive: false });
         btn.addEventListener('touchcancel', () => { if (currentDir === dir) stopSlew(); });
     });
+
+    // Relâchement global (pointer relâché hors bouton)
+    document.addEventListener('pointerup', () => { if (currentDir) stopSlew(); });
 }

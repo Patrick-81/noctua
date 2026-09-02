@@ -59,7 +59,7 @@ function renderMountPanel() {
         const statusProp = d.props.find(p => p.name === 'OnStep Status');
         // OnStep status currently not in an applet, could be added later
 
-        const slewProp = d.props.find(p => p.name === 'TELESCOPE_SLEW_RATE');
+        const slewProp = d.props.find(p => p.name === 'MOUNT_SLEW_RATE' || p.name === 'TELESCOPE_SLEW_RATE');
         if (slewProp && slewProp.items.length > 0) {
             const sel = document.getElementById('slew-speed');
             if (sel && sel.dataset.count !== String(slewProp.items.length)) {
