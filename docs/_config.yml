@@ -1,0 +1,28 @@
+title: Noctua — Documentation utilisateur
+description: Interface web INDIGO (monture, caméras, focuser, guidage, séquences) — guide par panneaux et fiches astro
+remote_theme: just-the-docs/just-the-docs
+search_enabled: true
+heading_anchors: true
+color_scheme: dark
+callouts_level: quiet
+callouts:
+  highlight: { title: Faits marquants, color: yellow }
+  important: { title: Important, color: blue }
+  new: { title: Nouveau, color: green }
+  note: { title: Note, color: blue }
+  warning: { title: Attention, color: red }
+
+aux_links:
+  "Noctua sur GitHub":
+    - https://github.com/Patrick-81/noctua
+
+footer_content: 'Noctua — INDIGO Devices · <a href="https://github.com/Patrick-81/noctua">GitHub</a> · <a href="https://www.indigo-astronomy.org">INDIGO</a>'
+
+plugins:
+  - jekyll-remote-theme
+
+exclude:
+  - gen_bus_architecture.py
+  - README.md
+
+# Navigation triée par nav_order + titres
