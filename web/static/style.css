@@ -436,6 +436,10 @@ body {
 .status-parking { color: #ff8800; animation: pulse 0.8s infinite alternate; }
 .status-tracking { color: var(--accent); }
 .status-stopped { color: var(--status-error); }
+.mount-led { color: #555; transition: color 0.2s, text-shadow 0.2s; }
+.mount-led.on { color: #44cc44; text-shadow: 0 0 6px #44cc44; }
+.mount-led.busy { color: #ffcc00; animation: pulse 0.8s infinite alternate; }
+.mount-led.off { color: #555; }
 
 @keyframes pulse {
     0% { opacity: 0.5; }

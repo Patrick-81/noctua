@@ -23,37 +23,28 @@ function renderMountPanel() {
 
     const trackEl = document.getElementById('status-tracking');
     if (trackEl) {
-        trackEl.textContent = d.tracking ? '● ON' : '● OFF';
-        trackEl.className = 'value ' + (d.tracking ? 'status-online' : 'status-stopped');
+        trackEl.textContent = '● TRACK';
+        trackEl.className = 'mount-led ' + (d.tracking ? 'on' : 'off');
     }
 
     const slewingEl = document.getElementById('status-slewing');
     if (slewingEl) {
-        slewingEl.textContent = d.slewing ? '● ACTIVE' : '● IDLE';
-        slewingEl.className = 'value ' + (d.slewing ? 'status-slewing' : '');
-        slewingEl.style.color = d.slewing ? cssVar('--status-warning') : '#666';
+        slewingEl.textContent = '● SLEW';
+        slewingEl.className = 'mount-led ' + (d.slewing ? 'busy' : 'off');
     }
 
     const parkingEl = document.getElementById('status-parking');
     if (parkingEl) {
-        const isParked = !!d.parked;
+        parkingEl.textContent = '● PARK';
         const isBusy = d.park_state === 'Busy';
-        if (isBusy) {
-            parkingEl.textContent = '● ACTIVE';
-            parkingEl.className = 'value status-parking';
-            parkingEl.style.color = cssVar('--status-warning');
-        } else {
-            parkingEl.textContent = isParked ? '● PARKED' : '● UNPARKED';
-            parkingEl.className = 'value ' + (isParked ? 'status-stopped' : 'status-online');
-            parkingEl.style.color = isParked ? cssVar('--status-error') : cssVar('--status-online');
-        }
+        if (isBusy) parkingEl.className = 'mount-led busy';
+        else parkingEl.className = 'mount-led ' + (d.parked ? 'on' : 'off');
     }
 
     const homingEl = document.getElementById('status-homing');
     if (homingEl) {
-        homingEl.textContent = d.homing ? '● ACTIVE' : '● IDLE';
-        homingEl.className = 'value ' + (d.homing ? 'status-parking' : '');
-        homingEl.style.color = d.homing ? cssVar('--status-warning') : '#666';
+        homingEl.textContent = '● HOME';
+        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : 'off');
     }
 
     const busy = d.park_state === 'Busy' || d.slewing || d.homing;

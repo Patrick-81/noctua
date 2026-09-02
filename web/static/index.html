@@ -278,13 +278,23 @@
                 <button id="btn-goto" class="btn-glass success" title="Pointer la cible sélectionnée" data-i18n-title="pil.goto_btn">➤ GOTO</button>
             </div>
             <div style="font-size:0.55rem; color:#666; margin-top:6px;" data-i18n="pil.hold_hint">Maintien pour déplacement continu</div>
-            <div class="control-grid" style="margin-top:8px;">
+            <div class="mount-status-bar" style="display:flex; gap:6px; justify-content:center; margin-top:8px; padding:6px; background:rgba(0,0,0,0.2); border-radius:6px; font-size:0.6rem; font-family:monospace;">
+                <span id="status-parking" class="mount-led" title="Park">● PARK</span>
+                <span id="status-homing" class="mount-led" title="Home">● HOME</span>
+                <span id="status-tracking" class="mount-led" title="Tracking">● TRACK</span>
+                <span id="status-slewing" class="mount-led" title="Slewing">● SLEW</span>
+            </div>
+            <div class="control-grid" style="margin-top:6px;">
                 <button id="btn-park" class="btn-glass warning" data-i18n="pil.park">⏸ PARK</button>
                 <button id="btn-unpark" class="btn-glass success" data-i18n="pil.unpark">▶ UNPARK</button>
                 <button id="btn-home" class="btn-glass" data-i18n="pil.home">🏠 HOME</button>
                 <button id="btn-tracking" class="btn-glass success" data-i18n="pil.track">🔭 TRACK</button>
                 <button id="btn-abort" class="btn-glass danger" data-i18n="pil.stop">⏹ STOP</button>
                 <button id="btn-emergency" class="btn-glass danger full" data-i18n="pil.emergency">🛑 EMERGENCY</button>
+            </div>
+            <div class="control-grid" style="margin-top:4px;">
+                <button id="btn-set-park" class="btn-glass" style="font-size:0.55rem;" title="Mémorise position actuelle comme PARK">SET PARK</button>
+                <button id="btn-set-home" class="btn-glass" style="font-size:0.55rem;" title="Mémorise position actuelle comme HOME">SET HOME</button>
             </div>
             <div id="flip-panel" class="flip-panel" style="margin-top:10px; border-top:1px solid rgba(255,255,255,0.08); padding-top:8px;">
                 <div class="control-grid" style="grid-template-columns:1fr auto;">

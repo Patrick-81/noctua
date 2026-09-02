@@ -92,6 +92,22 @@ def register(app, server: "WebServer") -> None:
         await m.home()
         return {"ok": True}
 
+    @app.post("/api/mount/park/set")
+    async def mount_set_park():
+        m = server.registry.get_mount()
+        if not m:
+            return {"error": "no mount"}
+        await m.set_park_position()
+        return {"ok": True}
+
+    @app.post("/api/mount/home/set")
+    async def mount_set_home():
+        m = server.registry.get_mount()
+        if not m:
+            return {"error": "no mount"}
+        await m.set_home_position()
+        return {"ok": True}
+
     @app.post("/api/mount/tracking")
     async def mount_tracking(body: dict):
         m = server.registry.get_mount()
