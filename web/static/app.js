@@ -10,8 +10,6 @@ function switchMode(mode) {
     if (!MODES[mode]) return;
     currentMode = mode;
     uiConfig.mode = mode;
-    const layer = document.getElementById('applets-layer');
-    if (layer) layer.dataset.mode = mode;
 
     document.querySelectorAll('.mode-specific').forEach(el => {
         el.style.display = 'none';
@@ -424,9 +422,7 @@ function initDraggableApplets() {
         });
 
         // Drag from any non-interactive area of the panel
-        // Épure : grille fixe — drag désactivé (ordre par mode)
         panel.addEventListener('mousedown', (e) => {
-            return;
             if (window.innerWidth < 1100) return;
             // Don't drag on interactive elements
             if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' ||

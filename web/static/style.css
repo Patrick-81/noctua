@@ -2243,32 +2243,7 @@ body {
 @media (min-width: 1100px) {
     #bottom-nav { display: none !important; }
     #mobile-dock { display: none !important; }
-    #mobile-stack {
-        display: grid !important;
-        grid-template-columns: 340px 1fr;
-        gap: 12px;
-        align-items: start;
-        max-width: 1100px;
-        margin: 80px auto 0 auto !important;
-        padding: 0 12px !important;
-        pointer-events: auto !important;
-    }
-    #mobile-stack .applet {
-        position: relative !important;
-        left: auto !important;
-        top: auto !important;
-        right: auto !important;
-        bottom: auto !important;
-        transform: none !important;
-        width: auto !important;
-        max-width: none !important;
-        margin: 0 !important;
-    }
-    #applets-layer {
-        overflow-y: auto !important;
-        pointer-events: none !important;
-    }
-    #applets-layer .glass-panel { pointer-events: auto; }
+    #mobile-stack { display: contents; }
     /* PC : bandeau toujours centré en haut (atelier astrométrie inclus) */
     #applet-connection {
         position: absolute !important;
