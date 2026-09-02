@@ -460,24 +460,28 @@ class MockMount:
             if on_dir:
                 self._guide_moving_ns = True
                 self._motion_ns_dir = on_dir
+                log.info("Motion NS %s", on_dir)
                 if self.drift_sim:
                     self.drift_sim.apply_correction_ns(on_dir)
                 responses.append(self.motion_ns_xml(on_dir))
             else:
                 self._guide_moving_ns = False
                 self._motion_ns_dir = None
+                log.info("Motion NS stop")
                 responses.append(self.motion_ns_xml())
         elif prop_name == "MOUNT_MOTION_WE":
             on_dir = next((k for k, v in items.items() if v.lower() in ("on", "true", "1")), None)
             if on_dir:
                 self._guide_moving_we = True
                 self._motion_we_dir = on_dir
+                log.info("Motion WE %s", on_dir)
                 if self.drift_sim:
                     self.drift_sim.apply_correction_we(on_dir)
                 responses.append(self.motion_we_xml(on_dir))
             else:
                 self._guide_moving_we = False
                 self._motion_we_dir = None
+                log.info("Motion WE stop")
                 responses.append(self.motion_we_xml())
         elif prop_name == "DRIFT_SIM_ENABLE":
             enabled = items.get("ENABLED", "off").lower() in ("on", "true", "1")
@@ -511,7 +515,7 @@ class MockMount:
         try:
             while True:
                 if self._guide_moving_ns or self._guide_moving_we:
-                    # Vitesse ~0.02° DEC et 0.005h RA par 0.1s (≈ 0.2°/s)
+                    log.info("Motion tick NS=%s WE=%s → RA=%.4fh DEC=%.4f", self._motion_ns_dir, self._motion_we_dir, self.ra_hours, self.dec_deg)
                     if self._motion_ns_dir == "NORTH":
                         self.dec_deg = min(90, self.dec_deg + 0.05)
                     elif self._motion_ns_dir == "SOUTH":
