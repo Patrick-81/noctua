@@ -1,14 +1,16 @@
 ---
 layout: default
-title: Accueil — Noctua
+title: Accueil — Noctua 🇫🇷
 nav_order: 1
 description: Interface web INDIGO pour monture, caméras, focuser, guidage et séquences — guide utilisateur par panneaux.
 permalink: /
 ---
 
-# Noctua — Doc utilisateur
+# Noctua — Doc utilisateur 🇫🇷
 
 {: .fs-6 .fw-300 }
+
+> 🇬🇧 English version: [Home — Noctua]({{ site.baseurl }}{% link en/index.md %}) · [🇬🇧 Switch to English]({{ site.baseurl }}/en/)
 
 Interface web (FastAPI + Vanilla JS, sans build step) pour piloter des équipements astronomiques via un serveur [INDIGO](https://www.indigo-astronomy.org/) — monture, caméras, focuser, roue à filtres, autoguidage, séquences et live stacking.
 

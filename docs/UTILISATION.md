@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Noctua — Guide d'utilisation
 
 *English version: [UTILISATION_EN.md](UTILISATION_EN.md)*

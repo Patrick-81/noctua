@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 *Version française : [PLAN.md](PLAN.md)*
 
 # Noctua — Project Plan

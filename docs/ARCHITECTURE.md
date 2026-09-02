@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Noctua — Architecture (vue développeur)
 
 *English version: [ARCHITECTURE_EN.md](ARCHITECTURE_EN.md)*

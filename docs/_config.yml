@@ -13,10 +13,14 @@ callouts:
   warning: { title: Attention, color: red }
 
 aux_links:
+  "🇫🇷 Français":
+    - "/noctua/"
+  "🇬🇧 English":
+    - "/noctua/en/"
   "Noctua sur GitHub":
     - https://github.com/Patrick-81/noctua
 
-footer_content: 'Noctua — INDIGO Devices · <a href="https://github.com/Patrick-81/noctua">GitHub</a> · <a href="https://www.indigo-astronomy.org">INDIGO</a>'
+footer_content: 'Noctua — INDIGO Devices · <a href="https://github.com/Patrick-81/noctua">GitHub</a> · <a href="https://www.indigo-astronomy.org">INDIGO</a> · 🇫🇷 <a href="/noctua/">FR</a> · 🇬🇧 <a href="/noctua/en/">EN</a>'
 
 plugins:
   - jekyll-remote-theme

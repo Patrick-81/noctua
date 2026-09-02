@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 *Version française : [CONFIGURATION.md](CONFIGURATION.md)*
 
 # Noctua — Configuration Reference

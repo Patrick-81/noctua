@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 *Version française : [remarques.md](../remarques.md)*
 
 # Remarks — Noctua vs N.I.N.A.

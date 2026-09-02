@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Seiza — Plate Solving
 
 **Site** : https://seiza.fyi  

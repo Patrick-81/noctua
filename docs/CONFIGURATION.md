@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Noctua — Référence de configuration
 
 *English version: [CONFIGURATION_EN.md](CONFIGURATION_EN.md)*

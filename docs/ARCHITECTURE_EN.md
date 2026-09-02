@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 *Version française : [ARCHITECTURE.md](ARCHITECTURE.md)*
 
 # Noctua — Architecture (developer view)

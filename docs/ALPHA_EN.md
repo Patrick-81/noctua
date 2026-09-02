@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Noctua — Control your astro setup differently. Modern, aesthetic, performant — and lightweight.
 
 > **A single web page, hosted on your remote PC (even a Raspberry Pi at the mount), accessible everywhere: phone, tablet or PC in the browser. No app, no store, no RDP/VNC.**

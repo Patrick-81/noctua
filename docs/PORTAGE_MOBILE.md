@@ -1,3 +1,7 @@
+---
+nav_exclude: true
+---
+
 # Noctua — Portage ergonomique tablette / téléphone
 
 Pré-étude (à valider) basée sur l'analyse **visuelle** des interfaces **ASIAIR** (ZWO)
