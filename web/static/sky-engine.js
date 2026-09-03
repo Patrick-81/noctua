@@ -522,8 +522,9 @@ export class SkyEngine {
         ctx.stroke();
 
         // Coordinate labels at the foot of the major lines: RA near the bottom
-        // of the view, Dec near the left. One projection per major line.
-        if (maj >= 5) {
+        // of the view, Dec near the left. One projection per major line; the
+        // visible-window restriction keeps the count low at every zoom.
+        {
             ctx.font = "11px monospace";
             ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
 
