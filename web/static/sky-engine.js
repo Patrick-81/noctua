@@ -151,6 +151,15 @@ export class SkyEngine {
         this._startSiderealSync();
         this._initialized = true;
 
+        // Horizon align buttons (console de pointage)
+        document.querySelectorAll('.horizon-btn').forEach(btn=>{
+            btn.addEventListener('click', ()=>{
+                const v=btn.dataset.az;
+                if(v==='zenith') this.alignToHorizon(0, 90);
+                else this.alignToHorizon(parseInt(v,10), 5);
+            });
+        });
+
         window.addEventListener('resize', () => this._onResize());
     }
 
@@ -1386,6 +1395,12 @@ export class SkyEngine {
         this._manualOffsetRA = lst - raDeg;
         this._decOffset = -decDeg;
         this._updateSiderealRotation();
+    }
+
+    alignToHorizon(azDeg, altDeg = 5) {
+        const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+        const rc = this._altAzToRadec(altDeg, azDeg, lst);
+        this._setCenter(rc.ra, rc.dec);
     }
 
     highlightObject(raDeg, decDeg, id) {
