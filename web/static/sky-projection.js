@@ -43,7 +43,7 @@ export function projectPoint(raDeg, decDeg, centerRA, centerDec, scale, tx, ty) 
     const cz = cosDec * cosCD * cosDR + sinDec * sinCD;
     if (cz <= 0) return null;
 
-    const rawX = cosDec * sinDR;
+    const rawX = -cosDec * sinDR;
     const rawY = sinDec * cosCD - cosDec * sinCD * cosDR;
     return [rawX * scale + tx, -rawY * scale + ty];
 }
@@ -78,7 +78,7 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
         const u = s.u;
         const cz = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
         if (cz <= 0) continue;
-        const rawX = u[0] * east[0] + u[1] * east[1] + u[2] * east[2];
+        const rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
         const rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
         out.push(rawX * scale + tx, -rawY * scale + ty, sizeFn(s.mag));
         count++;

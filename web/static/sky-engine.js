@@ -133,6 +133,8 @@ export class SkyEngine {
             .clipAngle(90)
             .rotate(this._currentRotation);
 
+        this._projection = this._wrapMirrored(this._projection);
+
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
         this._graticule = d3.geo.graticule().step([15, 10]);
 
@@ -150,6 +152,41 @@ export class SkyEngine {
         this._initialized = true;
 
         window.addEventListener('resize', () => this._onResize());
+    }
+
+    _wrapMirrored(raw) {
+        const self = this;
+        const mirrored = function(coords) {
+            const pt = raw(coords);
+            if (pt) pt[0] = self._width - pt[0];
+            return pt;
+        };
+        mirrored.stream = function(listener) {
+            const s = raw.stream(listener);
+            return {
+                point: function(x, y) { s.point(self._width - x, y); },
+                lineStart: function() { s.lineStart(); },
+                lineEnd: function() { s.lineEnd(); },
+                polygonStart: function() { s.polygonStart(); },
+                polygonEnd: function() { s.polygonEnd(); },
+                sphere: function() { s.sphere(); }
+            };
+        };
+        mirrored.invert = function(pt) {
+            if (!pt) return null;
+            return raw.invert([self._width - pt[0], pt[1]]);
+        };
+        // déléguer les setters/getters D3
+        ['rotate','scale','translate','clipAngle','precision','clipExtent'].forEach(k=>{
+            if (typeof raw[k] === 'function') {
+                mirrored[k] = function(v) {
+                    if (!arguments.length) return raw[k]();
+                    raw[k](v);
+                    return mirrored;
+                };
+            }
+        });
+        return mirrored;
     }
 
     async loadCatalogs() {
@@ -647,15 +684,15 @@ export class SkyEngine {
             }
         }
 
-        // 13. Labels cardinaux (N/S/E/O)
+        // 13. Labels cardinaux (N/S/E/O) — E à gauche, O à droite (ciel vu de l'intérieur)
         ctx.fillStyle = "#ffaa00";
         ctx.font = "bold 20px monospace";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("N", cx, cy - rsky + 15);
         ctx.fillText("S", cx, cy + rsky - 15);
-        ctx.fillText("E", cx + rsky - 15, cy);
-        ctx.fillText("O", cx - rsky + 15, cy);
+        ctx.fillText("E", cx - rsky + 15, cy);
+        ctx.fillText("O", cx + rsky - 15, cy);
 
         // 14. Réticule centre (rouge)
         ctx.strokeStyle = "#ff0055";
