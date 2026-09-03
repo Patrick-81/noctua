@@ -461,7 +461,7 @@ export class SkyEngine {
 
         // 2. Voie lactée
         if (this.layers.milkyway && this._milkywayData) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.10)";
             ctx.beginPath();
             this._pathGenerator(this._milkywayData);
             ctx.fill();
