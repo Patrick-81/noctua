@@ -127,13 +127,14 @@ export class SkyEngine {
             .attr("height", this._height);
         this._ctx = this._canvas.node().getContext("2d");
 
-        this._projection = d3.geo.orthographic()
+        this._rawProjection = d3.geo.orthographic()
             .scale(this._scale)
             .translate([this._width / 2, this._height / 2])
             .clipAngle(90)
             .rotate(this._currentRotation);
 
-        this._projection = this._wrapMirrored(this._projection);
+        this._projection = this._wrapMirrored(this._rawProjection);
+        this._rawPathGenerator = d3.geo.path().projection(this._rawProjection).context(this._ctx);
 
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
         this._graticule = d3.geo.graticule().step([15, 10]);
@@ -215,6 +216,7 @@ export class SkyEngine {
         }
         this._constellationsData = consts;
         this._milkywayData = this._decimateMilkyway(mw);
+        this._milkywayMirrored = this._mirrorGeoJson(this._milkywayData);
         this._dsosData = dsos;
         this._planetsData = planets;
         this._mapReady = true;
@@ -241,6 +243,30 @@ export class SkyEngine {
             }
         }
         return data;
+    }
+
+    _mirrorGeoJson(data) {
+        if (!data || !Array.isArray(data.features)) return data;
+        const out = JSON.parse(JSON.stringify(data));
+        for (const f of out.features) {
+            const geom = f.geometry;
+            if (!geom || !geom.coordinates) continue;
+            const m = (coords) => {
+                if (typeof coords[0] === 'number') {
+                    return [(360 - coords[0]) % 360, coords[1]];
+                }
+                return coords.map(m);
+            };
+            geom.coordinates = m(geom.coordinates);
+            // inverser le winding pour garder le remplissage correct après miroir X
+            const rev = (coords) => {
+                if (typeof coords[0] === 'number') return coords;
+                if (Array.isArray(coords[0][0])) return coords.map(rev);
+                return coords.slice().reverse();
+            };
+            geom.coordinates = rev(geom.coordinates);
+        }
+        return out;
     }
 
     setLayerVisibility(layer, visible) {
@@ -459,12 +485,17 @@ export class SkyEngine {
         ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
         ctx.translate(-cx, -cy);
 
-        // 2. Voie lactée
-        if (this.layers.milkyway && this._milkywayData) {
+        // 2. Voie lactée — via rawProjection + données pré-mirées pour garder le bon winding
+        if (this.layers.milkyway && this._milkywayMirrored) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+            ctx.beginPath();
+            this._rawPathGenerator(this._milkywayMirrored);
+            ctx.fill();
+        } else if (this.layers.milkyway && this._milkywayData) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
             ctx.beginPath();
             this._pathGenerator(this._milkywayData);
-            ctx.fill("evenodd");
+            ctx.fill();
         }
 
         // 3. Grille gratiulaire
