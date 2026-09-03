@@ -577,41 +577,52 @@ export class SkyEngine {
         this._pathGenerator(build(true));
         ctx.stroke();
 
-        // Coordinate labels at the foot of the major lines: RA near the bottom
-        // of the view, Dec near the left. One projection per major line; the
-        // visible-window restriction keeps the count low at every zoom.
+        // Coordinate labels — pinned to where each major line leaves the
+        // visible area: RA meridians at the bottom edge (screen or sphere
+        // limb), Dec parallels at the left edge.
         {
             ctx.font = "11px monospace";
-            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+            const mrg = 3;
+            const inScreen = (p) => p && p[0] >= mrg && p[0] <= w - mrg && p[1] >= 22 && p[1] <= h - mrg;
 
             const raHM = (deg) => {
-                let h = deg / 15;
-                let H = Math.floor(h);
-                let M = Math.round((h - H) * 60);
+                let hh = deg / 15;
+                let H = Math.floor(hh);
+                let M = Math.round((hh - H) * 60);
                 if (M === 60) { M = 0; H += 1; }
                 H = ((H % 24) + 24) % 24;
                 return String(H).padStart(2, '0') + ':' + String(M).padStart(2, '0');
             };
 
-            const decFoot = Math.max(decLo + 0.5, Math.min(decHi - 0.5, cdec - visRad * 0.72));
+            // RA meridians -> bottom (only those that can face us — within
+            // ~180° of the centre RA)
             ctx.textAlign = "center";
             ctx.textBaseline = "alphabetic";
-            for (let r = Math.ceil(raLo / maj) * maj; r <= raHi + 1e-6; r += maj) {
-                const p = this._projection([r, decFoot]);
-                if (!p || p[0] < 20 || p[0] > w - 20 || p[1] < 24 || p[1] > h - 6) continue;
-                ctx.fillText(raHM(((r % 360) + 360) % 360), p[0], p[1] + 14);
+            const r0 = Math.ceil((cra - 190) / maj) * maj;
+            for (let r = r0; r <= cra + 190; r += maj) {
+                let best = null;
+                for (let d = decLo; d <= decHi + 1e-6; d += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[1] > best[1])) best = p;
+                }
+                if (best) ctx.fillText(raHM(((r % 360) + 360) % 360), best[0], Math.min(best[1] - 4, h - 6));
             }
 
-            const cosd = Math.max(0.05, Math.cos(cdec * Math.PI / 180));
-            const raLeft = cra - (visRad * 0.72) / cosd;
+            // Dec parallels -> left
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
             for (let d = Math.ceil(decLo / maj) * maj; d <= decHi + 1e-6; d += maj) {
                 if (Math.abs(d) > 89.5) continue;
-                const p = this._projection([raLeft, d]);
-                if (!p || p[0] < 6 || p[0] > w - 30 || p[1] < 16 || p[1] > h - 16) continue;
-                const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
-                ctx.fillText(sign + Math.abs(d) + '°', p[0] + 6, p[1]);
+                let best = null;
+                for (let r = 0; r <= 360; r += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[0] < best[0])) best = p;
+                }
+                if (best) {
+                    const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
+                    ctx.fillText(sign + Math.abs(d) + '°', Math.max(best[0] + 4, mrg + 2), best[1]);
+                }
             }
         }
     }
