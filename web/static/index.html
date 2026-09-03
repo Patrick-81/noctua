@@ -43,6 +43,7 @@
     <script src="/pointing.js"></script>
     <script src="/framing.js"></script>
     <script src="/visibility.js"></script>
+    <script src="/collimation.js"></script>
 </head>
 <body>
 
@@ -81,6 +82,10 @@
             <button class="mode-btn" data-mode="astrometry" title="Astrométrie" data-i18n-title="mode.astrometry.title">
                 <span class="mode-icon">⭐</span>
                 <span class="mode-label" data-i18n="mode.astrometry">Astro</span>
+            </button>
+            <button class="mode-btn" data-mode="collimation" title="Collimation" data-i18n-title="mode.collimation.title">
+                <span class="mode-icon">◎</span>
+                <span class="mode-label" data-i18n="mode.collimation">Collimation</span>
             </button>
         </div>
 
@@ -1550,6 +1555,94 @@
         <div id="applet-props" class="glass-panel applet" style="display:none;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title" data-i18n="props.title">PROPRIÉTÉS</span></div>
         </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLET: COLLIMATION (mode collimation)                -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div id="applet-collimation" class="glass-panel applet mode-specific" data-modes="collimation" style="display:none; top:80px; left:16px; width:620px; max-height:calc(100vh - 120px); overflow-y:auto;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◎ COLLIMATION — CollimAI</span><span id="collim-badge-model" style="margin-left:8px; font-size:0.6rem; color:#4a4; display:none;">● Modèle prêt</span><span id="collim-badge-rpi" style="margin-left:6px; font-size:0.55rem; color:#fa0; display:none;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div id="collim-warn-rpi" style="display:none; padding:6px 8px; background:rgba(255,170,0,0.12); border:1px solid rgba(255,170,0,0.35); border-radius:6px; font-size:0.62rem; color:#fa0; margin-bottom:6px;">
+                    ⚠ RPi détecté — l'onglet <b>Apprentissage</b> (génération dataset + entraînement) est désactivé (CPU/RAM insuffisants). Lancez <code>generate_psf_dataset.py</code> et <code>train_model.py</code> sur Orion puis copiez <code>best_model.pt</code>. L'<b>Inférence</b> reste active.
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px;">
+                    <button class="btn-glass collim-tab active" data-collim-tab="infer" style="flex:1;">🔍 Inférence</button>
+                    <button class="btn-glass collim-tab" data-collim-tab="learn" style="flex:1;">🧠 Apprentissage</button>
+                </div>
+
+                <!-- Pane Inférence -->
+                <div id="collim-pane-infer">
+                    <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+                        <div style="flex:1; display:flex; gap:4px;">
+                            <input id="collim-inp-path" type="text" class="input-glass" placeholder="/chemin/vers/etoile_defoc.fits ou dossier" style="flex:1; font-family:monospace; font-size:0.62rem;">
+                            <button id="collim-btn-path" class="btn-glass success" style="font-size:0.65rem;">Charger ↗</button>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
+                        <label class="btn-glass" style="font-size:0.6rem; cursor:pointer;">
+                            Sélectionner FITS...
+                            <input type="file" id="collim-inp-file" accept=".fit,.fits,.png,.jpg,.tif,.tiff,.npy" style="display:none">
+                        </label>
+                        <button id="collim-btn-reload" class="btn-glass" style="font-size:0.6rem; display:none;">↺ Recharger</button>
+                        <span id="collim-field-info" style="font-size:0.58rem; color:#888; margin-left:6px;"></span>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <div style="flex:0 0 320px;">
+                            <canvas id="collim-field-canvas" width="320" height="320" style="width:320px; height:320px; background:#05080f; border-radius:6px; border:1px solid rgba(255,255,255,0.08); cursor:crosshair; display:block;"></canvas>
+                            <div id="collim-star-table-card" style="display:none; margin-top:6px; max-height:140px; overflow-y:auto; font-size:0.62rem;">
+                                <table style="width:100%; border-collapse:collapse;">
+                                    <thead><tr style="color:#666; font-size:0.55rem;"><th>#</th><th>Zone</th><th>ADU</th><th>Ellip</th><th>Dist</th><th>Statut</th></tr></thead>
+                                    <tbody id="collim-star-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div style="flex:1; min-width:220px;">
+                            <div id="collim-steps" style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px;">
+                                <div><span id="collim-sn1" class="collim-sn s-idle">1</span> <span id="collim-sl1">Charger FITS</span></div>
+                                <div><span id="collim-sn2" class="collim-sn s-idle">2</span> <span id="collim-sl2">Détection</span></div>
+                                <div><span id="collim-sn3" class="collim-sn s-idle">3</span> <span id="collim-sl3">Sélection étoile</span></div>
+                                <div><span id="collim-sn4" class="collim-sn s-idle">4</span> <span id="collim-sl4">Inférence</span></div>
+                            </div>
+                            <div id="collim-psf-panel" style="display:none; padding:6px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px;">
+                                <div id="collim-star-info" style="font-size:0.62rem; color:#aaa; margin-bottom:4px;"></div>
+                                <button id="collim-btn-infer" class="btn-glass success" style="width:100%; font-size:0.68rem;">▶ Analyser → correction</button>
+                                <div id="collim-infer-prog" style="display:none; font-size:0.6rem; color:#0ff; margin-top:4px;">Analyse Monte Carlo 30 passes...</div>
+                            </div>
+                            <div id="collim-result-panel" style="display:none; padding:6px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.18); border-radius:6px;">
+                                <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;"><span style="font-size:0.68rem;" id="collim-result-badge">—</span><span style="margin-left:auto; font-size:0.58rem; color:#888;">Score <span id="collim-r-score">—</span></span></div>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.62rem; margin-bottom:6px;">
+                                    <div>ΔX sec <span id="collim-r-dx" style="font-family:monospace; color:#0ff;">—</span></div>
+                                    <div>ΔY sec <span id="collim-r-dy" style="font-family:monospace; color:#0ff;">—</span></div>
+                                    <div>Tilt X <span id="collim-r-tx" style="font-family:monospace; color:#fa0;">—</span></div>
+                                    <div>Tilt Y <span id="collim-r-ty" style="font-family:monospace; color:#fa0;">—</span></div>
+                                </div>
+                                <div id="collim-vis-list" style="font-size:0.62rem;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pane Apprentissage (grisé sur RPi) -->
+                <div id="collim-pane-learn" style="display:none;">
+                    <div style="padding:8px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px;">
+                        <div style="font-size:0.68rem; margin-bottom:4px;">📦 Dataset — simulation PSF défocalisée (Poppy)</div>
+                        <div style="font-size:0.58rem; color:#888; margin-bottom:6px;">Génère 10k PSF GSO Photon 8&quot; F4 (~640Mo, ~117min CPU). À lancer sur Orion, pas sur RPi.</div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-glass" disabled> Générer dataset (Orion)</button>
+                            <span style="font-size:0.58rem; color:#666; align-self:center;">→ <code>python generate_psf_dataset.py --n 10000</code></span>
+                        </div>
+                    </div>
+                    <div style="padding:8px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                        <div style="font-size:0.68rem; margin-bottom:4px;">🧠 Entraînement — CollimNet 812k params</div>
+                        <div style="font-size:0.58rem; color:#888; margin-bottom:6px;">~8min RTX3060 / ~90min CPU. Early stopping patience 8. Sauve <code>best_model.pt</code> (3.2M).</div>
+                        <div style="display:flex; gap:6px;">
+                            <button class="btn-glass" disabled> Lancer entraînement (Orion)</button>
+                            <span style="font-size:0.58rem; color:#666; align-self:center;">→ <code>python train_model.py</code></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         </div> <!-- /mobile-stack -->
     </div><!-- /applets-layer -->
 
@@ -1664,6 +1757,7 @@
         <button class="bnav-btn" data-mode="capture" title="Capture"><span class="bnav-icon">📷</span><span class="bnav-label">Capture</span></button>
         <button class="bnav-btn" data-mode="sequencer" title="Séquence"><span class="bnav-icon">📋</span><span class="bnav-label">Séquence</span></button>
         <button class="bnav-btn" data-mode="astrometry" title="Astro"><span class="bnav-icon">⭐</span><span class="bnav-label">Astro</span></button>
+        <button class="bnav-btn" data-mode="collimation" title="Collimation"><span class="bnav-icon">◎</span><span class="bnav-label">Collim</span></button>
     </nav>
     <div id="mobile-dock" aria-label="Panneaux"></div>
 

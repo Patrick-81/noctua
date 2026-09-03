@@ -5,3 +5,9 @@ pyyaml>=6.0
 Pillow>=10.0
 seiza>=0.12.0
 numpy>=1.24.0
+python-multipart>=0.0.9
+# ── Atelier Collimation (optionnel, inférence seule sur RPi) ──
+# pip install torch --index-url https://download.pytorch.org/whl/cpu
+# pip install astropy photutils
+# Modèle CollimNet 3.2M (indigo/collimation/models/best_model.pt) — inférence CPU ~1s / 30 passes
+# Apprentissage (dataset Poppy + entraînement) désactivé sur RPi, à lancer sur Orion

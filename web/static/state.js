@@ -46,6 +46,10 @@ const MODES = {
         applets: ['applet-solver', 'applet-target', 'applet-framing', 'applet-polar', 'applet-pointing', 'applet-capture-preview'],
         driverType: 'ccd'
     },
+    collimation: {
+        applets: ['applet-collimation'],
+        driverType: 'ccd'
+    },
     hardware: {
         applets: ['applet-hardware-mode'],
         driverType: null
