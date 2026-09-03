@@ -809,8 +809,8 @@ export class SkyEngine {
             }
         }
 
-        // 11. Planètes (à partir des éléments orbitaux)
-        if (this.layers.planets) this._renderPlanets(ctx);
+        // 11. Planètes + Soleil/Lune (à partir des éléments orbitaux)
+        if (this.layers.planets) { this._renderPlanets(ctx); this._renderSunMoon(ctx); }
 
         // 12. Zenith marker — RA = LST, Dec = latitude du site
         const zenithRa = this._lstDegrees(this._getObsDate(), this.siteLng);
@@ -1096,6 +1096,112 @@ export class SkyEngine {
             ctx.textAlign = "left";
             ctx.fillText(planet.name.toUpperCase(), pt[0] + 8, pt[1] + 3);
         }
+    }
+
+    // Sun & Moon — Paul Schlyter's low-precision series (~1' Sun, ~2' Moon).
+    // Geocentric, plus a topocentric parallax correction for the Moon.
+    _sunEcl(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const w = 282.9404 + 4.70935e-5 * d;
+        const e = 0.016709 - 1.151e-9 * d;
+        const M = rev(356.0470 + 0.9856002585 * d);
+        const E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        const r = Math.hypot(xv, yv);
+        const lon = rev(Math.atan2(yv, xv) / rad + w);
+        return { lon, lat: 0, r, M, w };
+    }
+    _eclToRaDec(lon, lat, d) {
+        const rad = Math.PI / 180;
+        const ecl = (23.4393 - 3.563e-7 * d) * rad;
+        const xg = Math.cos(lon * rad) * Math.cos(lat * rad);
+        const yg = Math.sin(lon * rad) * Math.cos(lat * rad);
+        const zg = Math.sin(lat * rad);
+        const xe = xg;
+        const ye = yg * Math.cos(ecl) - zg * Math.sin(ecl);
+        const ze = yg * Math.sin(ecl) + zg * Math.cos(ecl);
+        let ra = Math.atan2(ye, xe) / rad;
+        if (ra < 0) ra += 360;
+        return [ra, Math.atan2(ze, Math.hypot(xe, ye)) / rad];
+    }
+    _moonRaDec(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const s = this._sunEcl(d);
+        const N = 125.1228 - 0.0529538083 * d;
+        const i = 5.1454;
+        const w = 318.0634 + 0.1643573223 * d;
+        const e = 0.054900;
+        const M = rev(115.3654 + 13.0649929509 * d);
+        let E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        E = E - (E - e * (180 / Math.PI) * Math.sin(E * rad) - M) / (1 - e * Math.cos(E * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        let r = Math.hypot(xv, yv) * 60.2666;   // Earth radii
+        const v = Math.atan2(yv, xv) / rad;
+        const xh = r * (Math.cos(N * rad) * Math.cos((v + w) * rad) - Math.sin(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const yh = r * (Math.sin(N * rad) * Math.cos((v + w) * rad) + Math.cos(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const zh = r * Math.sin((v + w) * rad) * Math.sin(i * rad);
+        let lon = Math.atan2(yh, xh) / rad;
+        let lat = Math.atan2(zh, Math.hypot(xh, yh)) / rad;
+
+        const Ms = s.M, Ls = rev(s.w + s.M);
+        const Lm = rev(N + w + M), Dm = rev(Lm - Ls), F = rev(Lm - N);
+        const S = (deg) => Math.sin(deg * rad);
+        lon += -1.274 * S(M - 2 * Dm) + 0.658 * S(2 * Dm) - 0.186 * S(Ms)
+            - 0.059 * S(2 * M - 2 * Dm) - 0.057 * S(M - 2 * Dm + Ms) + 0.053 * S(M + 2 * Dm)
+            + 0.046 * S(2 * Dm - Ms) + 0.041 * S(M - Ms) - 0.035 * S(Dm)
+            - 0.031 * S(M + Ms) - 0.015 * S(2 * F - 2 * Dm) + 0.011 * S(M - 4 * Dm);
+        lat += -0.173 * S(F - 2 * Dm) - 0.055 * S(M - F - 2 * Dm) - 0.046 * S(M + F - 2 * Dm)
+            + 0.033 * S(F + 2 * Dm) + 0.017 * S(2 * M + F);
+        r += -0.58 * Math.cos((M - 2 * Dm) * rad) - 0.46 * Math.cos(2 * Dm * rad);
+
+        const [gra, gdec] = this._eclToRaDec(lon, lat, d);
+        let ra = gra, dec = gdec;
+
+        // topocentric parallax (Schlyter). Bail to geocentric if it produces
+        // an implausible shift — parallax is at most ~1°.
+        const lat0 = this.siteLat;
+        if (isFinite(lat0) && isFinite(r) && r > 1) {
+            const mpar = Math.asin(1 / r) / rad;
+            const gclat = lat0 - 0.1924 * S(2 * lat0);
+            const rho = 0.99833 + 0.00167 * Math.cos(2 * lat0 * rad);
+            const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const HA = rev(lst - gra);
+            const g = Math.atan(Math.tan(gclat * rad) / Math.cos(HA * rad)) / rad;
+            const tra = rev(gra - mpar * rho * Math.cos(gclat * rad) * Math.sin(HA * rad) / Math.cos(gdec * rad));
+            let tdec = gdec;
+            if (Math.abs(Math.sin(g * rad)) > 1e-4)
+                tdec = gdec - mpar * rho * Math.sin(gclat * rad) * Math.sin((g - gdec) * rad) / Math.sin(g * rad);
+            const dRa = Math.abs(((tra - gra + 540) % 360) - 180);
+            if (isFinite(tra) && isFinite(tdec) && dRa < 2 && Math.abs(tdec - gdec) < 2) {
+                ra = tra; dec = tdec;
+            }
+        }
+        return [ra, dec];
+    }
+
+    _renderSunMoon(ctx) {
+        const d = this._julianDate(this._getObsDate()) - 2451545.0;
+        const draw = (raDeg, decDeg, color, radius, label) => {
+            if (!this._celestialClip([raDeg, decDeg])) return;
+            const pt = this._projection([raDeg, decDeg]);
+            if (!pt) return;
+            const grad = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], radius * 3);
+            grad.addColorStop(0, color); grad.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius * 3, 0, 2 * Math.PI); ctx.fill();
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = "bold 14px monospace";
+            ctx.textAlign = "left";
+            ctx.fillText(label, pt[0] + radius + 5, pt[1] + 4);
+        };
+        const sun = this._sunEcl(d);
+        const [sra, sdec] = this._eclToRaDec(sun.lon, 0, d);
+        draw(sra, sdec, "#ffd21e", 7, (this._planetsData && this._planetsData.sol && this._planetsData.sol.name || "Sun").toUpperCase());
+        const [mra, mdec] = this._moonRaDec(d);
+        draw(mra, mdec, "#dfe6ef", 6, (this._planetsData && this._planetsData.lun && this._planetsData.lun.name || "Moon").toUpperCase());
     }
 
     _renderCameraFov(ctx) {
