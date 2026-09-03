@@ -48,6 +48,10 @@ function initCollimationPanel() {
     loadCollimConfig();
     const btnSave = document.getElementById('collim-btn-save-config');
     if (btnSave) btnSave.addEventListener('click', saveCollimConfig);
+    const btnLookup = document.getElementById('collim-btn-lookup');
+    if (btnLookup) btnLookup.addEventListener('click', lookupCollimInstrument);
+    const instrName = document.getElementById('collim-instr-name');
+    if (instrName) instrName.addEventListener('keydown', e=>{ if(e.key==='Enter') lookupCollimInstrument(); });
     ['collim-hw-D','collim-hw-f'].forEach(id=>{
         const el=document.getElementById(id);
         if(el) el.addEventListener('input', updateCollimFd);
@@ -120,6 +124,47 @@ async function saveCollimConfig(){
         addLog('info','collimation','Config instrument sauvegardée');
         refreshCollimStatus();
     }catch(e){ addLog('error','collimation', e.message); }
+}
+
+async function lookupCollimInstrument(){
+    const inp=document.getElementById('collim-instr-name');
+    const q=inp? inp.value.trim() : '';
+    const status=document.getElementById('collim-lookup-status');
+    if(!q){ if(status) status.textContent='Saisissez un nom (ex: GSO 200/800)'; return; }
+    if(status) status.textContent='🔍 Requête IA free...';
+    const btn=document.getElementById('collim-btn-lookup');
+    if(btn) btn.disabled=true;
+    try{
+        const r=await fetch('/api/collimation/instrument/lookup',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({query:q})}).then(r=>r.json());
+        if(r.error){
+            if(status) status.textContent='⚠ ' + r.error;
+            if(r.hint && status) status.textContent += ' — ' + r.hint;
+            addLog('warning','collimation', r.error);
+            return;
+        }
+        const hw=r.hardware||{}, vis=r.vis||{};
+        const set=(id,v)=>{ const e=document.getElementById(id); if(e&&v!==undefined) e.value=v; };
+        if(hw.diametre_mm) set('collim-hw-D', hw.diametre_mm);
+        if(hw.focale_mm) set('collim-hw-f', hw.focale_mm);
+        if(hw.obstruction_ratio!==undefined) set('collim-hw-obs', hw.obstruction_ratio);
+        if(hw.n_araignees) set('collim-hw-ara', hw.n_araignees);
+        if(hw.epaisseur_araignee!==undefined) set('collim-hw-ep', (hw.epaisseur_araignee*1000).toFixed(1));
+        if(hw.pixel_size_um) set('collim-hw-px', hw.pixel_size_um);
+        if(hw.patch_size_px) set('collim-hw-patch', hw.patch_size_px);
+        if(hw.defocus_waves) set('collim-hw-def', hw.defocus_waves);
+        if(hw.wavelength_um) set('collim-hw-wl', hw.wavelength_um);
+        if(vis.pas_secondaire_mm) set('collim-vis-s', vis.pas_secondaire_mm);
+        if(vis.pas_primaire_mm) set('collim-vis-p', vis.pas_primaire_mm);
+        if(vis.rayon_levier_mm) set('collim-vis-lev', vis.rayon_levier_mm);
+        updateCollimFd();
+        if(status) status.textContent=`✓ Auto-rempli via ${r.provider||'IA'} pour "${q}" — vérifiez puis Sauvegarder`;
+        addLog('info','collimation',`Instrument "${q}" auto-rempli via ${r.provider}`);
+    }catch(e){
+        if(status) status.textContent='Erreur: ' + e.message;
+        addLog('error','collimation', e.message);
+    }finally{
+        if(btn) btn.disabled=false;
+    }
 }
 
 async function refreshCollimStatus() {

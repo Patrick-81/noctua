@@ -1629,6 +1629,12 @@
                 <div id="collim-pane-learn" style="display:none;">
                     <div id="collim-config-card" style="padding:6px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px; margin-bottom:6px;">
                         <div style="font-size:0.68rem; margin-bottom:4px;">⚙️ Configuration instrument — génération images virtuelles</div>
+                        <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                            <input id="collim-instr-name" type="text" class="input-glass" placeholder="Nom instrument (ex: GSO Photon 200/800, Skywatcher 150/750)" style="flex:1; font-size:0.62rem;">
+                            <button id="collim-btn-lookup" class="btn-glass" style="font-size:0.62rem; white-space:nowrap;">🔍 Auto-remplir via IA (free)</button>
+                        </div>
+                        <div id="collim-lookup-status" style="font-size:0.55rem; color:#888; margin-bottom:4px;"></div>
+                        <div style="font-size:0.52rem; color:#666; margin-bottom:4px;">Provider free : <code>OPENROUTER_API_KEY</code> (modèle <code>meta-llama/llama-3.1-8b-instruct:free</code> — clé free sur <a href="https://openrouter.ai/keys" target="_blank" style="color:#0af">openrouter.ai/keys</a>) ou <code>HF_TOKEN</code>. Sans clé : parsing Ø/F heuristique (ex: 200/800 → 200mm/800mm).</div>
                         <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem;">
                             <label>Ø diamètre (mm)<br><input id="collim-hw-D" type="number" class="input-glass" value="203" step="1" style="width:100%"></label>
                             <label>Focale (mm)<br><input id="collim-hw-f" type="number" class="input-glass" value="800" step="10" style="width:100%"></label>

@@ -196,6 +196,67 @@ def register(app, server: "WebServer") -> None:
         cfg = save_config(body)
         return SanitizedJSONResponse({"ok": True, "config": cfg})
 
+    @app.post("/api/collimation/instrument/lookup")
+    async def collim_instrument_lookup(body: dict):
+        """Récupère les caractéristiques d'un instrument via LLM free (PC uniquement).
+
+        Body: {"query": "GSO Photon 200/800"} ou {"name": "..."}
+        Lit OPENROUTER_API_KEY / HF_TOKEN / COLLM_LLM_PROVIDER depuis l'env.
+        Fallback : parsing heuristique du nom (Ø/F) si aucun LLM configuré.
+        """
+        if _is_rpi():
+            return SanitizedJSONResponse({"error": "Lookup IA désactivé sur RPi — utilisez un PC avec internet", "is_rpi": True}, status_code=403)
+        query = (body or {}).get("query") or (body or {}).get("name") or ""
+        query = query.strip()
+        if not query:
+            return SanitizedJSONResponse({"error": "Nom d'instrument vide (ex: GSO Photon 200/800)"}, status_code=400)
+
+        # ── Tentative LLM free ───────────────────────
+        llm_result = None
+        llm_provider = None
+        try:
+            from indigo.devices.collimation import llm_lookup_instrument
+            llm_result = await llm_lookup_instrument(query)
+            if llm_result and llm_result.get("hardware"):
+                llm_provider = llm_result.get("provider", "llm")
+        except Exception as e:
+            log.debug("LLM lookup failed: %s", e)
+            llm_result = None
+
+        # ── Fallback heuristique (parsing Ø/F dans le nom) ──
+        if not llm_result or not llm_result.get("hardware"):
+            import re
+            m = re.search(r"(\d{2,4})\s*[/x×]\s*(\d{3,4})", query)
+            if m:
+                d = int(m.group(1)); f = int(m.group(2))
+                llm_result = {
+                    "hardware": {
+                        "diametre_mm": d, "focale_mm": f,
+                        "obstruction_ratio": 0.30 if d >= 200 else 0.25,
+                        "n_araignees": 4, "epaisseur_araignee": 0.0005,
+                        "pixel_size_um": 3.76, "patch_size_px": 128,
+                        "defocus_waves": 4.5, "wavelength_um": 0.55,
+                    },
+                    "vis": {"pas_secondaire_mm": 0.7, "pas_primaire_mm": 1.0, "rayon_levier_mm": 82},
+                    "source": "heuristic",
+                    "provider": "heuristic",
+                    "query": query,
+                }
+                llm_provider = "heuristic"
+            else:
+                return SanitizedJSONResponse({
+                    "error": f"Instrument '{query}' non reconnu et aucun LLM configuré. Configurez OPENROUTER_API_KEY (free) ou HF_TOKEN, ou saisissez Ø/F manuellement (ex: 200/800)",
+                    "query": query,
+                    "hint": "Obtenez une clé free sur https://openrouter.ai/keys (modèle free: meta-llama/llama-3.1-8b-instruct:free) puis export OPENROUTER_API_KEY=sk-...",
+                }, status_code=404)
+
+        # Enrichir avec provider
+        if llm_result:
+            llm_result["provider"] = llm_provider or llm_result.get("provider", "unknown")
+            llm_result["query"] = query
+            return SanitizedJSONResponse({"ok": True, **llm_result})
+        return SanitizedJSONResponse({"error": "Lookup échoué"}, status_code=500)
+
     # ── INFÉRENCE ──────────────────────────────────────────
 
     @app.post("/api/collimation/infer/load_path")

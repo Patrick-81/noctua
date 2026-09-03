@@ -95,6 +95,111 @@ def save_config(cfg: dict) -> dict:
     CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
     return cfg
 
+# ── LLM free lookup (PC uniquement) ──────────────────────────
+async def llm_lookup_instrument(query: str) -> dict | None:
+    """Interroge un LLM chat public free pour récupérer les specs d'un instrument.
+
+    Providers supportés (ordre) :
+      1. OpenRouter free (OPENROUTER_API_KEY) — modèle : meta-llama/llama-3.1-8b-instruct:free
+      2. HuggingFace Inference (HF_TOKEN) — modèle : mistralai/Mistral-7B-Instruct-v0.3
+    Retourne {"hardware": {...}, "vis": {...}, "source": "llm", "provider": "..."}
+    ou None si aucun provider configuré.
+    """
+    import os
+    query = query.strip()
+    if not query:
+        return None
+
+    # Prompt commun
+    system = (
+        "Tu es expert en télescopes Newton. Réponds UNIQUEMENT en JSON valide, sans markdown, "
+        "sans explication. Clés attendues : diametre_mm (int), focale_mm (int), "
+        "obstruction_ratio (float 0-1, ex 0.345 pour 70/203), n_araignees (int), "
+        "epaisseur_araignee (float mètres, ex 0.0005 pour 0.5mm), pixel_size_um (float, défaut 3.76), "
+        "patch_size_px (int 128), defocus_waves (float 4.5), wavelength_um (0.55), "
+        "pas_secondaire_mm (0.7), pas_primaire_mm (1.0), rayon_levier_mm (82). "
+        "Si une valeur est inconnue, mets la valeur par défaut GSO 200/800."
+    )
+    user = f"Instrument : {query}\nRetourne JSON avec clés hardware (diametre_mm, focale_mm, obstruction_ratio, n_araignees, epaisseur_araignee, pixel_size_um, patch_size_px, defocus_waves, wavelength_um) et vis (pas_secondaire_mm, pas_primaire_mm, rayon_levier_mm). Exemple: {{\"hardware\":{{\"diametre_mm\":203,\"focale_mm\":800,\"obstruction_ratio\":0.345,\"n_araignees\":4,\"epaisseur_araignee\":0.0005,\"pixel_size_um\":3.76,\"patch_size_px\":128,\"defocus_waves\":4.5,\"wavelength_um\":0.55}},\"vis\":{{\"pas_secondaire_mm\":0.7,\"pas_primaire_mm\":1.0,\"rayon_levier_mm\":82}}}}"
+
+    # ── 1. OpenRouter free ───────────────────────────────────
+    or_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OR_API_KEY")
+    or_model = os.environ.get("COLLM_LLM_MODEL") or "meta-llama/llama-3.1-8b-instruct:free"
+    if or_key:
+        try:
+            import urllib.request, urllib.error
+            payload = json.dumps({
+                "model": or_model,
+                "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                "temperature": 0.2,
+                "max_tokens": 600,
+            }).encode()
+            req = urllib.request.Request(
+                "https://openrouter.ai/api/v1/chat/completions",
+                data=payload,
+                headers={
+                    "Authorization": f"Bearer {or_key}",
+                    "Content-Type": "application/json",
+                    "HTTP-Referer": "https://noctua.local",
+                    "X-Title": "Noctua Collimation",
+                },
+                method="POST",
+            )
+            import asyncio
+            def _do():
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return json.loads(resp.read().decode())
+            data = await asyncio.to_thread(_do)
+            content = data["choices"][0]["message"]["content"]
+            # Extraire JSON (peut être entouré de ```)
+            import re
+            m = re.search(r"\{.*\}", content, re.DOTALL)
+            if m:
+                parsed = json.loads(m.group(0))
+                hw = parsed.get("hardware") or {}
+                vis = parsed.get("vis") or {}
+                # normaliser epaisseur_araignee si en mm
+                if "epaisseur_araignee" in hw and hw["epaisseur_araignee"] > 0.01:
+                    hw["epaisseur_araignee"] = float(hw["epaisseur_araignee"]) / 1000
+                return {"hardware": hw, "vis": vis, "source": "openrouter", "provider": f"openrouter:{or_model}", "raw": content}
+        except Exception as e:
+            # log côté appelant
+            raise RuntimeError(f"OpenRouter failed: {e}") from e
+
+    # ── 2. HuggingFace Inference ─────────────────────────────
+    hf_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGINGFACE_TOKEN")
+    hf_model = os.environ.get("COLLM_HF_MODEL") or "mistralai/Mistral-7B-Instruct-v0.3"
+    if hf_token:
+        try:
+            import urllib.request
+            prompt = f"{system}\n\n{user}\n\nJSON:"
+            payload = json.dumps({"inputs": prompt, "parameters": {"max_new_tokens": 500, "temperature": 0.2}}).encode()
+            req = urllib.request.Request(
+                f"https://api-inference.huggingface.co/models/{hf_model}",
+                data=payload,
+                headers={"Authorization": f"Bearer {hf_token}", "Content-Type": "application/json"},
+                method="POST",
+            )
+            import asyncio
+            def _do2():
+                with urllib.request.urlopen(req, timeout=20) as resp:
+                    return json.loads(resp.read().decode())
+            data = await asyncio.to_thread(_do2)
+            # HF retourne liste avec generated_text
+            text = data[0]["generated_text"] if isinstance(data, list) else str(data)
+            import re
+            m = re.search(r"\{.*\}", text, re.DOTALL)
+            if m:
+                parsed = json.loads(m.group(0))
+                hw = parsed.get("hardware") or {}
+                vis = parsed.get("vis") or {}
+                return {"hardware": hw, "vis": vis, "source": "huggingface", "provider": f"hf:{hf_model}", "raw": text}
+        except Exception as e:
+            raise RuntimeError(f"HuggingFace failed: {e}") from e
+
+    # Aucun provider configuré → fallback heuristique géré côté router
+    return None
+
 
 # ── RPi detection ──────────────────────────────
 def is_rpi() -> bool:
