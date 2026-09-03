@@ -237,12 +237,12 @@ class WebServer:
 
         # ── REST API + WebSocket + test endpoints ────────────────
         # Routes moved to web/routers/*.py — each exposes register(app, server).
-        from .routers import (camera, collimation, config, focuser, guide, hardware,
+        from .routers import (aberration, camera, collimation, config, focuser, guide, hardware,
                               masters, mosaic, mount, pointing, sequence,
                               stacking, triggers, visibility, ws_test)
         for router in (hardware, config, mount, camera, focuser, guide,
                        sequence, stacking, masters, mosaic, pointing,
-                       triggers, visibility, ws_test, collimation):
+                       triggers, visibility, ws_test, collimation, aberration):
             router.register(app, self)
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────

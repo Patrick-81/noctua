@@ -50,6 +50,10 @@ const MODES = {
         applets: ['applet-collimation'],
         driverType: 'ccd'
     },
+    aberration: {
+        applets: ['applet-aberration', 'applet-capture-preview'],
+        driverType: 'ccd'
+    },
     hardware: {
         applets: ['applet-hardware-mode'],
         driverType: null

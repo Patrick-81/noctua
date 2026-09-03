@@ -516,6 +516,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initGuidePanel();
     initDashboard();
     if (typeof initCollimationPanel === 'function') initCollimationPanel();
+    if (typeof initAberrationPanel === 'function') initAberrationPanel();
     setInterval(() => _guideChecklist?.update(), 1000);
     initCalibrationPanel();
     initSessionPanel();

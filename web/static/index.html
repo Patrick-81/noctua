@@ -44,6 +44,7 @@
     <script src="/framing.js"></script>
     <script src="/visibility.js"></script>
     <script src="/collimation.js"></script>
+    <script src="/aberration.js"></script>
 </head>
 <body>
 
@@ -86,6 +87,10 @@
             <button class="mode-btn" data-mode="collimation" title="Collimation" data-i18n-title="mode.collimation.title">
                 <span class="mode-icon">◎</span>
                 <span class="mode-label" data-i18n="mode.collimation">Collimation</span>
+            </button>
+            <button class="mode-btn" data-mode="aberration" title="Aberration & Tilt" data-i18n-title="mode.aberration.title">
+                <span class="mode-icon">◉</span>
+                <span class="mode-label" data-i18n="mode.aberration">Aberr</span>
             </button>
         </div>
 
@@ -1682,6 +1687,65 @@
                 </div>
             </div>
         </div>
+
+        <!-- APPLET: ABERRATION & TILT (mode aberration, réutilise capture viewer) -->
+        <div id="applet-aberration" class="glass-panel applet mode-specific" data-modes="aberration" style="display:none; top:80px; left:16px; width:640px; max-height:calc(100vh - 120px); overflow-y:auto;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◉ ABERRATION & TILT</span><span id="aberr-badge" style="margin-left:8px; font-size:0.55rem; color:#888;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div id="aberr-header-info" style="font-size:0.55rem; color:#888; margin-bottom:4px; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:4px;">Aucune capture</div>
+                <div style="display:flex; gap:4px; margin-bottom:6px;">
+                    <button class="btn-glass aberr-tab active" data-aberr-tab="aber" style="flex:1;">◎ Aberrations</button>
+                    <button class="btn-glass aberr-tab" data-aberr-tab="tilt" style="flex:1;">◉ Tilt capteur</button>
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                    <button id="aberr-btn-last" class="btn-glass success" style="font-size:0.62rem;">Analyser dernière capture (viewer)</button>
+                    <span style="font-size:0.55rem; color:#666;">ou</span>
+                    <input id="aberr-inp-path" type="text" class="input-glass" placeholder="/chemin/vers/image.fits ou dossier" style="flex:1; font-size:0.58rem;">
+                    <button id="aberr-btn-path" class="btn-glass" style="font-size:0.62rem;">Charger ↗</button>
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                    <label class="btn-glass" style="font-size:0.58rem; cursor:pointer;">Fichier FITS...
+                        <input type="file" id="aberr-inp-file" accept=".fit,.fits,.png,.jpg,.tif,.tiff,.npy" style="display:none">
+                    </label>
+                    <span id="aberr-info" style="font-size:0.58rem; color:#888; margin-left:6px;"></span>
+                </div>
+
+                <!-- Sous-onglet Aberrations -->
+                <div id="aberr-pane-aber">
+                    <div id="aberr-results" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px; padding:6px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.15); border-radius:6px;">
+                            <div>HFR moy <b id="aberr-hfr">—</b></div>
+                            <div>FWHM moy <b id="aberr-fwhm">—</b></div>
+                            <div>Qualité <b id="aberr-quality">—</b></div>
+                            <div>Ellip moy <b id="aberr-ellip">—</b></div>
+                            <div>Coma moy <b id="aberr-coma">—</b></div>
+                            <div>Tilt <b id="aberr-tilt-mag">—</b></div>
+                        </div>
+                        <div style="font-size:0.55rem; color:#666; margin-bottom:3px;">Header FITS: <span id="aberr-header-detail" style="color:#aaa;"></span></div>
+                        <div style="max-height:160px; overflow-y:auto; font-size:0.58rem;">
+                            <table style="width:100%; border-collapse:collapse;">
+                                <thead><tr style="color:#666; font-size:0.52rem;"><th>#</th><th>x,y</th><th>HFR</th><th>FWHM</th><th>Ellip</th><th>Coma</th><th>SNR</th></tr></thead>
+                                <tbody id="aberr-star-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Tilt -->
+                <div id="aberr-pane-tilt" style="display:none;">
+                    <div style="padding:6px; background:rgba(255,170,0,0.06); border:1px solid rgba(255,170,0,0.2); border-radius:6px; margin-bottom:6px;">
+                        <canvas id="aberr-tilt-canvas" width="600" height="340" style="width:100%; height:340px; background:#05080f; border-radius:4px; display:block;"></canvas>
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem; margin-top:4px;">
+                            <div>Tilt dx <b id="aberr-tilt-dx">—</b></div>
+                            <div>Tilt dy <b id="aberr-tilt-dy">—</b></div>
+                            <div>Mag <b id="aberr-tilt-mag">—</b></div>
+                        </div>
+                        <div style="font-size:0.52rem; color:#666; margin-top:3px;">Flèche = gradient HFR (tilt capteur) · points colorés = HFR par étoile (vert bon, orange moyen, rouge mauvais) · utilise le même calcul <code>focus_metrics HFR</code> que l'autofocus.</div>
+                    </div>
+                    <canvas id="aberr-viewer-overlay" width="600" height="340" style="display:none;"></canvas>
+                </div>
+            </div>
+        </div>
         </div> <!-- /mobile-stack -->
     </div><!-- /applets-layer -->
 
@@ -1797,6 +1861,7 @@
         <button class="bnav-btn" data-mode="sequencer" title="Séquence"><span class="bnav-icon">📋</span><span class="bnav-label">Séquence</span></button>
         <button class="bnav-btn" data-mode="astrometry" title="Astro"><span class="bnav-icon">⭐</span><span class="bnav-label">Astro</span></button>
         <button class="bnav-btn" data-mode="collimation" title="Collimation"><span class="bnav-icon">◎</span><span class="bnav-label">Collim</span></button>
+        <button class="bnav-btn" data-mode="aberration" title="Aberration & Tilt"><span class="bnav-icon">◉</span><span class="bnav-label">Aberr</span></button>
     </nav>
     <div id="mobile-dock" aria-label="Panneaux"></div>
 
