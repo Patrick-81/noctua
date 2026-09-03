@@ -1010,6 +1010,7 @@
                     <canvas id="cap-preview-canvas" style="width:100%; height:100%; display:block; border-radius:4px;"></canvas>
                     <canvas id="offset-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                     <canvas id="focus-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
+                    <canvas id="aberr-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                 </div>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
                 <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
@@ -1741,6 +1742,12 @@
                             <div>Mag <b id="aberr-tilt-mag">—</b></div>
                         </div>
                         <div style="font-size:0.52rem; color:#666; margin-top:3px;">Flèche = gradient HFR (tilt capteur) · points colorés = HFR par étoile (vert bon, orange moyen, rouge mauvais) · utilise le même calcul <code>focus_metrics HFR</code> que l'autofocus.</div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:6px; font-size:0.58rem; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-grid" checked> Grille déformée (tilt)</label>
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-arrows" checked> Flèches coma/tilt</label>
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-ellip" checked> Ellipses</label>
+                        <span style="margin-left:auto; color:#666; font-size:0.52rem;">Overlay sur l'aperçu (viewer)</span>
                     </div>
                     <canvas id="aberr-viewer-overlay" width="600" height="340" style="display:none;"></canvas>
                 </div>

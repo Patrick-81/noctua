@@ -144,12 +144,72 @@ def find_stars(
     # Background estimation (sigma-clipped median)
     bg_median = float(np.nanmedian(image))
     bg_std = float(np.nanstd(image))
-    if bg_std < 1.0:
+    # Floor adaptatif : 1 ADU n'a de sens qu'en échelle entière >100 ADU.
+    # Pour images float normalisées 0-1 (stack), bg_std~0.01 doit rester tel quel.
+    if bg_std < 1e-6:
+        bg_std = 1e-6
+    elif bg_std < 1.0 and bg_median < 5.0:
+        # image normalisée float — ne pas forcer 1.0
+        pass
+    elif bg_std < 1.0:
         bg_std = 1.0
 
     threshold = bg_median + threshold_sigma * bg_std
 
-    # Find local maxima: pixel > threshold and brightest in neighborhood
+    # --- Voie rapide vectorisée via scipy ( ~50× plus rapide sur 26 Mpx) ---
+    try:
+        from scipy.ndimage import maximum_filter  # type: ignore
+
+        footprint_size = max(3, min_distance)
+        maxf = maximum_filter(image, size=footprint_size, mode="constant", cval=threshold - 1)
+        mask = (image == maxf) & (image > threshold)
+        cnt = int(np.count_nonzero(mask))
+        if cnt == 0:
+            return []
+        # Trop de candidats (bruit) -> on garde les plus brillants avant NMS
+        ys, xs = np.where(mask)
+        peaks = image[ys, xs]
+        # Tri par pic décroissant pour NMS (garde les plus brillants)
+        order = np.argsort(peaks)[::-1]
+        # Limiter à max_stars * 50 pour éviter O(N²) sur champ ultra dense
+        if len(order) > max_stars * 50:
+            order = order[: max_stars * 50]
+        ys = ys[order]
+        xs = xs[order]
+        peaks = peaks[order]
+        r_ap = min(8, min_distance)
+        # NMS : un seul point par voisinage min_distance (fusion plateaux 11×11)
+        kept = []
+        kept_coords: list[tuple[int, int]] = []
+        for x, y, peak in zip(xs, ys, peaks):
+            # check distance aux déjà gardés
+            keep = True
+            for kx, ky in kept_coords:
+                if abs(int(x) - kx) < min_distance and abs(int(y) - ky) < min_distance:
+                    if ((int(x) - kx) ** 2 + (int(y) - ky) ** 2) ** 0.5 < min_distance:
+                        keep = False
+                        break
+            if not keep:
+                continue
+            y_lo = max(0, int(y) - r_ap)
+            y_hi = min(h, int(y) + r_ap + 1)
+            x_lo = max(0, int(x) - r_ap)
+            x_hi = min(w, int(x) + r_ap + 1)
+            flux = float(np.sum(image[y_lo:y_hi, x_lo:x_hi]) - bg_median * (y_hi - y_lo) * (x_hi - x_lo))
+            if flux > 0:
+                kept.append({"x": int(x), "y": int(y), "flux": flux, "peak": float(peak)})
+                kept_coords.append((int(x), int(y)))
+                if len(kept) >= max_stars:
+                    break
+        # kept déjà trié par peak/flux décroissant (pas exactement flux, on re-tri)
+        kept.sort(key=lambda s: s["flux"], reverse=True)
+        return kept[:max_stars]
+    except ImportError:
+        pass
+    except Exception as e:
+        log.debug("find_stars vectorisé échoué, fallback boucle: %s", e)
+
+    # Fallback boucle Python (petites images ou scipy absent) avec NMS
     stars = []
     half_d = min_distance // 2
 
@@ -158,10 +218,8 @@ def find_stars(
             val = image[y, x]
             if val < threshold:
                 continue
-            # Check if local maximum in window
             window = image[y - half_d : y + half_d + 1, x - half_d : x + half_d + 1]
-            if val >= window.max() and val == window.max():
-                # Sum flux in a small aperture
+            if val == window.max():
                 r = min(8, min_distance)
                 y_lo = max(0, y - r)
                 y_hi = min(h, y + r + 1)
@@ -171,9 +229,19 @@ def find_stars(
                 if flux > 0:
                     stars.append({"x": int(x), "y": int(y), "flux": flux, "peak": float(val)})
 
-    # Sort by flux descending, keep top N
     stars.sort(key=lambda s: s["flux"], reverse=True)
-    stars = stars[:max_stars]
+    # NMS
+    if len(stars) > 1 and min_distance > 1:
+        kept = []
+        for s in stars:
+            if any(((s["x"] - k["x"]) ** 2 + (s["y"] - k["y"]) ** 2) ** 0.5 < min_distance for k in kept):
+                continue
+            kept.append(s)
+            if len(kept) >= max_stars:
+                break
+        stars = kept
+    else:
+        stars = stars[:max_stars]
 
     return stars
 

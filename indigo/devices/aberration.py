@@ -20,19 +20,19 @@ from .focus_metrics import parse_fits, find_stars, compute_hfr, compute_fwhm
 from .fitsmeta import read_header, inject_meta, frame_meta
 
 
-def _ellipticity(image: np.ndarray, cx: int, cy: int, radius: int = 12) -> float:
-    """Ellipticité 0=ronde, 1=allongée, via moments 2nd ordre."""
+def _ellipticity(image: np.ndarray, cx: int, cy: int, radius: int = 12) -> tuple[float, float]:
+    """Ellipticité 0=ronde, 1=allongée, via moments 2nd ordre. Retourne (ellip, angle_deg)."""
     h, w = image.shape
     r0 = max(0, cx - radius); r1 = min(w, cx + radius + 1)
     b0 = max(0, cy - radius); b1 = min(h, cy + radius + 1)
     region = image[b0:b1, r0:r1].astype(np.float64)
     if region.size == 0:
-        return 0.0
+        return 0.0, 0.0
     bg = float(np.median(region))
     region = np.maximum(region - bg, 0)
     total = float(region.sum())
     if total <= 0:
-        return 0.0
+        return 0.0, 0.0
     yy, xx = np.mgrid[b0:b1, r0:r1]
     x = xx - cx
     y = yy - cy
@@ -47,14 +47,17 @@ def _ellipticity(image: np.ndarray, cx: int, cy: int, radius: int = 12) -> float
     det = x2 * y2 - xy * xy
     disc = max(0, tr*tr/4 - det)
     if disc <= 0:
-        return 0.0
+        return 0.0, 0.0
     s = math.sqrt(disc)
     lam1 = tr/2 + s
     lam2 = tr/2 - s
     if lam1 <= 0:
-        return 0.0
+        return 0.0, 0.0
     ratio = math.sqrt(max(0, lam2 / lam1)) if lam1 > 0 else 0
-    return float(1 - ratio)
+    ellip = float(1 - ratio)
+    # angle du grand axe (deg, 0°=X, 90°=Y)
+    angle = float(0.5 * math.degrees(math.atan2(2 * xy, x2 - y2)))
+    return ellip, angle
 
 
 def _coma_asymmetry(image: np.ndarray, cx: int, cy: int, radius: int = 12) -> tuple[float, float]:
@@ -99,36 +102,50 @@ def analyze_image(data: bytes) -> dict:
 
     bg_median = float(np.nanmedian(img))
     bg_std = float(np.nanstd(img))
-    stars = find_stars(img, threshold_sigma=5.0, min_distance=8, max_stars=80)
+    # floor adaptatif pour SNR (évite /0 sur stack 0-1)
+    bg_std_floor = 1e-6 if bg_median < 5.0 else 1.0
+    stars_all = find_stars(img, threshold_sigma=5.0, min_distance=8, max_stars=80)
 
-    if not stars:
+    if not stars_all:
         return {"ok": True, "stars": [], "global": {"star_count": 0}, "header": values, "width": w, "height": h}
 
+    # Détection saturation : pic proche du max image (plateau écrêté)
+    img_max = float(np.nanmax(img))
+    # Seuil saturation : 95% du max ou 65530 pour 16-bit
+    sat_thresh = img_max * 0.95 if img_max > 10 else img_max * 0.98
+    for s in stars_all:
+        s["saturated"] = bool(s["peak"] >= sat_thresh)
+
     # Enrichir chaque étoile
-    for s in stars:
+    for s in stars_all:
         x, y = int(s["x"]), int(s["y"])
         s["hfr"] = round(float(compute_hfr(img, x, y, bg_median=bg_median)), 2)
         s["fwhm"] = round(float(compute_fwhm(img, x, y, bg_median=bg_median)), 2)
-        s["ellip"] = round(float(_ellipticity(img, x, y)), 3)
+        ellip, angle = _ellipticity(img, x, y)
+        s["ellip"] = round(float(ellip), 3)
+        s["ellip_angle"] = round(float(angle), 1)
         cdx, cdy = _coma_asymmetry(img, x, y)
         s["coma_dx"] = round(float(cdx), 2)
         s["coma_dy"] = round(float(cdy), 2)
         s["coma_mag"] = round(float(math.hypot(cdx, cdy)), 2)
-        # SNR
-        snr = (s["peak"] - bg_median) / max(bg_std, 1.0)
+        # SNR avec floor adaptatif
+        snr = (s["peak"] - bg_median) / max(bg_std, bg_std_floor)
         s["snr"] = round(float(snr), 1)
 
-    # Tri qualité
-    stars.sort(key=lambda s: (-s["snr"], s["hfr"]))
+    # Tri qualité : non saturées d'abord
+    stars_all.sort(key=lambda s: (s["saturated"], -s["snr"], s["hfr"]))
+    stars = stars_all
 
-    # Globaux
-    # Tilt capteur = gradient HFR across field (fit plan HFR = a*x + b*y + c)
-    # On résout moindres carrés sur les étoiles
+    # Globaux — calcul sur étoiles non saturées si possible
+    usable = [s for s in stars if not s["saturated"] and s["hfr"] > 0 and s["hfr"] < 20]
+    # fallback : si tout saturé, on prend tout mais on flag
+    pool = usable if len(usable) >= 6 else stars
+
     tilt_dx = tilt_dy = tilt_mag = 0.0
-    if len(stars) >= 6:
-        xs = np.array([s["x"] for s in stars], dtype=float)
-        ys = np.array([s["y"] for s in stars], dtype=float)
-        hs = np.array([s["hfr"] for s in stars], dtype=float)
+    if len(pool) >= 6:
+        xs = np.array([s["x"] for s in pool], dtype=float)
+        ys = np.array([s["y"] for s in pool], dtype=float)
+        hs = np.array([s["hfr"] for s in pool], dtype=float)
         # normaliser coords 0-1
         xn = xs / max(w, 1)
         yn = ys / max(h, 1)
@@ -141,10 +158,10 @@ def analyze_image(data: bytes) -> dict:
         except Exception:
             pass
 
-    ellip_mean = float(np.mean([s["ellip"] for s in stars])) if stars else 0
-    coma_mean = float(np.mean([s["coma_mag"] for s in stars])) if stars else 0
-    hfr_mean = float(np.mean([s["hfr"] for s in stars])) if stars else 0
-    fwhm_mean = float(np.mean([s["fwhm"] for s in stars])) if stars else 0
+    ellip_mean = float(np.mean([s["ellip"] for s in pool])) if pool else 0
+    coma_mean = float(np.mean([s["coma_mag"] for s in pool])) if pool else 0
+    hfr_mean = float(np.mean([s["hfr"] for s in pool])) if pool else 0
+    fwhm_mean = float(np.mean([s["fwhm"] for s in pool])) if pool else 0
 
     # Classification simple
     quality = "good"
@@ -153,11 +170,22 @@ def analyze_image(data: bytes) -> dict:
     elif hfr_mean > 4.5:
         quality = "defocus"
 
+    sat_count = sum(1 for s in stars if s["saturated"])
+    usable_len = len(usable)
+    # Si tout est saturé, tilt/coma non fiables
+    if usable_len < 6:
+        # on garde hfr_mean mais on signale saturation
+        if sat_count == len(stars) and sat_count > 0:
+            quality = "saturated"
+            tilt_dx = tilt_dy = tilt_mag = 0.0
+        # sinon on a fallback pool = stars mais on garde qualité tilt si mesuré
     return {
         "ok": True,
         "stars": stars[:60],
         "global": {
             "star_count": len(stars),
+            "usable_count": usable_len,
+            "saturated_count": sat_count,
             "hfr_mean": round(hfr_mean, 2),
             "fwhm_mean": round(fwhm_mean, 2),
             "ellip_mean": round(ellip_mean, 3),
@@ -202,7 +230,8 @@ def analyze_file(path: str | Path) -> dict:
             x, y = int(s["x"]), int(s["y"])
             s["hfr"] = round(float(compute_hfr(arr, x, y, bg_median=bg_median)), 2)
             s["fwhm"] = round(float(compute_fwhm(arr, x, y, bg_median=bg_median)), 2)
-            s["ellip"] = round(float(_ellipticity(arr, x, y)), 3)
+            ellip, angle = _ellipticity(arr, x, y)
+            s["ellip"] = round(float(ellip), 3); s["ellip_angle"] = round(float(angle), 1)
             cdx, cdy = _coma_asymmetry(arr, x, y)
             s["coma_dx"] = round(float(cdx), 2); s["coma_dy"] = round(float(cdy), 2)
             s["coma_mag"] = round(float(math.hypot(cdx, cdy)), 2)

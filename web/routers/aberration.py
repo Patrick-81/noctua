@@ -17,7 +17,8 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from fastapi import UploadFile, File
+from fastapi import Query, UploadFile, File
+from fastapi.responses import Response
 
 from .common import SanitizedJSONResponse, log
 
@@ -131,6 +132,21 @@ def register(app, server: "WebServer") -> None:
         except Exception as e:
             traceback.print_exc()
             return SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.get("/api/aberration/image")
+    async def aberr_image(path: str = Query(...), max_bytes: int = Query(50 * 1024 * 1024)):
+        """Retourne le FITS brut pour affichage dans le viewer (aperçu)."""
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            return SanitizedJSONResponse({"ok": False, "error": f"Introuvable: {path}"}, status_code=404)
+        if p.stat().st_size > max_bytes:
+            return SanitizedJSONResponse({"ok": False, "error": f"Fichier trop gros ({p.stat().st_size} > {max_bytes})"}, status_code=413)
+        data = p.read_bytes()
+        # Déduit media type simple
+        ctype = "application/octet-stream"
+        if p.suffix.lower() in (".png",): ctype = "image/png"
+        elif p.suffix.lower() in (".jpg", ".jpeg"): ctype = "image/jpeg"
+        return Response(content=data, media_type=ctype, headers={"Content-Disposition": f'inline; filename="{p.name}"'})
 
     @app.post("/api/aberration/upload")
     async def aberr_upload(file: UploadFile = File(...)):

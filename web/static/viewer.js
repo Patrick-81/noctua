@@ -13,9 +13,9 @@ class Viewer {
             resizeHandleId: 'cap-resize-handle',
             zoomLevelId: 'cap-zoom-level', zoomResetId: 'cap-zoom-reset',
             zoomFitId: 'cap-zoom-fit', zoomEnlargeId: 'cap-zoom-enlarge',
-            overlayIds: ['offset-overlay-canvas', 'focus-overlay-canvas'],
+            overlayIds: ['offset-overlay-canvas', 'focus-overlay-canvas', 'aberr-overlay-canvas'],
             features: { histogram: true, save: true, enlarge: true, resize: true,
-                        starSelect: false, guideButtons: false, focusMetrics: false, offsetVector: false }
+                        starSelect: false, guideButtons: false, focusMetrics: false, offsetVector: false, aberration: true }
         },
         guiding: {
             containerId: 'applet-guide-preview', canvasId: 'guide-preview-canvas',
@@ -49,6 +49,17 @@ class Viewer {
             overlayIds: ['offset-overlay-canvas'],
             features: { histogram: true, offsetVector: true, enlarge: true, resize: true,
                         save: false, starSelect: false, guideButtons: false, focusMetrics: false }
+        },
+        aberration: {
+            containerId: 'applet-capture-preview', canvasId: 'cap-preview-canvas',
+            viewportId: 'cap-preview-viewport', emptyId: 'cap-preview-empty',
+            wrapId: 'cap-preview-wrap', infoId: 'cap-preview-info',
+            resizeHandleId: 'cap-resize-handle',
+            zoomLevelId: 'cap-zoom-level', zoomResetId: 'cap-zoom-reset',
+            zoomFitId: 'cap-zoom-fit', zoomEnlargeId: 'cap-zoom-enlarge',
+            overlayIds: ['offset-overlay-canvas', 'focus-overlay-canvas', 'aberr-overlay-canvas'],
+            features: { histogram: true, save: false, enlarge: true, resize: true,
+                        starSelect: false, guideButtons: false, focusMetrics: false, offsetVector: false, aberration: true }
         }
     };
 
@@ -232,7 +243,7 @@ class Viewer {
             if (ov) { ov.width = w; ov.height = h; ov.style.width = w + 'px'; ov.style.height = h + 'px'; }
         }
 
-        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry' || this.mode === 'aberration') {
             this.histPixels = pixels;
             this.histDataMin = sky - 3 * (soft * 2);
             this.histDataMax = sky + k * (soft * 2);
@@ -335,7 +346,7 @@ class Viewer {
                 const ov = document.getElementById(id);
                 if (ov) { ov.style.width = this.imgW + 'px'; ov.style.height = this.imgH + 'px'; }
             }
-        } else if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+        } else if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry' || this.mode === 'aberration') {
             const wrap = vp.parentElement;
             const maxH = Math.max(100, (wrap ? wrap.clientHeight : 400) - 80);
             const fs = Math.min(vpW / this.imgW, maxH / this.imgH, 1);
@@ -363,7 +374,7 @@ class Viewer {
         }
         const lvl = document.getElementById(this.zoomLevelId);
         if (lvl) lvl.textContent = Math.round(this.zoom * 100) + '%';
-        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry') {
+        if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry' || this.mode === 'aberration') {
             const vp = document.getElementById(this.viewportId);
             if (vp) vp.classList.toggle('zoomed', this.zoom > 1.05);
             // Legacy globals for overlay functions
