@@ -563,10 +563,11 @@ export class SkyEngine {
             const centerRA = -this._currentRotation[0];
             const centerDec = -this._currentRotation[1];
             const pts = [];
-            // roll the fast star path to match the d3 .rotate([,,gamma]) that
-            // the vector layers already get. Flip the sign here if stars and
-            // constellation lines rotate opposite ways in trackball mode.
-            const starRoll = this._trackball ? this._manualRollDeg * Math.PI / 180 : 0;
+            // roll the fast star path to match the d3 .rotate([,,gamma]) the
+            // vector layers get. The fast path builds an east/north basis and
+            // flips Y for screen space, so it needs the opposite sign of the
+            // d3 gamma to co-rotate with the constellation lines.
+            const starRoll = this._trackball ? -this._manualRollDeg * Math.PI / 180 : 0;
             projectStars(
                 this._starVectors, centerRA, centerDec,
                 this._scale, w / 2, h / 2,
