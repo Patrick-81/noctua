@@ -1,0 +1,12 @@
+{
+  "hardware": {
+    "decenter_max_mm": 2.0,
+    "tilt_max_deg": 0.3,
+    "mm_per_turn": 0.5,
+    "deg_per_turn": 1.5
+  },
+  "best_val_loss": 0.3242080778634849,
+  "err_decenter_mm": 1.10862398147583,
+  "err_tilt_deg": 0.13932467997074127,
+  "n_params": 812900
+}

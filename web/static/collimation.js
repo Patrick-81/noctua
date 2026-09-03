@@ -70,20 +70,58 @@ async function refreshCollimStatus() {
             badgeModel.textContent = s.model_done ? '● Modèle prêt' : '○ Modèle manquant';
             badgeModel.style.color = s.model_done ? '#4a4' : '#a44';
         }
-        // Griser apprentissage sur RPi
+        // Griser apprentissage sur RPi (mais laisser visible en lecture)
         if (learnPane) {
-            learnPane.style.opacity = s.is_rpi ? '0.45' : '1';
-            learnPane.style.pointerEvents = s.is_rpi ? 'none' : '';
+            learnPane.style.opacity = s.is_rpi ? '0.55' : '1';
+            // ne pas bloquer pointerEvents : lecture seule autorisée même sur RPi
         }
         if (learnTab) {
-            learnTab.style.opacity = s.is_rpi ? '0.5' : '1';
-            learnTab.title = s.is_rpi ? 'Désactivé sur RPi — lancer sur Orion' : '';
+            learnTab.style.opacity = '1';
+            learnTab.title = s.is_rpi ? 'Lecture seule sur RPi — génération sur Orion' : '';
         }
-        // Désactiver boutons apprentissage
-        document.querySelectorAll('#collim-pane-learn button, #collim-pane-learn input').forEach(el => {
-            if (s.is_rpi) el.setAttribute('disabled','');
-            else el.removeAttribute('disabled');
-        });
+
+        // ── Instrument recap (inférence) ──
+        const ds = s.dataset_info || {};
+        const hw = ds.hardware || {};
+        const vis = ds.vis || {};
+        const recap = document.getElementById('collim-instrument-recap');
+        if (recap) {
+            const tel = ds.telescope || 'GSO Photon 8\" F4 — 203mm/800mm';
+            const fd = (hw.focale_mm && hw.diametre_mm) ? (hw.focale_mm/hw.diametre_mm).toFixed(2) : '4.0';
+            recap.innerHTML = `<b>Instrument modèle :</b> ${tel} — F/${fd} — Obstr. ${(hw.obstruction_ratio*100).toFixed(1)}% — Pixel ${hw.pixel_size_um}µm — Patch ${hw.patch_size_px}×${hw.patch_size_px} — Défocus ${hw.defocus_waves}λ — <b>Vis</b> sec M4 ${vis.pas_secondaire_mm}mm/tr / prim M6 ${vis.pas_primaire_mm}mm/tr — levier ${vis.rayon_levier_mm}mm`
+                + (s.model_done ? ' <span style="color:#4a4">● modèle 200/800 prêt</span>' : ' <span style="color:#a44">○ modèle manquant</span>');
+        }
+
+        // ── Dataset recap (apprentissage) ──
+        const dsRecap = document.getElementById('collim-dataset-recap');
+        if (dsRecap) {
+            if (ds.exists) {
+                dsRecap.innerHTML = `<b>Dataset artificiel 200/800 déjà généré :</b> ${ds.n_samples} PSF 128×128 (decenter ±${ds.decenter_range}mm, tilt ±${ds.tilt_range}°) — <b>Optique</b> Ø${hw.diametre_mm}mm F${hw.focale_mm}mm F/${(hw.focale_mm/hw.diametre_mm).toFixed(2)} — Obstr ${Math.round(hw.obstruction_ratio*100)}% — Pixel ${hw.pixel_size_um}µm — Défocus ${hw.defocus_waves}λ`;
+            } else {
+                dsRecap.innerHTML = `Aucun dataset local — générez sur Orion : <code>python generate_psf_dataset.py --n 10000</code>`;
+            }
+        }
+        const dsStats = document.getElementById('collim-dataset-stats');
+        if (dsStats) {
+            dsStats.innerHTML = ds.exists
+                ? `Échantillons : <b>${ds.n_samples}</b> (3969 dispo, 268M)<br>Patch ${hw.patch_size_px}×${hw.patch_size_px} — Défocus ${hw.defocus_waves}λ<br>Preview : <a href="/api/collimation/dataset/preview" target="_blank" style="color:#0af">preview.png 2.7M</a>`
+                : `Aucun — à générer sur Orion`;
+        }
+        const trStats = document.getElementById('collim-train-stats');
+        if (trStats) {
+            const m = s.metrics;
+            if (m) {
+                trStats.innerHTML = `best_model.pt 3.2M — ${m.n_params||812900} params<br>Val loss ${Number(m.best_val_loss||0).toFixed(4)} — err dec ${Number(m.err_decenter_mm||0).toFixed(2)}mm — tilt ${Number(m.err_tilt_deg||0).toFixed(3)}°`;
+            } else if (s.model_done) {
+                trStats.innerHTML = `Modèle présent (metrics.json manquant)`;
+            } else {
+                trStats.innerHTML = `Modèle à entraîner`;
+            }
+        }
+        const previewMeta = document.getElementById('collim-preview-meta');
+        if (previewMeta && ds.exists) {
+            previewMeta.textContent = `${ds.n_samples} PSF simulées Poppy — hardware ${hw.diametre_mm}mm/${hw.focale_mm}mm — 268M sur disque`;
+        }
     } catch (e) {
         console.warn('collim status failed', e);
     }

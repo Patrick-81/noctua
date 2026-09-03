@@ -1572,6 +1572,9 @@
 
                 <!-- Pane Inférence -->
                 <div id="collim-pane-infer">
+                    <div id="collim-instrument-recap" style="padding:5px 7px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.15); border-radius:6px; font-size:0.58rem; color:#aaa; margin-bottom:6px; line-height:1.5;">
+                        Chargement instrument...
+                    </div>
                     <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
                         <div style="flex:1; display:flex; gap:4px;">
                             <input id="collim-inp-path" type="text" class="input-glass" placeholder="/chemin/vers/etoile_defoc.fits ou dossier" style="flex:1; font-family:monospace; font-size:0.62rem;">
@@ -1622,22 +1625,26 @@
                     </div>
                 </div>
 
-                <!-- Pane Apprentissage (grisé sur RPi) -->
+                <!-- Pane Apprentissage (grisé sur RPi, données réelles sur PC) -->
                 <div id="collim-pane-learn" style="display:none;">
-                    <div style="padding:8px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px;">
-                        <div style="font-size:0.68rem; margin-bottom:4px;">📦 Dataset — simulation PSF défocalisée (Poppy)</div>
-                        <div style="font-size:0.58rem; color:#888; margin-bottom:6px;">Génère 10k PSF GSO Photon 8&quot; F4 (~640Mo, ~117min CPU). À lancer sur Orion, pas sur RPi.</div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="btn-glass" disabled> Générer dataset (Orion)</button>
-                            <span style="font-size:0.58rem; color:#666; align-self:center;">→ <code>python generate_psf_dataset.py --n 10000</code></span>
-                        </div>
+                    <div id="collim-dataset-recap" style="padding:6px 8px; background:rgba(0,180,255,0.06); border:1px solid rgba(0,180,255,0.15); border-radius:6px; font-size:0.58rem; color:#aaa; margin-bottom:6px; line-height:1.6;">
+                        Chargement dataset...
                     </div>
-                    <div style="padding:8px; background:rgba(255,255,255,0.03); border-radius:6px;">
-                        <div style="font-size:0.68rem; margin-bottom:4px;">🧠 Entraînement — CollimNet 812k params</div>
-                        <div style="font-size:0.58rem; color:#888; margin-bottom:6px;">~8min RTX3060 / ~90min CPU. Early stopping patience 8. Sauve <code>best_model.pt</code> (3.2M).</div>
-                        <div style="display:flex; gap:6px;">
-                            <button class="btn-glass" disabled> Lancer entraînement (Orion)</button>
-                            <span style="font-size:0.58rem; color:#666; align-self:center;">→ <code>python train_model.py</code></span>
+                    <div style="padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px; text-align:center;">
+                        <div style="font-size:0.62rem; color:#888; margin-bottom:4px;">Aperçu PSF défocalisées 128×128 — GSO 200/800 — 3969 déjà générées (268M)</div>
+                        <img id="collim-preview-img" src="/api/collimation/dataset/preview" alt="preview PSF" style="max-width:100%; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+                        <div id="collim-preview-meta" style="font-size:0.55rem; color:#666; margin-top:3px;"></div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.58rem;">
+                        <div style="padding:6px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                            <div style="font-weight:bold; margin-bottom:3px;">📦 Dataset Poppy</div>
+                            <div id="collim-dataset-stats" style="color:#888;">—</div>
+                            <div style="margin-top:4px; color:#666;">Lancer sur Orion :<br><code>python generate_psf_dataset.py --n 10000</code></div>
+                        </div>
+                        <div style="padding:6px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                            <div style="font-weight:bold; margin-bottom:3px;">🧠 Entraînement CollimNet</div>
+                            <div id="collim-train-stats" style="color:#888;">—</div>
+                            <div style="margin-top:4px; color:#666;">Lancer sur Orion :<br><code>python train_model.py</code></div>
                         </div>
                     </div>
                 </div>

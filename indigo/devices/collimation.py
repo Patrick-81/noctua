@@ -21,17 +21,43 @@ from typing import Tuple
 
 import numpy as np
 
-# ── Modèle local ────────────────────────────────
-MODEL_DIR = Path(__file__).parent.parent / "collimation" / "models"
+# ── Chemins ───────────────────────────────────
+COLLIMATION_ROOT = Path(__file__).parent.parent / "collimation"
+MODEL_DIR = COLLIMATION_ROOT / "models"
 MODEL_PATH = MODEL_DIR / "best_model.pt"
-# fallback legacy Collimation standalone (dev)
+DATASET_DIR = COLLIMATION_ROOT / "dataset"
+DATASET_LABELS = DATASET_DIR / "labels.json"
+DATASET_PREVIEW = DATASET_DIR / "preview.png"
+METRICS_PATH = MODEL_DIR / "metrics.json"
+# fallbacks legacy Collimation standalone (dev)
 FALLBACK_MODEL = Path("/home/pat/Programmes/Collimation/model_output/best_model.pt")
+FALLBACK_LABELS = Path("/home/pat/Programmes/Collimation/dataset/labels.json")
+FALLBACK_METRICS = Path("/home/pat/Programmes/Collimation/model_output/metrics.json")
 
 PHYSICAL = {
     "decenter_max_mm": 2.0,
     "tilt_max_deg": 0.3,
     "mm_per_turn": 0.5,
     "deg_per_turn": 1.5,
+}
+
+# Hardware de référence (GSO Photon 200/800) extrait de labels.json si présent
+DEFAULT_HARDWARE = {
+    "diametre_mm": 203,
+    "focale_mm": 800,
+    "obstruction_ratio": 0.345,
+    "n_araignees": 4,
+    "epaisseur_araignee": 0.0005,
+    "pixel_size_um": 3.76,
+    "patch_size_px": 128,
+    "defocus_waves": 4.5,
+    "wavelength_um": 0.55,
+    "npix_pupil": 256,
+}
+DEFAULT_VIS = {
+    "pas_secondaire_mm": 0.7,
+    "pas_primaire_mm": 1.0,
+    "rayon_levier_mm": 82,
 }
 
 
@@ -67,13 +93,62 @@ def allow_training() -> bool:
     return not is_rpi()
 
 
+def _dataset_labels_path() -> Path | None:
+    if DATASET_LABELS.exists():
+        return DATASET_LABELS
+    if FALLBACK_LABELS.exists():
+        return FALLBACK_LABELS
+    return None
+
+def _metrics_path() -> Path | None:
+    if METRICS_PATH.exists():
+        return METRICS_PATH
+    if FALLBACK_METRICS.exists():
+        return FALLBACK_METRICS
+    return None
+
+def get_dataset_info() -> dict:
+    p = _dataset_labels_path()
+    if p and p.exists():
+        try:
+            data = json.loads(p.read_text())
+            hw = data.get("hardware") or DEFAULT_HARDWARE
+            vis = data.get("vis") or DEFAULT_VIS
+            return {
+                "exists": True,
+                "path": str(p),
+                "telescope": data.get("telescope", "GSO Photon 8\" F4 — 203mm/800mm"),
+                "hardware": hw,
+                "vis": vis,
+                "n_samples": data.get("n_samples", len(data.get("samples", []))),
+                "decenter_range": data.get("decenter_range", 2.0),
+                "tilt_range": data.get("tilt_range", 0.3),
+                "preview_exists": DATASET_PREVIEW.exists() or Path("/home/pat/Programmes/Collimation/dataset/preview.png").exists(),
+            }
+        except Exception:
+            pass
+    return {"exists": False, "hardware": DEFAULT_HARDWARE, "vis": DEFAULT_VIS, "n_samples": 0}
+
+def get_metrics() -> dict | None:
+    p = _metrics_path()
+    if p and p.exists():
+        try:
+            return json.loads(p.read_text())
+        except Exception:
+            return None
+    return None
+
 def hardware_info() -> dict:
+    ds = get_dataset_info()
+    metrics = get_metrics()
     return {
         "is_rpi": is_rpi(),
         "allow_training": allow_training(),
         "machine": platform.machine(),
         "model_exists": _model_path().exists(),
         "model_path": str(_model_path()),
+        "dataset": ds,
+        "metrics": metrics,
     }
 
 

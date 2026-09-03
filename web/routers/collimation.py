@@ -158,10 +158,28 @@ def register(app, server: "WebServer") -> None:
             "machine": info["machine"],
             "model_done": info["model_exists"],
             "model_path": info["model_path"],
+            "dataset_info": info["dataset"],
+            "metrics": info["metrics"],
             "infer": _state["infer"],
             "dataset": _state["dataset"],
             "train": _state["train"],
         })
+
+    @app.get("/api/collimation/dataset/preview")
+    async def collim_preview():
+        from fastapi.responses import FileResponse
+        from indigo.devices.collimation import DATASET_PREVIEW, FALLBACK_LABELS
+        p = DATASET_PREVIEW
+        if not p.exists():
+            p = Path("/home/pat/Programmes/Collimation/dataset/preview.png")
+        if not p.exists():
+            raise HTTPException(status_code=404, detail="preview.png introuvable")
+        return FileResponse(str(p), media_type="image/png")
+
+    @app.get("/api/collimation/dataset/info")
+    async def collim_info():
+        from indigo.devices.collimation import get_dataset_info, get_metrics
+        return SanitizedJSONResponse({"dataset": get_dataset_info(), "metrics": get_metrics()})
 
     # ── INFÉRENCE ──────────────────────────────────────────
 
