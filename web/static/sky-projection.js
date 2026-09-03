@@ -69,17 +69,27 @@ export function buildStarVectors(features) {
 //   brillantes sont d'abord dans `stars`, donc les plus faibles tronquées).
 // - sizeFn(mag) calcule le rayon d'affichage.
 // Retourne le nombre d'étoiles écrites.
-export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn) {
+// rollRad (optional) rolls the projected plane about the map centre, to stay
+// in sync with a d3 .rotate([,,gamma]) applied to the vector layers. 0 = the
+// historical north-up behaviour, bit-for-bit.
+export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn, rollRad) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
+    const cr = rollRad ? Math.cos(rollRad) : 1;
+    const sr = rollRad ? Math.sin(rollRad) : 0;
     let count = 0;
     for (const s of stars) {
         if (s.mag > magMax) continue;
         const u = s.u;
         const cz = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
         if (cz <= 0) continue;
-        const rawX = u[0] * east[0] + u[1] * east[1] + u[2] * east[2];
-        const rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
+        let rawX = u[0] * east[0] + u[1] * east[1] + u[2] * east[2];
+        let rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
+        if (rollRad) {
+            const rx = rawX * cr + rawY * sr;
+            rawY = rawY * cr - rawX * sr;
+            rawX = rx;
+        }
         out.push(rawX * scale + tx, -rawY * scale + ty, sizeFn(s.mag));
         count++;
         if (count >= maxStars) break;

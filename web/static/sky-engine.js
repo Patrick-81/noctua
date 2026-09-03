@@ -26,6 +26,66 @@ import {
     projectStars,
 } from '/sky-projection.js';
 
+// ───────────────────────────────────────────────────────────────
+//  Versor (unit-quaternion) helpers — trackball drag, no pole
+//  singularity. Ported from Jason Davies' `versor` micro-lib; the
+//  angle triple <-> quaternion pair matches d3.geo.rotation.
+// ───────────────────────────────────────────────────────────────
+const _V_DEG = Math.PI / 180;
+
+// [lambda, phi, gamma] degrees  ->  quaternion [w, x, y, z]
+function versorFromAngles(e) {
+    const l = e[0] * _V_DEG / 2, sl = Math.sin(l), cl = Math.cos(l);
+    const p = (e[1] || 0) * _V_DEG / 2, sp = Math.sin(p), cp = Math.cos(p);
+    const g = (e[2] || 0) * _V_DEG / 2, sg = Math.sin(g), cg = Math.cos(g);
+    return [
+        cl * cp * cg + sl * sp * sg,
+        sl * cp * cg - cl * sp * sg,
+        cl * sp * cg + sl * cp * sg,
+        cl * cp * sg - sl * sp * cg,
+    ];
+}
+
+// quaternion  ->  [lambda, phi, gamma] degrees
+function versorToAngles(q) {
+    return [
+        Math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1] * q[1] + q[2] * q[2])) / _V_DEG,
+        Math.asin(Math.max(-1, Math.min(1, 2 * (q[0] * q[2] - q[3] * q[1])))) / _V_DEG,
+        Math.atan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2] * q[2] + q[3] * q[3])) / _V_DEG,
+    ];
+}
+
+// [lon, lat] degrees  ->  unit vector
+function versorCartesian(e) {
+    const l = e[0] * _V_DEG, p = e[1] * _V_DEG, cp = Math.cos(p);
+    return [cp * Math.cos(l), cp * Math.sin(l), Math.sin(p)];
+}
+
+function versorMultiply(a, b) {
+    return [
+        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+    ];
+}
+
+const versorConjugate = (q) => [q[0], -q[1], -q[2], -q[3]];
+
+// smallest rotation taking unit vector v0 to unit vector v1
+function versorDelta(v0, v1) {
+    const w = [
+        v0[1] * v1[2] - v0[2] * v1[1],
+        v0[2] * v1[0] - v0[0] * v1[2],
+        v0[0] * v1[1] - v0[1] * v1[0],
+    ];
+    const l = Math.sqrt(w[0] * w[0] + w[1] * w[1] + w[2] * w[2]);
+    if (!l) return [1, 0, 0, 0];
+    const dot = Math.max(-1, Math.min(1, v0[0] * v1[0] + v0[1] * v1[1] + v0[2] * v1[2]));
+    const t = Math.acos(dot) / 2, s = Math.sin(t);
+    return [Math.cos(t), w[2] / l * s, -w[1] / l * s, w[0] / l * s];
+}
+
 export class SkyEngine {
     constructor(container, options = {}) {
         this.container = container;
@@ -57,6 +117,14 @@ export class SkyEngine {
         this._lockRA = false;
         this._lockDEC = false;
         this._parallacticAngleDeg = 0;
+
+        // Trackball drag (opt-in via setTrackballDrag). When on, the manual
+        // orientation is carried as a quaternion so a grabbed point tracks
+        // the pointer at any latitude, the pole included — at the cost of a
+        // free roll (north is no longer pinned up).
+        this._trackball = false;
+        this._manualQ = [1, 0, 0, 0];
+        this._manualRollDeg = 0;
         this._timeMode = 'realtime';
         this._manualDate = new Date();
         this._realtimer = null;
@@ -288,14 +356,27 @@ export class SkyEngine {
         const date = this._getObsDate();
         const lst = this._lstDegrees(date, this.siteLng);
 
-        const centerRA = lst - this._manualOffsetRA;
-        const centerDEC = -this._decOffset;
-        const ha = this._manualOffsetRA;
-        const gamma = -this._parallacticAngle(ha, centerDEC) * 180 / Math.PI;
+        if (this._trackball) {
+            // full = manual orientation ∘ sidereal spin (RA=lst at centre, north up)
+            const base = versorFromAngles([-lst, 0, 0]);
+            const full = versorMultiply(this._manualQ, base);
+            const r = versorToAngles(full);
+            this._currentRotation = r;
+            this._projection.rotate(r);
+            this._manualRollDeg = r[2];
+            this._parallacticAngleDeg = 0;   // roll is literal in the projection now
+            // keep the legacy scalars valid for the horizon / framing readers
+            this._manualOffsetRA = r[0] + lst;
+            this._decOffset = r[1];
+        } else {
+            const centerDEC = -this._decOffset;
+            const ha = this._manualOffsetRA;
+            const gamma = -this._parallacticAngle(ha, centerDEC) * 180 / Math.PI;
 
-        this._parallacticAngleDeg = gamma;
-        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, 0];
-        this._projection.rotate(this._currentRotation);
+            this._parallacticAngleDeg = gamma;
+            this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, 0];
+            this._projection.rotate(this._currentRotation);
+        }
 
         const lstEl = document.getElementById('lst-display');
         if (lstEl) lstEl.textContent = this._formatTime(lst / 15);
@@ -482,11 +563,16 @@ export class SkyEngine {
             const centerRA = -this._currentRotation[0];
             const centerDec = -this._currentRotation[1];
             const pts = [];
+            // roll the fast star path to match the d3 .rotate([,,gamma]) that
+            // the vector layers already get. Flip the sign here if stars and
+            // constellation lines rotate opposite ways in trackball mode.
+            const starRoll = this._trackball ? this._manualRollDeg * Math.PI / 180 : 0;
             projectStars(
                 this._starVectors, centerRA, centerDec,
                 this._scale, w / 2, h / 2,
                 this._maxMagnitude, this._MAX_DRAW_STARS, pts,
-                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5))
+                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)),
+                starRoll
             );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
@@ -519,7 +605,7 @@ export class SkyEngine {
         // catalogues) pour éviter re-projections + re-clip à chaque frame.
         if (this.layers.dsos && this._dsosData && this._dsosData.features) {
             const rot = this._currentRotation;
-            const cacheKey = rot[0].toFixed(5) + '|' + rot[1].toFixed(5) + '|'
+            const cacheKey = rot[0].toFixed(5) + '|' + rot[1].toFixed(5) + '|' + (rot[2] || 0).toFixed(5) + '|'
                 + this._maxMagnitude + '|' + this._scale.toFixed(2) + '|'
                 + Object.values(this.catalogs).join('');
             if (!this._dsoCache || this._dsoCache.key !== cacheKey) {
@@ -1044,6 +1130,7 @@ export class SkyEngine {
     }
 
     _setupDrag() {
+        if (this._trackball) { this._setupTrackballDrag(); return; }
         const drag = d3.behavior.drag().on("drag", () => {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
             const lst = this._lstDegrees(new Date(), this.siteLng);
@@ -1087,6 +1174,65 @@ export class SkyEngine {
             this._updateSiderealRotation();
         });
         d3.select(this.container).call(drag);
+    }
+
+    // Trackball drag (versor). The sky point grabbed on mousedown is kept
+    // exactly under the pointer for the whole gesture, at any latitude —
+    // no pole yoyo — by composing a quaternion instead of solving for
+    // longitude. Introduces a roll, stored in _manualQ.
+    _setupTrackballDrag() {
+        let v0 = null;   // grabbed point, unit vector
+        let q0 = null;   // projection rotation quaternion at drag start
+        let r0 = null;   // projection rotation angles at drag start
+
+        const drag = d3.behavior.drag()
+            .on("dragstart", () => {
+                const p = d3.mouse(this.container);
+                const inv = this._projection.invert(p);
+                if (!inv || isNaN(inv[0])) { v0 = null; return; }
+                v0 = versorCartesian(inv);
+                r0 = this._projection.rotate();
+                q0 = versorFromAngles(r0);
+            })
+            .on("drag", () => {
+                if (!v0) return;
+                const p = d3.mouse(this.container);
+                this._projection.rotate(r0);              // invert against the start frame
+                const inv = this._projection.invert(p);
+                if (!inv || isNaN(inv[0])) { this._projection.rotate(this._currentRotation); return; }
+                const v1 = versorCartesian(inv);
+                const q1 = versorMultiply(q0, versorDelta(v0, v1));
+                const r1 = versorToAngles(q1);
+
+                this._currentRotation = r1;
+                this._projection.rotate(r1);
+                this._manualRollDeg = r1[2];
+                this._parallacticAngleDeg = 0;
+
+                // fold the sidereal spin back out so the timer keeps this orientation
+                const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+                this._manualQ = versorMultiply(q1, versorConjugate(versorFromAngles([-lst, 0, 0])));
+                this._manualOffsetRA = r1[0] + lst;
+                this._decOffset = r1[1];
+
+                if (!this._renderRequested) {
+                    this._renderRequested = true;
+                    requestAnimationFrame(() => { this._renderRequested = false; this.render(); });
+                }
+            });
+        d3.select(this.container).call(drag);
+    }
+
+    // Opt in to the trackball drag (call before init(), or it re-wires on next init).
+    setTrackballDrag(on) {
+        const want = on !== false;
+        if (want === this._trackball) return;
+        this._trackball = want;
+        if (this._initialized) {
+            d3.select(this.container).on("mousedown.drag", null).on("touchstart.drag", null);
+            this._setupDrag();
+            this._updateSiderealRotation();
+        }
     }
 
     _setupZoom() {
@@ -1353,6 +1499,11 @@ export class SkyEngine {
         const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
         this._manualOffsetRA = lst - raDeg;
         this._decOffset = -decDeg;
+        if (this._trackball) {
+            // put the object at the centre, roll reset to north-up
+            const target = versorFromAngles([-raDeg, -decDeg, 0]);
+            this._manualQ = versorMultiply(target, versorConjugate(versorFromAngles([-lst, 0, 0])));
+        }
         this._updateSiderealRotation();
     }
 
@@ -1404,6 +1555,8 @@ export class SkyEngine {
         this._timeMode = 'realtime';
         this._manualOffsetRA = 0;
         this._decOffset = 0;
+        this._manualQ = [1, 0, 0, 0];
+        this._manualRollDeg = 0;
         this._startSiderealSync();
     }
 
