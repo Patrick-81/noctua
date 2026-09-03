@@ -181,6 +181,21 @@ def register(app, server: "WebServer") -> None:
         from indigo.devices.collimation import get_dataset_info, get_metrics
         return SanitizedJSONResponse({"dataset": get_dataset_info(), "metrics": get_metrics()})
 
+    @app.get("/api/collimation/config")
+    async def collim_get_config():
+        from indigo.devices.collimation import load_config
+        return SanitizedJSONResponse(load_config())
+
+    @app.post("/api/collimation/config")
+    async def collim_post_config(body: dict):
+        if not _allow_training():
+            return SanitizedJSONResponse({"error": "Sauvegarde config désactivée sur RPi — modifiez sur PC/Orion", "is_rpi": True}, status_code=403)
+        from indigo.devices.collimation import save_config
+        if not body:
+            return SanitizedJSONResponse({"error": "Pas de données"}, status_code=400)
+        cfg = save_config(body)
+        return SanitizedJSONResponse({"ok": True, "config": cfg})
+
     # ── INFÉRENCE ──────────────────────────────────────────
 
     @app.post("/api/collimation/infer/load_path")

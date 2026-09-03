@@ -41,7 +41,7 @@ PHYSICAL = {
     "deg_per_turn": 1.5,
 }
 
-# Hardware de référence (GSO Photon 200/800) extrait de labels.json si présent
+# ── Config instrument (éditable, comme CollimAI dashboard) ──
 DEFAULT_HARDWARE = {
     "diametre_mm": 203,
     "focale_mm": 800,
@@ -59,6 +59,41 @@ DEFAULT_VIS = {
     "pas_primaire_mm": 1.0,
     "rayon_levier_mm": 82,
 }
+DEFAULT_CONFIG = {
+    "hardware": DEFAULT_HARDWARE.copy(),
+    "vis": DEFAULT_VIS.copy(),
+    "dataset": {"n_samples": 10000, "decenter_max_mm": 2.0, "tilt_max_deg": 0.3},
+    "train": {"epochs": 40, "batch_size": 32, "lr": 1e-3},
+}
+CONFIG_PATH = COLLIMATION_ROOT / "config.json"
+FALLBACK_CONFIG = Path("/home/pat/Programmes/Collimation/config.json")
+
+def load_config() -> dict:
+    for p in (CONFIG_PATH, FALLBACK_CONFIG):
+        if p.exists():
+            try:
+                return json.loads(p.read_text())
+            except Exception:
+                pass
+    # fallback : dérive depuis labels.json si présent
+    ds = get_dataset_info()
+    if ds.get("exists"):
+        cfg = DEFAULT_CONFIG.copy()
+        cfg["hardware"] = ds.get("hardware", DEFAULT_HARDWARE).copy()
+        cfg["vis"] = ds.get("vis", DEFAULT_VIS).copy()
+        return cfg
+    return json.loads(json.dumps(DEFAULT_CONFIG))  # deep copy
+
+def save_config(cfg: dict) -> dict:
+    # validation minimale
+    hw = cfg.get("hardware", {})
+    for k in ("diametre_mm","focale_mm","obstruction_ratio","pixel_size_um"):
+        if k in hw:
+            try: hw[k] = float(hw[k])
+            except: pass
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2))
+    return cfg
 
 
 # ── RPi detection ──────────────────────────────

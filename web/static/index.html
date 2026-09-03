@@ -1627,6 +1627,32 @@
 
                 <!-- Pane Apprentissage (grisé sur RPi, données réelles sur PC) -->
                 <div id="collim-pane-learn" style="display:none;">
+                    <div id="collim-config-card" style="padding:6px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px; margin-bottom:6px;">
+                        <div style="font-size:0.68rem; margin-bottom:4px;">⚙️ Configuration instrument — génération images virtuelles</div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem;">
+                            <label>Ø diamètre (mm)<br><input id="collim-hw-D" type="number" class="input-glass" value="203" step="1" style="width:100%"></label>
+                            <label>Focale (mm)<br><input id="collim-hw-f" type="number" class="input-glass" value="800" step="10" style="width:100%"></label>
+                            <label>F/D auto<br><input id="collim-hw-fd" type="text" class="input-glass" readonly style="width:100%"></label>
+                            <label>Obstruction (0-1)<br><input id="collim-hw-obs" type="number" class="input-glass" value="0.345" step="0.001" style="width:100%"></label>
+                            <label>Nb araignées<br><input id="collim-hw-ara" type="number" class="input-glass" value="4" step="1" style="width:100%"></label>
+                            <label>Ép. araignée (mm)<br><input id="collim-hw-ep" type="number" class="input-glass" value="0.5" step="0.1" style="width:100%"></label>
+                            <label>Pixel (µm)<br><input id="collim-hw-px" type="number" class="input-glass" value="3.76" step="0.01" style="width:100%"></label>
+                            <label>Patch CNN (px)<br><input id="collim-hw-patch" type="number" class="input-glass" value="128" step="32" style="width:100%"></label>
+                            <label>Défocus (λ)<br><input id="collim-hw-def" type="number" class="input-glass" value="4.5" step="0.5" style="width:100%"></label>
+                            <label>λ (µm)<br><input id="collim-hw-wl" type="number" class="input-glass" value="0.55" step="0.01" style="width:100%"></label>
+                            <label>Vis sec pas (mm/tr)<br><input id="collim-vis-s" type="number" class="input-glass" value="0.7" step="0.1" style="width:100%"></label>
+                            <label>Vis prim pas (mm/tr)<br><input id="collim-vis-p" type="number" class="input-glass" value="1.0" step="0.1" style="width:100%"></label>
+                            <label>Rayon levier (mm)<br><input id="collim-vis-lev" type="number" class="input-glass" value="82" step="1" style="width:100%"></label>
+                            <label>Dataset N<br><input id="collim-ds-n" type="number" class="input-glass" value="10000" step="1000" style="width:100%"></label>
+                            <label>Decenter max (mm)<br><input id="collim-ds-dec" type="number" class="input-glass" value="2.0" step="0.1" style="width:100%"></label>
+                            <label>Tilt max (°)<br><input id="collim-ds-tilt" type="number" class="input-glass" value="0.3" step="0.05" style="width:100%"></label>
+                        </div>
+                        <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                            <button id="collim-btn-save-config" class="btn-glass success" style="font-size:0.62rem;">💾 Sauvegarder config</button>
+                            <span id="collim-config-saved" style="font-size:0.58rem; color:#4a4; display:none;">✓ Sauvegardée</span>
+                            <span id="collim-config-rpi-warn" style="font-size:0.55rem; color:#fa0; display:none;">Lecture seule sur RPi</span>
+                        </div>
+                    </div>
                     <div id="collim-dataset-recap" style="padding:6px 8px; background:rgba(0,180,255,0.06); border:1px solid rgba(0,180,255,0.15); border-radius:6px; font-size:0.58rem; color:#aaa; margin-bottom:6px; line-height:1.6;">
                         Chargement dataset...
                     </div>

@@ -45,10 +45,81 @@ function initCollimationPanel() {
     if (cvs) cvs.addEventListener('click', collimFieldClick);
 
     refreshCollimStatus();
+    loadCollimConfig();
+    const btnSave = document.getElementById('collim-btn-save-config');
+    if (btnSave) btnSave.addEventListener('click', saveCollimConfig);
+    ['collim-hw-D','collim-hw-f'].forEach(id=>{
+        const el=document.getElementById(id);
+        if(el) el.addEventListener('input', updateCollimFd);
+    });
     // rafraîchir status à chaque entrée dans le mode collimation
     Hub.subscribe('mode:changed', 'collimation', (env) => {
-        if (env.payload.mode === 'collimation') refreshCollimStatus();
+        if (env.payload.mode === 'collimation') { refreshCollimStatus(); loadCollimConfig(); }
     });
+}
+
+function updateCollimFd(){
+    const D=parseFloat(document.getElementById('collim-hw-D')?.value||203);
+    const f=parseFloat(document.getElementById('collim-hw-f')?.value||800);
+    const fd=document.getElementById('collim-hw-fd');
+    if(fd) fd.value = (f/D).toFixed(2);
+}
+
+async function loadCollimConfig(){
+    try{
+        const cfg = await fetch('/api/collimation/config').then(r=>r.json());
+        if(cfg.error) return;
+        const hw=cfg.hardware||{}, vis=cfg.vis||{}, ds=cfg.dataset||{};
+        const set=(id,v)=>{ const e=document.getElementById(id); if(e&&v!==undefined) e.value=v; };
+        set('collim-hw-D', hw.diametre_mm); set('collim-hw-f', hw.focale_mm);
+        set('collim-hw-obs', hw.obstruction_ratio); set('collim-hw-ara', hw.n_araignees);
+        set('collim-hw-ep', hw.epaisseur_araignee!==undefined? (hw.epaisseur_araignee*1000).toFixed(1) : 0.5);
+        set('collim-hw-px', hw.pixel_size_um); set('collim-hw-patch', hw.patch_size_px);
+        set('collim-hw-def', hw.defocus_waves); set('collim-hw-wl', hw.wavelength_um);
+        set('collim-vis-s', vis.pas_secondaire_mm); set('collim-vis-p', vis.pas_primaire_mm);
+        set('collim-vis-lev', vis.rayon_levier_mm);
+        set('collim-ds-n', ds.n_samples); set('collim-ds-dec', ds.decenter_max_mm); set('collim-ds-tilt', ds.tilt_max_deg);
+        updateCollimFd();
+        // RPi -> disable inputs
+        const isRpi = _collimStatus?.is_rpi;
+        document.querySelectorAll('#collim-config-card input, #collim-btn-save-config').forEach(el=>{
+            if(isRpi) el.setAttribute('disabled',''); else el.removeAttribute('disabled');
+        });
+        const warn=document.getElementById('collim-config-rpi-warn');
+        if(warn) warn.style.display = isRpi ? '' : 'none';
+    }catch(e){ console.warn('load config failed',e); }
+}
+
+async function saveCollimConfig(){
+    const get=(id)=> parseFloat(document.getElementById(id)?.value);
+    const cfg={
+        hardware:{
+            diametre_mm: get('collim-hw-D'), focale_mm: get('collim-hw-f'),
+            obstruction_ratio: parseFloat(document.getElementById('collim-hw-obs')?.value||0.345),
+            n_araignees: parseInt(document.getElementById('collim-hw-ara')?.value||4),
+            epaisseur_araignee: get('collim-hw-ep')/1000,
+            pixel_size_um: get('collim-hw-px'), patch_size_px: parseInt(document.getElementById('collim-hw-patch')?.value||128),
+            defocus_waves: get('collim-hw-def'), wavelength_um: get('collim-hw-wl'),
+            npix_pupil: 256
+        },
+        vis:{
+            pas_secondaire_mm: get('collim-vis-s'), pas_primaire_mm: get('collim-vis-p'),
+            rayon_levier_mm: get('collim-vis-lev')
+        },
+        dataset:{
+            n_samples: parseInt(document.getElementById('collim-ds-n')?.value||10000),
+            decenter_max_mm: get('collim-ds-dec'), tilt_max_deg: get('collim-ds-tilt')
+        },
+        train:{ epochs:40, batch_size:32, lr:1e-3 }
+    };
+    try{
+        const r=await fetch('/api/collimation/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(cfg)}).then(r=>r.json());
+        if(r.error){ addLog('error','collimation', r.error); return; }
+        const ok=document.getElementById('collim-config-saved');
+        if(ok){ ok.style.display=''; setTimeout(()=>ok.style.display='none',2000); }
+        addLog('info','collimation','Config instrument sauvegardée');
+        refreshCollimStatus();
+    }catch(e){ addLog('error','collimation', e.message); }
 }
 
 async function refreshCollimStatus() {
