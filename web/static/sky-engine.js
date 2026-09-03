@@ -457,14 +457,6 @@ export class SkyEngine {
         return { type: "Feature", geometry: { type: "LineString", coordinates: coords } };
     }
 
-    _getMeridianLabels() {
-        const labels = [];
-        for (let ra = 0; ra < 360; ra += 15) {
-            labels.push({ ra, text: ra + "°" });
-        }
-        return labels;
-    }
-
     // Equatorial grid, zoom-adaptive: solid white for the coarse step, dashed
     // for the subdivisions. Only the RA/Dec window actually in view is built,
     // so the line count stays bounded even at high zoom / near the pole.
@@ -528,6 +520,43 @@ export class SkyEngine {
         ctx.beginPath();
         this._pathGenerator(build(true));
         ctx.stroke();
+
+        // Coordinate labels at the foot of the major lines: RA near the bottom
+        // of the view, Dec near the left. One projection per major line.
+        if (maj >= 5) {
+            ctx.font = "11px monospace";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.5)";
+
+            const raHM = (deg) => {
+                let h = deg / 15;
+                let H = Math.floor(h);
+                let M = Math.round((h - H) * 60);
+                if (M === 60) { M = 0; H += 1; }
+                H = ((H % 24) + 24) % 24;
+                return String(H).padStart(2, '0') + ':' + String(M).padStart(2, '0');
+            };
+
+            const decFoot = Math.max(decLo + 0.5, Math.min(decHi - 0.5, cdec - visRad * 0.72));
+            ctx.textAlign = "center";
+            ctx.textBaseline = "alphabetic";
+            for (let r = Math.ceil(raLo / maj) * maj; r <= raHi + 1e-6; r += maj) {
+                const p = this._projection([r, decFoot]);
+                if (!p || p[0] < 20 || p[0] > w - 20 || p[1] < 24 || p[1] > h - 6) continue;
+                ctx.fillText(raHM(((r % 360) + 360) % 360), p[0], p[1] + 14);
+            }
+
+            const cosd = Math.max(0.05, Math.cos(cdec * Math.PI / 180));
+            const raLeft = cra - (visRad * 0.72) / cosd;
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            for (let d = Math.ceil(decLo / maj) * maj; d <= decHi + 1e-6; d += maj) {
+                if (Math.abs(d) > 89.5) continue;
+                const p = this._projection([raLeft, d]);
+                if (!p || p[0] < 6 || p[0] > w - 30 || p[1] < 16 || p[1] > h - 16) continue;
+                const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
+                ctx.fillText(sign + Math.abs(d) + '°', p[0] + 6, p[1]);
+            }
+        }
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -650,16 +679,8 @@ export class SkyEngine {
             ctx.fill();
         }
 
-        // 9. Labels méridiens
-        const meridianLabels = this._getMeridianLabels();
-        ctx.fillStyle = "rgba(0, 255, 255, 0.6)";
-        ctx.font = "14px monospace";
-        ctx.textAlign = "center";
-        for (const label of meridianLabels) {
-            if (!this._celestialClip([label.ra, 0])) continue;
-            const pt = this._projection([label.ra, 0]);
-            if (pt) ctx.fillText(label.text, pt[0], pt[1] - 6);
-        }
+        // 9. (Les labels de coordonnées sont désormais tracés par _drawGrid,
+        //     au pied des lignes majeures, adaptés au zoom.)
 
         // 10. DSOs : positions projetées en cache (clé = rotation + mag + échelle +
         // catalogues) pour éviter re-projections + re-clip à chaque frame.
