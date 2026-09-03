@@ -460,7 +460,7 @@ export class SkyEngine {
 
         // 3. Grille gratiulaire
         if (this.layers.grid) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
             ctx.lineWidth = 1;
             ctx.beginPath();
             this._pathGenerator(this._cachedGraticule);
@@ -469,8 +469,8 @@ export class SkyEngine {
 
         // 4. Équateur céleste (cyan)
         if (this.layers.equator) {
-            ctx.strokeStyle = "rgba(0, 255, 255, 0.75)";
-            ctx.lineWidth = 2;
+            ctx.strokeStyle = "rgba(0, 255, 255, 0.85)";
+            ctx.lineWidth = 2.2;
             ctx.beginPath();
             this._pathGenerator(this._cachedEquator);
             ctx.stroke();
