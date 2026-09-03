@@ -224,13 +224,14 @@ export class SkyEngine {
     async loadCatalogs() {
         const load = (url) => fetch(url).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
-        const [stars14, consts, mw, dsos, planets, starNames] = await Promise.all([
+        const [stars14, consts, mw, dsos, planets, starNames, messier] = await Promise.all([
             load('/celestial-data/stars.14.json'),   // ~mag 14, ~15 MB
             load('/celestial-data/constellations.lines.json'),
             load('/celestial-data/mw.json'),
             load('/celestial-data/dsos.6.bright.json'),
             load('/celestial-data/planets.json'),
             load('/celestial-data/starnames.json'),
+            load('/celestial-data/messier.json'),    // full M1..M110
         ]);
         const stars = stars14 || await load('/celestial-data/stars.8.json');
 
@@ -253,10 +254,36 @@ export class SkyEngine {
         }
         this._constellationsData = consts;
         this._milkywayData = this._decimateMilkyway(mw);
-        this._dsosData = dsos;
+        this._dsosData = this._mergeMessier(dsos, messier);
         this._planetsData = planets;
         this._mapReady = true;
         this.render();
+    }
+
+    // Merge the full M1..M110 list into the bright-DSO catalogue. messier.json
+    // has {name:"M13", desig:"NGC 6205", ...}; we label with the M number and
+    // skip any Messier object already present in the bright set.
+    _mergeMessier(dsos, messier) {
+        if (!messier || !Array.isArray(messier.features)) return dsos;
+        const base = (dsos && dsos.features) ? dsos : { type: "FeatureCollection", features: [] };
+        const norm = (s) => String(s || "").replace(/\s+/g, "").toUpperCase();
+        const have = new Set();
+        for (const f of base.features) {
+            have.add(norm((f.properties && f.properties.desig) || f.id));
+        }
+        for (const m of messier.features) {
+            const mp = m.properties || {};
+            const name = mp.name || m.id;
+            if (!name || have.has(norm(name))) continue;
+            base.features.push({
+                type: "Feature",
+                id: name,
+                properties: { desig: name, type: mp.type, mag: mp.mag, dim: mp.dim, morph: mp.morph },
+                geometry: m.geometry,
+            });
+            have.add(norm(name));
+        }
+        return base;
     }
 
     _decimateMilkyway(data) {
@@ -300,9 +327,13 @@ export class SkyEngine {
         if (axis === 'dec') this._lockDEC = locked;
     }
 
+    _isMessier(dso) {
+        const desig = String((dso.properties && dso.properties.desig) || dso.id || '').toUpperCase();
+        return /^M\s*\d/.test(desig);
+    }
     _dsoHasCatalog(dso) {
         const desig = (dso.properties?.desig || dso.id || '').toUpperCase();
-        if (desig.startsWith('M ') || desig === 'M') return this.catalogs.messier;
+        if (/^M\s*\d/.test(desig) || desig === 'M') return this.catalogs.messier;
         if (desig.startsWith('NGC')) return this.catalogs.ngc;
         if (desig.startsWith('IC')) return this.catalogs.ic;
         if (desig.startsWith('SH2') || desig.startsWith('SH 2') || desig.startsWith('SH-')) return this.catalogs.sh2;
@@ -727,7 +758,9 @@ export class SkyEngine {
                     if (!this._dsoHasCatalog(dso)) continue;
                     const props = dso.properties || {};
                     const mag = parseFloat(props.mag);
-                    if (!isNaN(mag) && mag > this._maxMagnitude) continue;
+                    // Messier objects are famous targets — show them all when the
+                    // catalogue is on, regardless of the star magnitude limit.
+                    if (!isNaN(mag) && mag > this._maxMagnitude && !this._isMessier(dso)) continue;
                     const coords = dso.geometry.coordinates;
                     if (!this._celestialClip(coords)) continue;
                     const pt = this._projection(coords);
