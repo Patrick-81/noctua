@@ -134,7 +134,6 @@ export class SkyEngine {
         this._ctx = null;
         this._projection = null;
         this._pathGenerator = null;
-        this._graticule = null;
 
         this._starsData = null;
         this._constellationsData = null;
@@ -202,12 +201,12 @@ export class SkyEngine {
             .rotate(this._currentRotation);
 
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
-        this._graticule = d3.geo.graticule().step([15, 10]);
 
         // Géométries fixes en coordonnées RA/Dec : calculées une seule fois,
         // la rotation LST est appliquée par la projection à chaque rendu.
         // Note : l'horizon dépend du LST et est donc recalculé dans render().
-        this._cachedGraticule = this._graticule();
+        // La grille équatoriale est construite par frame (_drawGrid), adaptée
+        // au zoom.
         this._cachedEquator = this._getCelestialEquator();
         this._cachedEcliptic = this._getEcliptic();
 
@@ -466,6 +465,71 @@ export class SkyEngine {
         return labels;
     }
 
+    // Equatorial grid, zoom-adaptive: solid white for the coarse step, dashed
+    // for the subdivisions. Only the RA/Dec window actually in view is built,
+    // so the line count stays bounded even at high zoom / near the pole.
+    _drawGrid(ctx, w, h, cx, cy) {
+        const minDim = Math.min(w, h);
+        const z = this._scale / (minDim * 0.42);
+        let maj, sub;
+        if      (z < 1.6) { maj = 30; sub = 10;  }
+        else if (z < 3.5) { maj = 15; sub = 5;   }
+        else if (z < 7)   { maj = 10; sub = 2;   }
+        else if (z < 14)  { maj = 5;  sub = 1;   }
+        else              { maj = 2;  sub = 0.5; }
+
+        const cinv = this._projection.invert([cx, cy]);
+        if (!cinv || !isFinite(cinv[0]) || !isFinite(cinv[1])) return;
+        const cra = cinv[0];
+        const cdec = Math.max(-89, Math.min(89, cinv[1]));
+        const visRad = Math.asin(Math.min(1, (minDim / 2) / this._scale)) * 180 / Math.PI;
+        const nearPole = Math.abs(cdec) > 70 || visRad > 75;
+
+        const decLo = Math.max(-89, cdec - visRad - maj);
+        const decHi = Math.min(89, cdec + visRad + maj);
+        let raLo, raHi;
+        if (nearPole || visRad >= 60) {
+            raLo = 0; raHi = 360 - 1e-6;
+        } else {
+            const cosd = Math.max(0.05, Math.cos(cdec * Math.PI / 180));
+            const raHalf = Math.min(180, visRad / cosd + maj);
+            raLo = cra - raHalf; raHi = cra + raHalf;
+        }
+
+        const isMult = (v, s) => { const m = Math.abs(v % s); return m < 1e-4 || m > s - 1e-4; };
+        const build = (major) => {
+            const st = major ? maj : sub;
+            const merSt = (major || nearPole) ? maj : sub;   // sparser meridians near the pole
+            const lines = [];
+            for (let d = Math.ceil(decLo / st) * st; d <= decHi + 1e-6; d += st) {
+                if (!major && isMult(d, maj)) continue;
+                const ln = [];
+                for (let r = raLo; r <= raHi + 1e-6; r += 4) ln.push([r, d]);
+                lines.push(ln);
+            }
+            for (let r = Math.ceil(raLo / merSt) * merSt; r <= raHi + 1e-6; r += merSt) {
+                if (!major && isMult(r, maj)) continue;
+                const ln = [];
+                for (let d = decLo; d <= decHi + 1e-6; d += 3) ln.push([r, d]);
+                lines.push(ln);
+            }
+            return { type: "Feature", geometry: { type: "MultiLineString", coordinates: lines } };
+        };
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.10)";
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        this._pathGenerator(build(false));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.26)";
+        ctx.beginPath();
+        this._pathGenerator(build(true));
+        ctx.stroke();
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  RENDER
     // ═══════════════════════════════════════════════════════════
@@ -502,14 +566,9 @@ export class SkyEngine {
             ctx.fill();
         }
 
-        // 3. Grille gratiulaire
-        if (this.layers.grid) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.03)";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            this._pathGenerator(this._cachedGraticule);
-            ctx.stroke();
-        }
+        // 3. Grille équatoriale — pas adapté au zoom, traits pleins pour les
+        //    grandes valeurs, pointillés pour les subdivisions.
+        if (this.layers.grid) this._drawGrid(ctx, w, h, cx, cy);
 
         // 4. Équateur céleste (cyan)
         if (this.layers.equator) {
