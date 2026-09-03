@@ -682,6 +682,40 @@ export class SkyEngine {
             const azStartDeg = (azCenterDeg - 90 + 360) % 360;
             const azEndDeg   = (azCenterDeg + 90 + 360) % 360;
 
+            // Léger grisé sous l'horizon (par-dessus les couches ciel).
+            // Pour |alt_c| < 90° le sol est simplement « en dessous » de la
+            // courbe d'horizon à l'écran (dsy/dalt = -scale·cos(alt_c) < 0),
+            // donc on remplit entre la courbe et le bas du disque visible.
+            {
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(cx, cy, scale, 0, 2 * Math.PI);
+                ctx.clip();
+                ctx.beginPath();
+                let gFirst = true;
+                let gFirstX = null, gLastX = null;
+                const groundPt = (azDeg) => {
+                    const theta = azDeg * Math.PI / 180 - azCRad;
+                    const sx = cx + scale * Math.sin(theta);
+                    const sy = cy + scale * sinAltC * Math.cos(theta);
+                    if (gFirst) { ctx.moveTo(sx, sy); gFirst = false; } else ctx.lineTo(sx, sy);
+                    if (gFirstX === null) gFirstX = sx;
+                    gLastX = sx;
+                };
+                if (azStartDeg < azEndDeg) {
+                    for (let az = azStartDeg; az <= azEndDeg; az++) groundPt(az);
+                } else {
+                    for (let az = azStartDeg; az <= 360; az++) groundPt(az);
+                    for (let az = 0; az <= azEndDeg; az++) groundPt(az);
+                }
+                ctx.lineTo(gLastX, cy + scale);
+                ctx.lineTo(gFirstX, cy + scale);
+                ctx.closePath();
+                ctx.fillStyle = "rgba(150, 160, 175, 0.10)";
+                ctx.fill();
+                ctx.restore();
+            }
+
             // Ellipse horizontale : x = scale·sin(θ), y = scale·sin(alt_c)·cos(θ)
             // avec θ = az - az_c, centrée à l'écran (cx, cy)
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
