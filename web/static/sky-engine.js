@@ -595,14 +595,18 @@ export class SkyEngine {
                 return String(H).padStart(2, '0') + ':' + String(M).padStart(2, '0');
             };
 
-            // RA meridians -> bottom (only those that can face us — within
-            // ~180° of the centre RA)
+            // Only the arc within ~95° of the view centre genuinely faces us;
+            // sampling wider picks up the antipodal (back-side) half of the
+            // same great circle near the poles.
+            const dLo = Math.max(decLo, cdec - visRad - pad);
+            const dHi = Math.min(decHi, cdec + visRad + pad);
+
+            // RA meridians -> bottom
             ctx.textAlign = "center";
             ctx.textBaseline = "alphabetic";
-            const r0 = Math.ceil((cra - 190) / maj) * maj;
-            for (let r = r0; r <= cra + 190; r += maj) {
+            for (let r = Math.ceil((cra - 95) / maj) * maj; r <= cra + 95; r += maj) {
                 let best = null;
-                for (let d = decLo; d <= decHi + 1e-6; d += 3) {
+                for (let d = dLo; d <= Math.min(dHi, cdec + 4) + 1e-6; d += 3) {   // lower arc only
                     const p = this._projection([r, d]);
                     if (inScreen(p) && (!best || p[1] > best[1])) best = p;
                 }
@@ -612,10 +616,10 @@ export class SkyEngine {
             // Dec parallels -> left
             ctx.textAlign = "left";
             ctx.textBaseline = "middle";
-            for (let d = Math.ceil(decLo / maj) * maj; d <= decHi + 1e-6; d += maj) {
+            for (let d = Math.ceil(dLo / maj) * maj; d <= dHi + 1e-6; d += maj) {
                 if (Math.abs(d) > 89.5) continue;
                 let best = null;
-                for (let r = 0; r <= 360; r += 3) {
+                for (let r = cra - 95; r <= cra + 95; r += 3) {
                     const p = this._projection([r, d]);
                     if (inScreen(p) && (!best || p[0] < best[0])) best = p;
                 }
