@@ -155,7 +155,7 @@ export class SkyEngine {
         document.querySelectorAll('.horizon-btn').forEach(btn=>{
             btn.addEventListener('click', ()=>{
                 const v=btn.dataset.az;
-                if(v==='zenith') this.alignToHorizon(0, 45);
+                if(v==='zenith') this.alignToHorizon(0, 0);
                 else this.alignToHorizon(parseInt(v,10), 0);
             });
         });
