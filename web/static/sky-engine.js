@@ -522,29 +522,37 @@ export class SkyEngine {
         if (!cinv || !isFinite(cinv[0]) || !isFinite(cinv[1])) return;
         const cra = cinv[0];
         const cdec = Math.max(-89, Math.min(89, cinv[1]));
-        const visRad = Math.asin(Math.min(1, (minDim / 2) / this._scale)) * 180 / Math.PI;
-        const nearPole = Math.abs(cdec) > 70 || visRad > 75;
+        // angular radius to the screen *corner* (diagonal), not the short edge,
+        // so the grid reaches the whole visible field
+        const visRad = Math.asin(Math.min(1, (Math.hypot(w, h) / 2) / this._scale)) * 180 / Math.PI;
+        const pad = 2 * maj + 5;
 
-        const decLo = Math.max(-89, cdec - visRad - maj);
-        const decHi = Math.min(89, cdec + visRad + maj);
+        // Which Dec / RA lines to build. Each parallel is drawn as a full 360°
+        // circle and each meridian over the Dec window; d3 clips them to the
+        // visible hemisphere, so an over-generous window just costs a few points.
+        const decLo = Math.max(-89.5, cdec - visRad - pad);
+        const decHi = Math.min(89.5, cdec + visRad + pad);
+        const fullRA = (Math.abs(cdec) + visRad + pad > 86) || (visRad + pad >= 80);
         let raLo, raHi;
-        if (nearPole || visRad >= 60) {
-            raLo = 0; raHi = 360 - 1e-6;
+        if (fullRA) {
+            raLo = 0; raHi = 360;
         } else {
-            const cosd = Math.max(0.05, Math.cos(cdec * Math.PI / 180));
-            const raHalf = Math.min(180, visRad / cosd + maj);
+            // widen by 1/cos at the higher-latitude edge of the window, where
+            // meridians crowd together
+            const edgeLat = Math.min(84, Math.abs(cdec) + visRad + pad) * Math.PI / 180;
+            const raHalf = Math.min(185, (visRad + pad) / Math.max(0.03, Math.cos(edgeLat)));
             raLo = cra - raHalf; raHi = cra + raHalf;
         }
 
         const isMult = (v, s) => { const m = Math.abs(v % s); return m < 1e-4 || m > s - 1e-4; };
         const build = (major) => {
             const st = major ? maj : sub;
-            const merSt = (major || nearPole) ? maj : sub;   // sparser meridians near the pole
+            const merSt = (major || fullRA) ? maj : sub;   // sparser meridians when they all show
             const lines = [];
             for (let d = Math.ceil(decLo / st) * st; d <= decHi + 1e-6; d += st) {
                 if (!major && isMult(d, maj)) continue;
                 const ln = [];
-                for (let r = raLo; r <= raHi + 1e-6; r += 4) ln.push([r, d]);
+                for (let r = 0; r <= 360 + 1e-6; r += 4) ln.push([r, d]);   // full circle, d3 clips
                 lines.push(ln);
             }
             for (let r = Math.ceil(raLo / merSt) * merSt; r <= raHi + 1e-6; r += merSt) {
