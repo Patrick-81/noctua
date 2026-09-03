@@ -141,6 +141,7 @@ export class SkyEngine {
         this._dsosData = null;
         this._planetsData = null;
         this._starVectors = null;      // vecteurs unitaires triés par magnitude
+        this._starNames = null;        // Map<star id, label>
         this._dsoCache = null;         // { key, items: [{x, y, name}] }
         this._MAX_DRAW_STARS = 20000;   // deeper catalogue (stars.14) → allow more on screen
 
@@ -149,6 +150,7 @@ export class SkyEngine {
             milkyway: true,
             constellations: true,
             stars: true,
+            starnames: false,
             dsos: true,
             planets: true,
             grid: true,
@@ -222,12 +224,13 @@ export class SkyEngine {
     async loadCatalogs() {
         const load = (url) => fetch(url).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
-        const [stars14, consts, mw, dsos, planets] = await Promise.all([
+        const [stars14, consts, mw, dsos, planets, starNames] = await Promise.all([
             load('/celestial-data/stars.14.json'),   // ~mag 14, ~15 MB
             load('/celestial-data/constellations.lines.json'),
             load('/celestial-data/mw.json'),
             load('/celestial-data/dsos.6.bright.json'),
             load('/celestial-data/planets.json'),
+            load('/celestial-data/starnames.json'),
         ]);
         const stars = stars14 || await load('/celestial-data/stars.8.json');
 
@@ -238,6 +241,15 @@ export class SkyEngine {
                 ? this._starVectors[this._starVectors.length - 1].mag : null;
             console.log('[sky] star catalogue:', this._starVectors.length, 'stars, faintest mag',
                 faint, stars14 ? '(stars.14)' : '(stars.8 fallback — stars.14 not served)');
+        }
+        if (starNames && typeof starNames === 'object') {
+            this._starNames = new Map();
+            for (const k of Object.keys(starNames)) {
+                const v = starNames[k] || {};
+                let label = v.name;
+                if (!label && v.bayer) label = v.bayer + (v.c ? ' ' + v.c : '');
+                if (label) this._starNames.set(Number(k), label);
+            }
         }
         this._constellationsData = consts;
         this._milkywayData = this._decimateMilkyway(mw);
@@ -662,12 +674,15 @@ export class SkyEngine {
             // flips Y for screen space, so it needs the opposite sign of the
             // d3 gamma to co-rotate with the constellation lines.
             const starRoll = this._trackball ? -this._manualRollDeg * Math.PI / 180 : 0;
+            const wantNames = this.layers.starnames && this._starNames && this._starNames.size;
+            const nameOut = wantNames ? [] : null;
             projectStars(
                 this._starVectors, centerRA, centerDec,
                 this._scale, w / 2, h / 2,
                 this._maxMagnitude, this._MAX_DRAW_STARS, pts,
                 (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)),
-                starRoll
+                starRoll,
+                wantNames ? (s) => this._starNames.get(s.id) : null, nameOut, 160
             );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
@@ -683,6 +698,16 @@ export class SkyEngine {
                 }
             }
             ctx.fill();
+
+            if (nameOut && nameOut.length) {
+                ctx.fillStyle = "rgba(180, 210, 255, 0.8)";
+                ctx.font = "11px sans-serif";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "middle";
+                for (let i = 0; i < nameOut.length; i += 3) {
+                    ctx.fillText(nameOut[i + 2], nameOut[i] + 5, nameOut[i + 1]);
+                }
+            }
         }
 
         // 9. (Les labels de coordonnées sont désormais tracés par _drawGrid,

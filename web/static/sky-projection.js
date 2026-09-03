@@ -57,7 +57,7 @@ export function buildStarVectors(features) {
         if (!coords || coords.length < 2) continue;
         const mag = Number(f.properties && f.properties.mag);
         if (!isFinite(mag)) continue;
-        stars.push({ u: raDecToUnit(coords[0], coords[1]), mag });
+        stars.push({ u: raDecToUnit(coords[0], coords[1]), mag, id: f.id });
     }
     stars.sort((a, b) => a.mag - b.mag);
     return stars;
@@ -74,13 +74,19 @@ export function buildStarVectors(features) {
 // rollRad (optional) rolls the projected plane about the map centre, to stay
 // in sync with a d3 .rotate([,,gamma]) applied to the vector layers. 0 = the
 // historical north-up behaviour, bit-for-bit.
-export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn, rollRad) {
+// namesOut / nameOf / maxNames (all optional): when nameOf(star) returns a
+// non-empty string it is pushed to namesOut as flat [x, y, text, ...] triplets,
+// brightest first, capped at maxNames.
+export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn, rollRad,
+    nameOf, namesOut, maxNames) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
     const cr = rollRad ? Math.cos(rollRad) : 1;
     const sr = rollRad ? Math.sin(rollRad) : 0;
     const xMax = 2 * tx, yMax = 2 * ty, m = 8;
+    const wantNames = !!(nameOf && namesOut && maxNames);
     let count = 0;
+    let nameCount = 0;
     for (const s of stars) {
         if (s.mag > magMax) break;
         const u = s.u;
@@ -98,6 +104,10 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
         if (px < -m || px > xMax + m || py < -m || py > yMax + m) continue;
         out.push(px, py, sizeFn(s.mag));
         count++;
+        if (wantNames && nameCount < maxNames) {
+            const nm = nameOf(s);
+            if (nm) { namesOut.push(px, py, nm); nameCount++; }
+        }
         if (count >= maxStars) break;
     }
     return count;
