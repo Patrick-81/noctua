@@ -487,18 +487,13 @@ export class SkyEngine {
             ctx.setLineDash([]);
         }
 
-        // 6. Méridien local (magenta)
+        // 6. Méridien local (magenta) — toujours vertical écran (comme l'horizon reste horizontal)
         if (this.layers.meridian) {
-            const localRA = -this._currentRotation[0];
-            const meridianCoords = [];
-            for (let dec = -90; dec <= 90; dec += 1) {
-                meridianCoords.push([localRA, dec]);
-            }
-            const meridian = { type: "Feature", geometry: { type: "LineString", coordinates: meridianCoords } };
-            ctx.strokeStyle = "rgba(255, 0, 255, 0.7)";
+            ctx.strokeStyle = "rgba(255, 0, 255, 0.85)";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            this._pathGenerator(meridian);
+            ctx.moveTo(cx, cy - rsky);
+            ctx.lineTo(cx, cy + rsky);
             ctx.stroke();
         }
 
