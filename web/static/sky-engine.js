@@ -142,7 +142,7 @@ export class SkyEngine {
         this._planetsData = null;
         this._starVectors = null;      // vecteurs unitaires triés par magnitude
         this._dsoCache = null;         // { key, items: [{x, y, name}] }
-        this._MAX_DRAW_STARS = 7000;
+        this._MAX_DRAW_STARS = 20000;   // deeper catalogue (stars.14) → allow more on screen
 
         // Layer visibility
         this.layers = {
@@ -220,19 +220,24 @@ export class SkyEngine {
     }
 
     async loadCatalogs() {
-        const load = (url) => fetch(url).then(r => r.json()).catch(() => null);
+        const load = (url) => fetch(url).then(r => (r.ok ? r.json() : null)).catch(() => null);
 
-        const [stars, consts, mw, dsos, planets] = await Promise.all([
-            load('/celestial-data/stars.8.json'),
+        const [stars14, consts, mw, dsos, planets] = await Promise.all([
+            load('/celestial-data/stars.14.json'),   // ~mag 14, ~15 MB
             load('/celestial-data/constellations.lines.json'),
             load('/celestial-data/mw.json'),
             load('/celestial-data/dsos.6.bright.json'),
             load('/celestial-data/planets.json'),
         ]);
+        const stars = stars14 || await load('/celestial-data/stars.8.json');
 
         this._starsData = stars;
         if (stars && stars.features) {
             this._starVectors = buildStarVectors(stars.features);
+            const faint = this._starVectors.length
+                ? this._starVectors[this._starVectors.length - 1].mag : null;
+            console.log('[sky] star catalogue:', this._starVectors.length, 'stars, faintest mag',
+                faint, stars14 ? '(stars.14)' : '(stars.8 fallback — stars.14 not served)');
         }
         this._constellationsData = consts;
         this._milkywayData = this._decimateMilkyway(mw);
@@ -645,8 +650,8 @@ export class SkyEngine {
         }
 
         // 8. Étoiles : projection rapide (vecteurs unitaires + produits
-        // scalaires), plafonnée en nombre pour rester fluide au zoom dézoomé
-        // même avec le catalogue magnitude 8 (~41 000 étoiles).
+        // scalaires), plafonnée à _MAX_DRAW_STARS pour rester fluide au zoom
+        // dézoomé même avec le catalogue magnitude 14 (~118 000 étoiles).
         if (this.layers.stars && this._starVectors && this._starVectors.length) {
             const scaleFactor = this._scale / (Math.min(w, h) * 0.45);
             const centerRA = -this._currentRotation[0];
@@ -1357,10 +1362,10 @@ export class SkyEngine {
             const delta = d3.event.deltaY;
             if (delta < 0) this._scale *= 1.1;
             else this._scale /= 1.1;
-            this._scale = Math.max(
-                Math.min(this._width, this._height) * 0.15,
-                Math.min(Math.min(this._width, this._height) * 8, this._scale)
-            );
+            const minDim = Math.min(this._width, this._height);
+            // base scale is minDim*0.42; allow up to minDim*40 (~1.4deg FOV) —
+            // worth it now that the star catalogue reaches mag 14
+            this._scale = Math.max(minDim * 0.15, Math.min(minDim * 40, this._scale));
             this._projection.scale(this._scale);
             this.render();
         });

@@ -64,9 +64,11 @@ export function buildStarVectors(features) {
 }
 
 // Projette les étoiles visibles dans `out` (triplés x, y, size).
-// - Respecte le seuil de magnitude (magMax).
-// - S'arrête dès que `maxStars` étoiles visibles sont atteintes (les plus
-//   brillantes sont d'abord dans `stars`, donc les plus faibles tronquées).
+// - Respecte le seuil de magnitude (magMax) ; `stars` étant trié par magnitude
+//   croissante, on sort de la boucle dès qu'on le dépasse.
+// - Ne compte / n'écrit que les étoiles réellement DANS le cadre (canvas
+//   0..2·tx × 0..2·ty) : le budget `maxStars` est donc dépensé pour l'écran
+//   visible, si bien qu'en zoomant on atteint des étoiles plus faibles.
 // - sizeFn(mag) calcule le rayon d'affichage.
 // Retourne le nombre d'étoiles écrites.
 // rollRad (optional) rolls the projected plane about the map centre, to stay
@@ -77,9 +79,10 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
     const c = raDecToUnit(centerRA, centerDec);
     const cr = rollRad ? Math.cos(rollRad) : 1;
     const sr = rollRad ? Math.sin(rollRad) : 0;
+    const xMax = 2 * tx, yMax = 2 * ty, m = 8;
     let count = 0;
     for (const s of stars) {
-        if (s.mag > magMax) continue;
+        if (s.mag > magMax) break;
         const u = s.u;
         const cz = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
         if (cz <= 0) continue;
@@ -90,7 +93,10 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
             rawY = rawY * cr - rawX * sr;
             rawX = rx;
         }
-        out.push(rawX * scale + tx, -rawY * scale + ty, sizeFn(s.mag));
+        const px = rawX * scale + tx;
+        const py = -rawY * scale + ty;
+        if (px < -m || px > xMax + m || py < -m || py > yMax + m) continue;
+        out.push(px, py, sizeFn(s.mag));
         count++;
         if (count >= maxStars) break;
     }
