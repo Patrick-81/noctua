@@ -485,14 +485,14 @@ export class SkyEngine {
         ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
         ctx.translate(-cx, -cy);
 
-        // 2. Voie lactée — via rawProjection + données pré-mirées pour garder le bon winding
+        // 2. Voie lactée — via rawProjection + données pré-mirées (est à gauche)
         if (this.layers.milkyway && this._milkywayMirrored) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
             ctx.beginPath();
             this._rawPathGenerator(this._milkywayMirrored);
             ctx.fill();
         } else if (this.layers.milkyway && this._milkywayData) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.04)";
             ctx.beginPath();
             this._pathGenerator(this._milkywayData);
             ctx.fill();
