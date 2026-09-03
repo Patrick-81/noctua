@@ -1679,9 +1679,13 @@ export class SkyEngine {
     }
 
     updateSite(lat, lng, elev) {
+        lat = Number(lat); lng = Number(lng);
+        // reject an unset / implausible fix (Null Island, NaN, out of range)
+        // so the horizon doesn't collapse onto the celestial poles
+        if (!isFinite(lat) || Math.abs(lat) > 90 || (lat === 0 && (!isFinite(lng) || lng === 0))) return;
         this.siteLat = lat;
-        this.siteLng = lng;
-        this.siteElev = elev;
+        if (isFinite(lng) && Math.abs(lng) <= 180) this.siteLng = lng;
+        this.siteElev = Number(elev) || 0;
         this._updateSiderealRotation();
     }
 
