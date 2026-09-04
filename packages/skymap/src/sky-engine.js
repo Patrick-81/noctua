@@ -416,6 +416,23 @@ export class SkyEngine {
         return (Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(lambda)) > 0;
     }
 
+    // Draw text at screen point (x,y), with a screen-space offset (dx,dy),
+    // counter-rotating against the current parallactic-angle canvas
+    // rotation so the glyphs stay upright — everything drawn between the
+    // "Apply parallactic angle rotation" ctx.save()/ctx.restore() pairs in
+    // render() is under that rotation, and text should not tilt with it.
+    // Preserves the caller's current font / fillStyle / textAlign /
+    // textBaseline (only translate/rotate are pushed and popped).
+    _drawLabel(ctx, text, x, y, dx, dy) {
+        const a = -(this._parallacticAngleDeg || 0) * Math.PI / 180;
+        if (!a) { ctx.fillText(text, x + (dx || 0), y + (dy || 0)); return; }
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a);
+        ctx.fillText(text, dx || 0, dy || 0);
+        ctx.restore();
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  STATIC CELESTIAL OBJECTS
     // ═══════════════════════════════════════════════════════════
@@ -571,7 +588,7 @@ export class SkyEngine {
                     const p = this._projection([r, d]);
                     if (inScreen(p) && (!best || p[1] > best[1])) best = p;
                 }
-                if (best) ctx.fillText(raHM(((r % 360) + 360) % 360), best[0], Math.min(best[1] - 4, h - 6));
+                if (best) this._drawLabel(ctx, raHM(((r % 360) + 360) % 360), best[0], Math.min(best[1] - 4, h - 6), 0, 0);
             }
 
             ctx.textAlign = "left";
@@ -585,7 +602,7 @@ export class SkyEngine {
                 }
                 if (best) {
                     const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
-                    ctx.fillText(sign + Math.abs(d) + '°', Math.max(best[0] + 4, mrg + 2), best[1]);
+                    this._drawLabel(ctx, sign + Math.abs(d) + '°', Math.max(best[0] + 4, mrg + 2), best[1], 0, 0);
                 }
             }
         }
@@ -652,14 +669,46 @@ export class SkyEngine {
             ctx.setLineDash([]);
         }
 
-        // 6. Méridien local (magenta) — toujours vertical écran (comme l'horizon reste horizontal)
+        // 6. Méridien local (magenta) : plein de plein sud → zénith → pôle
+        // céleste (az 180° puis az 0°), pointillé du pôle → nord. La ligne
+        // verticale fixe précédente n'était pas un méridien : elle ne
+        // passait ni par le sud, ni par le zénith, ni par le pôle dès que le
+        // centre de vue s'écartait du cas particulier plein-sud/dec-0 (même
+        // défaut que l'ancien horizon). Tracé en grand cercle réel, comme le
+        // reste du ciel.
         if (this.layers.meridian) {
-            ctx.strokeStyle = "rgba(255, 0, 255, 0.85)";
+            const merLst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const poleAlt = Math.max(0, this.siteLat);   // pôle nord sur le méridien, az 0°
+            const line = (coords) => {
+                ctx.beginPath();
+                this._pathGenerator({ type: "Feature", geometry: { type: "LineString", coordinates: coords } });
+                ctx.stroke();
+            };
+
+            const solid = [];
+            for (let alt = 0; alt <= 90; alt += 1) {                 // S → zénith
+                const p = this._altAzToRadec(alt, 180, merLst);
+                solid.push([p.ra, p.dec]);
+            }
+            for (let alt = 89; alt > poleAlt; alt -= 1) {            // zénith → pôle
+                const p = this._altAzToRadec(alt, 0, merLst);
+                solid.push([p.ra, p.dec]);
+            }
+            const pole = this._altAzToRadec(poleAlt, 0, merLst);
+            solid.push([pole.ra, pole.dec]);
+
+            const dashed = [[pole.ra, pole.dec]];
+            for (let alt = Math.floor(poleAlt); alt >= 0; alt -= 1) {  // pôle → N
+                const p = this._altAzToRadec(alt, 0, merLst);
+                dashed.push([p.ra, p.dec]);
+            }
+
+            ctx.strokeStyle = "rgba(255, 0, 255, 0.7)";
             ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy - rsky);
-            ctx.lineTo(cx, cy + rsky);
-            ctx.stroke();
+            line(solid);
+            ctx.setLineDash([6, 4]);
+            line(dashed);
+            ctx.setLineDash([]);
         }
 
         // 7. Constellations
@@ -707,7 +756,7 @@ export class SkyEngine {
                 ctx.font = "11px sans-serif";
                 ctx.textAlign = "left";
                 for (let i = 0; i < nameOut.length; i += 3) {
-                    ctx.fillText(nameOut[i + 2], nameOut[i] + 5, nameOut[i + 1] + 3);
+                    this._drawLabel(ctx, nameOut[i + 2], nameOut[i], nameOut[i + 1], 5, 3);
                 }
             }
         }
@@ -720,7 +769,7 @@ export class SkyEngine {
         for (const label of meridianLabels) {
             if (!this._celestialClip([label.ra, 0])) continue;
             const pt = this._projection([label.ra, 0]);
-            if (pt) ctx.fillText(label.text, pt[0], pt[1] - 6);
+            if (pt) this._drawLabel(ctx, label.text, pt[0], pt[1] - 6, 0, 0);
         }
 
         // 10. DSOs : positions projetées en cache (clé = rotation + mag + échelle +
@@ -759,7 +808,7 @@ export class SkyEngine {
                 ctx.fillStyle = "rgba(255, 0, 150, 0.85)";
                 ctx.font = "14px monospace";
                 ctx.textAlign = "left";
-                ctx.fillText(item.name, item.x + 7, item.y + 3);
+                this._drawLabel(ctx, item.name, item.x, item.y, 7, 3);
             }
         }
 
@@ -778,7 +827,7 @@ export class SkyEngine {
             ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
             ctx.font = "15px monospace";
             ctx.textAlign = "left";
-            ctx.fillText(`ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0] + 8, pt[1] + 3);
+            this._drawLabel(ctx, `ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0], pt[1], 8, 3);
         }
 
         // 6b. Horizon local (orange, tirets). Verified numerically against a
@@ -794,6 +843,22 @@ export class SkyEngine {
         if (this.layers.horizon) {
             const currentLstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
             const horizon = this._getHorizon(currentLstDeg * Math.PI / 180);
+
+            // ground shade: fill the horizon spherical polygon through the
+            // projection, clipped to the visible disk. The ring is reversed
+            // so the fill lands on the ground side, not the sky side.
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
+            ctx.clip();
+            ctx.beginPath();
+            this._pathGenerator({
+                type: "Polygon",
+                coordinates: [horizon.geometry.coordinates.slice().reverse()],
+            });
+            ctx.fillStyle = "rgba(150, 160, 175, 0.10)";
+            ctx.fill();
+            ctx.restore();
 
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
             ctx.lineWidth = 2;
@@ -819,7 +884,7 @@ export class SkyEngine {
                 const isCardinal = lbl.az % 90 === 0;
                 ctx.font = isCardinal ? "bold 15px monospace" : "11px monospace";
                 ctx.fillStyle = isCardinal ? "rgba(255, 160, 50, 1.0)" : "rgba(255, 160, 50, 0.6)";
-                ctx.fillText(lbl.name, pt[0], pt[1] + 12);
+                this._drawLabel(ctx, lbl.name, pt[0], pt[1], 0, 12);
             }
         }
 
@@ -889,7 +954,7 @@ export class SkyEngine {
                     ctx.font = "bold 14px monospace";
                     ctx.textAlign = "left";
                     ctx.textBaseline = "bottom";
-                    ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
+                    this._drawLabel(ctx, "TELESCOPE", pt[0], pt[1], 16, -4);
                 }
             }
         }
@@ -998,7 +1063,7 @@ export class SkyEngine {
             ctx.fillStyle = "#ffcc00";
             ctx.font = "bold 15px monospace";
             ctx.textAlign = "left";
-            ctx.fillText(planet.name.toUpperCase(), pt[0] + 8, pt[1] + 3);
+            this._drawLabel(ctx, planet.name.toUpperCase(), pt[0], pt[1], 8, 3);
         }
     }
 
@@ -1100,7 +1165,7 @@ export class SkyEngine {
             ctx.beginPath(); ctx.arc(pt[0], pt[1], radius, 0, 2 * Math.PI); ctx.fill();
             ctx.font = "bold 14px monospace";
             ctx.textAlign = "left";
-            ctx.fillText(label, pt[0] + radius + 5, pt[1] + 4);
+            this._drawLabel(ctx, label, pt[0], pt[1], radius + 5, 4);
         };
         const sun = this._sunEcl(d);
         const [sra, sdec] = this._eclToRaDec(sun.lon, 0, d);
