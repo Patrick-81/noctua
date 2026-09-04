@@ -1,0 +1,71 @@
+/* ═══════════════════════════════════════════════════════════════
+   @noctua/skymap — Sky map CSS
+   Styles nécessaires au moteur céleste, extraits de style.css.
+   Utilise des CSS custom properties avec fallbacks pour un usage
+   standalone (pas de dépendance au thème Noctua).
+   ═══════════════════════════════════════════════════════════════ */
+
+:root {
+    --skymap-accent:        #ff0055;
+    --skymap-accent-dim:    #cc0044;
+    --skymap-accent-subtle: rgba(255, 0, 85, 0.25);
+    --skymap-accent-faint:  rgba(255, 0, 85, 0.10);
+    --skymap-bg:            #080819;
+    --skymap-text:          #e0e0e0;
+    --skymap-text-dim:      #888;
+    --skymap-text-faint:    #aaa;
+    --skymap-status-online: #00cc66;
+}
+
+/* ── Canvas container ──────────────────────────────────────── */
+
+.skymap-container {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    cursor: grab;
+    background-color: var(--skymap-bg);
+    overflow: hidden;
+}
+.skymap-container:active { cursor: grabbing; }
+
+/* ── Context menu ──────────────────────────────────────────── */
+
+.skymap-obj-menu,
+.obj-menu {
+    position: fixed;
+    background: rgba(8, 8, 25, 0.95);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid var(--skymap-accent-dim);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    z-index: 1100;
+    min-width: 180px;
+    font-size: 0.8rem;
+    color: var(--skymap-text);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+    pointer-events: auto;
+    display: none;
+}
+.skymap-obj-menu-title,
+.obj-menu-title { font-weight: bold; font-size: 0.9rem; color: var(--skymap-accent); margin-bottom: 0.2rem; }
+.skymap-obj-menu-sub,
+.obj-menu-sub { font-size: 0.7rem; color: var(--skymap-text-dim); margin-bottom: 0.3rem; }
+.skymap-obj-menu-coords,
+.obj-menu-coords { font-size: 0.75rem; color: #ccc; margin-bottom: 0.4rem; line-height: 1.4; }
+.skymap-obj-menu-btn,
+.obj-menu-btn {
+    display: block; width: 100%;
+    background: var(--skymap-accent-faint);
+    color: var(--skymap-accent);
+    border: 1px solid var(--skymap-accent-dim);
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    font-family: monospace;
+    cursor: pointer;
+    border-radius: 3px;
+    text-align: center;
+}
+.skymap-obj-menu-btn:hover,
+.obj-menu-btn:hover { background: var(--skymap-accent-subtle); }

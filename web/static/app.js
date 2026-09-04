@@ -249,7 +249,20 @@ async function initSkyEngine() {
         addLog('warning', 'sky', i18n('log.sky.no_site_config'));
     }
 
-    skyEngine = new SkyEngine(container, { siteLat, siteLng, siteElev });
+    skyEngine = new SkyEngine(container, {
+        siteLat, siteLng, siteElev,
+        onGoto: (raH, decDeg, obj) => {
+            if (typeof setTargetObject === 'function') setTargetObject(obj);
+            fetch('/api/mount/slew', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ra_hours: raH, dec_deg: decDeg }),
+            });
+        },
+        onSetTarget: (raDeg, decDeg) => {
+            if (typeof window.setOffsetTarget === 'function') window.setOffsetTarget(raDeg, decDeg);
+        },
+    });
     skyEngine.init();
     skyEngine.setupContextMenu();
 

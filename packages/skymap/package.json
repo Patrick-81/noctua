@@ -1,0 +1,22 @@
+{
+  "name": "@noctua/skymap",
+  "version": "1.0.0",
+  "description": "Moteur cartographique céleste — projection orthographique D3 v3 sur canvas HTML5",
+  "type": "module",
+  "main": "src/sky-engine.js",
+  "exports": {
+    ".": "./src/sky-engine.js",
+    "./projection": "./src/sky-projection.js"
+  },
+  "files": [
+    "src/",
+    "public/"
+  ],
+  "scripts": {
+    "serve": "python3 -m http.server 18090",
+    "test": "node --check src/sky-engine.js && node --check src/sky-projection.js"
+  },
+  "dependencies": {},
+  "peerDependencies": {},
+  "license": "MIT"
+}
