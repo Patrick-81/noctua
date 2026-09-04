@@ -37,6 +37,7 @@ from .routers.common import _mount_flip_status, _sanitize
 log = logging.getLogger("indigo.web")
 
 STATIC_DIR = Path(__file__).parent / "static"
+SKYMAP_SRC_DIR = (Path(__file__).parent.parent / "packages" / "skymap" / "src").resolve()
 
 
 class WebServer:
@@ -256,6 +257,11 @@ class WebServer:
         if CELESTIAL_DIR.exists():
             app.mount("/celestial-data", StaticFiles(directory=str(CELESTIAL_DIR)),
                       name="celestial-data")
+
+        # Sky map package (single source of truth pour sky-engine / sky-projection).
+        if SKYMAP_SRC_DIR.exists():
+            app.mount("/skymap", StaticFiles(directory=str(SKYMAP_SRC_DIR)),
+                      name="skymap")
 
         if STATIC_DIR.exists():
             app.mount("/", StaticFiles(directory=str(STATIC_DIR), html=True),

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>@noctua/skymap — Demo</title>
+    <link rel="stylesheet" href="src/skymap.css">
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background: #080819; font-family: sans-serif; }
+        #controls {
+            position: fixed; top: 10px; left: 10px; z-index: 100;
+            background: rgba(8, 8, 25, 0.9); border: 1px solid rgba(255, 0, 85, 0.25);
+            border-radius: 8px; padding: 12px; color: #e0e0e0; font-size: 0.8rem;
+            min-width: 200px; pointer-events: auto;
+        }
+        #controls h3 { margin: 0 0 8px 0; color: #ff0055; font-size: 0.9rem; }
+        #controls label { display: block; margin: 4px 0; color: #aaa; }
+        #controls input[type="checkbox"] { accent-color: #ff0055; }
+        #controls input[type="range"] { width: 100%; accent-color: #ff0055; }
+        #controls .value { color: #ff0055; font-weight: bold; font-family: monospace; }
+        #info {
+            position: fixed; bottom: 10px; left: 10px; z-index: 100;
+            background: rgba(8, 8, 25, 0.9); border: 1px solid rgba(255, 0, 85, 0.25);
+            border-radius: 8px; padding: 10px; color: #e0e0e0; font-size: 0.75rem;
+            font-family: monospace; pointer-events: auto;
+        }
+    </style>
+</head>
+<body>
+    <div id="map" class="skymap-container"></div>
+
+    <div id="controls">
+        <h3>@noctua/skymap</h3>
+        <label><input type="checkbox" data-layer="stars" checked> Étoiles</label>
+        <label><input type="checkbox" data-layer="constellations" checked> Constellations</label>
+        <label><input type="checkbox" data-layer="milkyway" checked> Voie lactée</label>
+        <label><input type="checkbox" data-layer="dsos" checked> Objets du ciel profond</label>
+        <label><input type="checkbox" data-layer="planets" checked> Planètes</label>
+        <label><input type="checkbox" data-layer="grid" checked> Grille</label>
+        <label><input type="checkbox" data-layer="equator" checked> Équateur céleste</label>
+        <label><input type="checkbox" data-layer="ecliptic" checked> Écliptique</label>
+        <label><input type="checkbox" data-layer="meridian" checked> Méridien</label>
+        <label><input type="checkbox" data-layer="horizon" checked> Horizon</label>
+        <hr style="border-color: rgba(255,0,85,0.15)">
+        <label>Magnitude max : <span id="mag-val" class="value">6.0</span></label>
+        <input type="range" id="mag-slider" min="2" max="8" step="0.5" value="6.0">
+    </div>
+
+    <div id="info">
+        <div>Lat: <span id="lat-val">48.85</span>° Lon: <span id="lon-val">2.35</span>°</div>
+        <div>LST: <span id="lst-val">--:--:--</span></div>
+        <div>Centre: <span id="center-val">--</span></div>
+        <div style="margin-top:4px;color:#888;font-size:0.65rem;">Glisser = tourner · Molette = zoom · Clic droit = menu</div>
+    </div>
+
+    <script src="public/lib/d3.min.js"></script>
+    <script type="module">
+        import { SkyEngine } from './src/sky-engine.js';
+
+        const container = document.getElementById('map');
+        const engine = new SkyEngine(container, {
+            siteLat: 48.85,
+            siteLng: 2.35,
+            siteElev: 35,
+            dataBaseUrl: 'public/celestial-data/',
+            onGoto: (raH, decDeg, obj) => {
+                console.log('GOTO:', obj.name, `RA=${raH.toFixed(4)}h DEC=${decDeg.toFixed(2)}°`);
+            },
+            onSetTarget: (raDeg, decDeg) => {
+                console.log('Set target:', `RA=${raDeg.toFixed(4)}° DEC=${decDeg.toFixed(4)}°`);
+            },
+        });
+
+        engine.init();
+        engine.setupContextMenu();
+        await engine.loadCatalogs();
+
+        // Layer toggles
+        document.querySelectorAll('[data-layer]').forEach(cb => {
+            cb.addEventListener('change', () => engine.setLayerVisibility(cb.dataset.layer, cb.checked));
+        });
+
+        // Magnitude slider
+        const magSlider = document.getElementById('mag-slider');
+        const magVal = document.getElementById('mag-val');
+        magSlider.addEventListener('input', () => {
+            const v = parseFloat(magSlider.value);
+            magVal.textContent = v.toFixed(1);
+            engine.setMagnitudeLimit(v);
+        });
+
+        // Info display update
+        function updateInfo() {
+            if (!engine._initialized) return;
+            const lst = engine._lstDegrees(new Date(), engine.siteLng);
+            const pad = n => String(Math.floor(n)).padStart(2, '0');
+            const h = lst / 15;
+            document.getElementById('lst-val').textContent =
+                `${pad(h)}:${pad((h % 1) * 60)}:${pad(((h * 60) % 1) * 60)}`;
+
+            let ra = -engine._currentRotation[0];
+            let dec = -engine._currentRotation[1];
+            if (ra < 0) ra += 360;
+            if (ra >= 360) ra -= 360;
+            document.getElementById('center-val').textContent =
+                `RA ${ra.toFixed(1)}° DEC ${dec >= 0 ? '+' : ''}${dec.toFixed(1)}°`;
+        }
+        setInterval(updateInfo, 1000);
+        updateInfo();
+
+        console.log('@noctua/skymap demo ready —', Object.keys(engine.layers).length, 'layers');
+    </script>
+</body>
+</html>
