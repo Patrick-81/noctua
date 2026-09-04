@@ -902,17 +902,70 @@ export class SkyEngine {
             }
         }
 
-        ctx.restore();
+        // 13. Compas cardinal (N/S/E/O) — placé sur le vrai point cardinal de
+        // l'horizon via la projection elle-même quand il est à l'écran ; sinon
+        // rabattu sur le bord, dans la direction écran du cap vers ce point
+        // (grand cercle centre→cap, ramené dans l'hémisphère visible). Les 4
+        // positions fixes précédentes n'étaient pas volontaires (confirmé) :
+        // même défaut que l'ancien horizon/méridien, corrigé de la même façon.
+        {
+            const compassLst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const unit = (raDeg, decDeg) => {
+                const a = raDeg * Math.PI / 180, d = decDeg * Math.PI / 180, cd = Math.cos(d);
+                return [cd * Math.cos(a), cd * Math.sin(a), Math.sin(d)];
+            };
+            const cinv = this._projection.invert([cx, cy]);
+            if (cinv && isFinite(cinv[0])) {
+                const cU = unit(cinv[0], cinv[1]);
+                const margin = 24;
+                const edgeR = Math.min(w, h) / 2 - margin;
+                ctx.font = "bold 20px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                for (const [az, name] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'O']]) {
+                    const rd = this._altAzToRadec(0, az, compassLst);
+                    const direct = this._projection([rd.ra, rd.dec]);
+                    let sx, sy, faded = false;
+                    if (direct && direct[0] > margin && direct[0] < w - margin &&
+                                  direct[1] > margin && direct[1] < h - margin) {
+                        sx = direct[0]; sy = direct[1];
+                    } else {
+                        const tU = unit(rd.ra, rd.dec);
+                        let dot = cU[0] * tU[0] + cU[1] * tU[1] + cU[2] * tU[2];
+                        dot = Math.max(-1, Math.min(1, dot));
+                        const sep = Math.acos(dot);
+                        if (sep < 1e-3 || sep > Math.PI - 1e-3) continue;
+                        // intermediate point ≤70° from centre → always front-hemisphere
+                        const f = Math.min(0.9, (70 * Math.PI / 180) / sep);
+                        const s = Math.sin(sep);
+                        const k0 = Math.sin((1 - f) * sep) / s;
+                        const k1 = Math.sin(f * sep) / s;
+                        let mx = k0 * cU[0] + k1 * tU[0];
+                        let my = k0 * cU[1] + k1 * tU[1];
+                        let mz = k0 * cU[2] + k1 * tU[2];
+                        const ml = Math.hypot(mx, my, mz) || 1;
+                        mx /= ml; my /= ml; mz /= ml;
+                        const mp = this._projection([
+                            Math.atan2(my, mx) * 180 / Math.PI,
+                            Math.asin(Math.max(-1, Math.min(1, mz))) * 180 / Math.PI,
+                        ]);
+                        if (!mp) continue;
+                        const ddx = mp[0] - cx, ddy = mp[1] - cy;
+                        const dl = Math.hypot(ddx, ddy);
+                        if (dl < 1e-6) continue;
+                        sx = cx + edgeR * ddx / dl;
+                        sy = cy + edgeR * ddy / dl;
+                        faded = sep > Math.PI / 2;   // behind the visible hemisphere
+                    }
+                    ctx.globalAlpha = faded ? 0.4 : 1;
+                    ctx.fillStyle = "#ffaa00";
+                    this._drawLabel(ctx, name, sx, sy, 0, 0);
+                }
+                ctx.globalAlpha = 1;
+            }
+        }
 
-        // 13. Labels cardinaux (N/S/E/O) — E à gauche, O à droite (ciel vu de l'intérieur)
-        ctx.fillStyle = "#ffaa00";
-        ctx.font = "bold 20px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("N", cx, cy - rsky + 15);
-        ctx.fillText("S", cx, cy + rsky - 15);
-        ctx.fillText("E", cx - rsky + 15, cy);
-        ctx.fillText("O", cx + rsky - 15, cy);
+        ctx.restore();
 
         // 14. Réticule centre (rouge)
         ctx.strokeStyle = "#ff0055";
