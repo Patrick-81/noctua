@@ -60,6 +60,7 @@ en global (fichier fourni dans `public/lib/d3.min.js`).
 | `setMagnitudeLimit(val)` / `setManualTime(date)` / `setRealTime()` | Limites / temps. |
 | `setLayerVisibility(layer, visible)` | Active/désactive une couche. |
 | `setCatalogVisibility(catalog, visible)` | Active/désactive un catalogue DSO. |
+| `setProjection(mode)` | `'orthographic'` (globe) ou `'stereographic'` (planisphère, montre plus large mais compresse moins vers le bord). Les deux sont bridées à un hémisphère (`clipAngle(90)`). |
 | `render()` | Redessine. |
 | `destroy()` | Libère les timers. |
 

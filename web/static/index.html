@@ -326,6 +326,14 @@
                 <input type="range" id="mag-slider" min="0.0" max="8.0" step="0.2" value="6.0">
             </div>
 
+            <div class="slider-container">
+                <label for="proj-select" data-i18n="hud.proj">Projection :</label>
+                <select id="proj-select">
+                    <option value="orthographic" data-i18n="hud.proj.ortho">Orthographique (globe)</option>
+                    <option value="stereographic" data-i18n="hud.proj.stereo">Stéréographique (planisphère)</option>
+                </select>
+            </div>
+
             <div class="rotation-locks">
                 <div class="hud-title" style="font-size:0.6rem; margin-bottom:3px;">VERROUillage ROTATION</div>
                 <div class="lock-row">
@@ -340,6 +348,7 @@
                     <div class="toggle-section">
                         <div class="toggle-section-label" data-i18n="hud.section.objects">Objets</div>
                         <label class="layer-cb"><input type="checkbox" data-layer="stars" checked> <span data-i18n="hud.stars">⚪ Étoiles</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="starnames"> <span data-i18n="hud.starnames">🏷 Noms d'étoiles</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="dsos" checked> <span data-i18n="hud.dso">🔴 DSO</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="planets" checked> <span data-i18n="hud.planets">🟡 Planètes</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="constellations" checked> <span data-i18n="hud.constellations">✶ Constellations</span></label>

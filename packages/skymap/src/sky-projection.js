@@ -74,11 +74,15 @@ export function buildStarVectors(features) {
 // nameOf / namesOut / maxNames (optionnels) : quand nameOf(star) renvoie une
 // chaîne non vide, elle est ajoutée à namesOut en triplets [x, y, texte, ...],
 // les plus brillantes d'abord, plafonné à maxNames.
+// stereo (optionnel) : projection stéréographique au lieu d'orthographique —
+// divise les coordonnées du plan tangent par (1 + cz), montre au-delà d'un
+// hémisphère.
 export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn,
-    nameOf, namesOut, maxNames) {
+    nameOf, namesOut, maxNames, stereo) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
     const xMax = 2 * tx, yMax = 2 * ty, m = 8;
+    const czMin = 0;   // both modes clip at the hemisphere (stereo edge stays finite)
     const wantNames = !!(nameOf && namesOut && maxNames);
     let count = 0;
     let nameCount = 0;
@@ -86,9 +90,10 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
         if (s.mag > magMax) break;
         const u = s.u;
         const cz = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
-        if (cz <= 0) continue;
-        const rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
-        const rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
+        if (cz <= czMin) continue;
+        let rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
+        let rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
+        if (stereo) { const k = 1 + cz; rawX /= k; rawY /= k; }
         const px = rawX * scale + tx;
         const py = -rawY * scale + ty;
         if (px < -m || px > xMax + m || py < -m || py > yMax + m) continue;

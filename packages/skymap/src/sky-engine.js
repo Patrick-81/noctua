@@ -40,7 +40,6 @@
 import {
     buildStarVectors,
     projectStars,
-    projectPoint,
 } from './sky-projection.js';
 
 export class SkyEngine {
@@ -75,6 +74,7 @@ export class SkyEngine {
         this._mapReady = false;
 
         this._maxMagnitude = 6.0;
+        this._projMode = 'orthographic';   // 'orthographic' | 'stereographic'
         this._currentRotation = [0, 0, 0];
         this._manualOffsetRA = 0;
         this._decOffset = 0;
@@ -197,18 +197,31 @@ export class SkyEngine {
     // around the built projection (which breaks clipAngle and forces
     // manual per-point reprojection for anything drawn as a path).
     _buildProjection() {
+        const stereo = this._projMode === 'stereographic';
+        const raw = stereo ? d3.geo.stereographic.raw : d3.geo.orthographic.raw;
         function mirrorRaw(lambda, phi) {
-            const p = d3.geo.orthographic.raw(lambda, phi);
+            const p = raw(lambda, phi);
             return p ? [-p[0], p[1]] : p;
         }
-        mirrorRaw.invert = function (x, y) { return d3.geo.orthographic.raw.invert(-x, y); };
+        mirrorRaw.invert = function (x, y) { return raw.invert(-x, y); };
 
         this._projection = d3.geo.projection(mirrorRaw)
             .scale(this._scale)
             .translate([this._width / 2, this._height / 2])
-            .clipAngle(90)
+            .clipAngle(90)   // both modes: exactly a hemisphere (stereo's edge stays finite)
             .rotate(this._currentRotation);
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
+        this._dsoCache = null;
+    }
+
+    // 'orthographic' (globe, compresses toward the limb) | 'stereographic'
+    // (planisphere, conformal, shows well past a hemisphere -- still capped
+    // to a hemisphere here via clipAngle(90) above, same as orthographic).
+    setProjection(mode) {
+        mode = mode === 'stereographic' ? 'stereographic' : 'orthographic';
+        if (mode === this._projMode) return;
+        this._projMode = mode;
+        if (this._projection) { this._buildProjection(); this._updateSiderealRotation(); }
     }
 
     async loadCatalogs() {
@@ -735,7 +748,8 @@ export class SkyEngine {
                 this._scale, w / 2, h / 2,
                 this._maxMagnitude, this._MAX_DRAW_STARS, pts,
                 (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)),
-                wantNames ? (s) => this._starNames.get(s.id) : null, nameOut, 160
+                wantNames ? (s) => this._starNames.get(s.id) : null, nameOut, 160,
+                this._projMode === 'stereographic'
             );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
@@ -1027,9 +1041,6 @@ export class SkyEngine {
         const epsilon = 23.4393 * Math.PI / 180;
         const cosEps = Math.cos(epsilon);
         const sinEps = Math.sin(epsilon);
-        const centerRA = -this._currentRotation[0];
-        const centerDec = -this._currentRotation[1];
-        const pScale = this._scale, pTx = this._width / 2, pTy = this._height / 2;
 
         for (const [key, planet] of Object.entries(this._planetsData)) {
             if (key === 'ter') continue;
@@ -1051,9 +1062,11 @@ export class SkyEngine {
             const decDeg = decRad * 180 / Math.PI;
             if (raDeg < 0) raDeg += 360;
 
-            // Projection manuelle (même que étoiles/constellations) pour
-            // garantir l'alignement — projectPoint gère le clip à 90°.
-            const pt = projectPoint(raDeg, decDeg, centerRA, centerDec, pScale, pTx, pTy);
+            // Through _projection like DSOs/zenith/telescope, so it stays
+            // consistent across orthographic/stereographic and doesn't need
+            // its own hemisphere-clip logic.
+            if (!this._celestialClip([raDeg, decDeg])) continue;
+            const pt = this._projection([raDeg, decDeg]);
             if (!pt) continue;
 
             ctx.fillStyle = "#ffcc00";

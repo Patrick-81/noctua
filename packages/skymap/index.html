@@ -45,6 +45,11 @@
         <hr style="border-color: rgba(255,0,85,0.15)">
         <label>Magnitude max : <span id="mag-val" class="value">6.0</span></label>
         <input type="range" id="mag-slider" min="2" max="14" step="0.5" value="6.0">
+        <label for="proj-select" style="margin-top: 8px;">Projection :</label>
+        <select id="proj-select" style="width: 100%; background: #14142a; color: #e0e0e0; border: 1px solid rgba(255,0,85,0.25); border-radius: 4px; padding: 3px;">
+            <option value="orthographic">Orthographique (globe)</option>
+            <option value="stereographic">Stéréographique (planisphère)</option>
+        </select>
     </div>
 
     <div id="info">
@@ -89,6 +94,10 @@
             magVal.textContent = v.toFixed(1);
             engine.setMagnitudeLimit(v);
         });
+
+        // Projection selector
+        const projSelect = document.getElementById('proj-select');
+        projSelect.addEventListener('change', () => engine.setProjection(projSelect.value));
 
         // Info display update
         function updateInfo() {
