@@ -77,8 +77,9 @@ Sans `onGoto`/`onSetTarget`, les boutons correspondants sont inoffensifs (no-op)
 
 ## Couches
 
-`milkyway`, `constellations`, `stars`, `dsos`, `planets`, `grid`, `equator`,
-`ecliptic`, `meridian`, `horizon`.
+`milkyway`, `constellations`, `stars`, `starnames`, `dsos`, `planets` (inclut
+Soleil et Lune, calculés localement), `grid`, `equator`, `ecliptic`,
+`meridian`, `horizon`. `starnames` est désactivée par défaut.
 
 ## Données
 
@@ -86,10 +87,17 @@ Les catalogues (générés depuis les dumps stellaires) sont fournis dans
 `public/celestial-data/` :
 
 - `stars.8.json` — étoiles jusqu'à mag ~8
+- `stars.14.json` *(optionnel, non fourni — ~15 Mo)* — étoiles jusqu'à mag ~14 ;
+  utilisé automatiquement s'il est présent, sinon repli silencieux sur `stars.8.json`
+- `starnames.json` *(optionnel)* — noms/désignations Bayer par id d'étoile,
+  pour la couche `starnames`
 - `constellations.lines.json` — figures de constellations
 - `mw.json` — bande de la Voie lactée (MultiPolygon)
 - `dsos.6.bright.json` — objets du ciel profond brillants
-- `planets.json` — éléments orbitaux planétaires
+- `messier.json` *(optionnel)* — liste complète M1..M110, fusionnée dans le
+  catalogue DSO (les objets Messier passent outre la limite de magnitude)
+- `planets.json` — éléments orbitaux planétaires (Soleil/Lune ignorent ce
+  fichier sauf pour le libellé du nom)
 
 ## Structure
 

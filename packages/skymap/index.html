@@ -32,10 +32,11 @@
     <div id="controls">
         <h3>@noctua/skymap</h3>
         <label><input type="checkbox" data-layer="stars" checked> Étoiles</label>
+        <label><input type="checkbox" data-layer="starnames"> Noms d'étoiles</label>
         <label><input type="checkbox" data-layer="constellations" checked> Constellations</label>
         <label><input type="checkbox" data-layer="milkyway" checked> Voie lactée</label>
         <label><input type="checkbox" data-layer="dsos" checked> Objets du ciel profond</label>
-        <label><input type="checkbox" data-layer="planets" checked> Planètes</label>
+        <label><input type="checkbox" data-layer="planets" checked> Planètes (+ Soleil/Lune)</label>
         <label><input type="checkbox" data-layer="grid" checked> Grille</label>
         <label><input type="checkbox" data-layer="equator" checked> Équateur céleste</label>
         <label><input type="checkbox" data-layer="ecliptic" checked> Écliptique</label>
@@ -43,7 +44,7 @@
         <label><input type="checkbox" data-layer="horizon" checked> Horizon</label>
         <hr style="border-color: rgba(255,0,85,0.15)">
         <label>Magnitude max : <span id="mag-val" class="value">6.0</span></label>
-        <input type="range" id="mag-slider" min="2" max="8" step="0.5" value="6.0">
+        <input type="range" id="mag-slider" min="2" max="14" step="0.5" value="6.0">
     </div>
 
     <div id="info">

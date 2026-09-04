@@ -98,14 +98,16 @@ export class SkyEngine {
         this._dsosData = null;
         this._planetsData = null;
         this._starVectors = null;      // vecteurs unitaires triés par magnitude
+        this._starNames = null;        // Map<star id, label> for the optional name layer
         this._dsoCache = null;         // { key, items: [{x, y, name}] }
-        this._MAX_DRAW_STARS = 7000;
+        this._MAX_DRAW_STARS = 20000;  // deeper catalogue (stars.14) → allow more on screen
 
         // Layer visibility
         this.layers = {
             milkyway: true,
             constellations: true,
             stars: true,
+            starnames: false,
             dsos: true,
             planets: true,
             grid: true,
@@ -236,24 +238,72 @@ export class SkyEngine {
         const base = this._dataBaseUrl;
         const load = (path) => fetch(base + path).then(r => r.json()).catch(() => null);
 
-        const [stars, consts, mw, dsos, planets] = await Promise.all([
-            load('stars.8.json'),
+        const [stars14, consts, mw, dsos, planets, starNames, messier] = await Promise.all([
+            load('stars.14.json'),   // ~mag 14; falls back to stars.8 when not served
             load('constellations.lines.json'),
             load('mw.json'),
             load('dsos.6.bright.json'),
             load('planets.json'),
+            load('starnames.json'),  // optional: { <id>: { name, bayer, c } }
+            load('messier.json'),    // optional: full M1..M110
         ]);
+        const stars = stars14 || await load('stars.8.json');
 
         this._starsData = stars;
         if (stars && stars.features) {
             this._starVectors = buildStarVectors(stars.features);
+            const faint = this._starVectors.length
+                ? this._starVectors[this._starVectors.length - 1].mag : null;
+            console.log('[sky] star catalogue:', this._starVectors.length, 'stars, faintest mag',
+                faint, stars14 ? '(stars.14)' : '(stars.8 fallback)');
+        }
+        if (starNames && typeof starNames === 'object') {
+            this._starNames = new Map();
+            for (const k of Object.keys(starNames)) {
+                const v = starNames[k] || {};
+                let label = v.name;
+                if (!label && v.bayer) label = v.bayer + (v.c ? ' ' + v.c : '');
+                if (label) this._starNames.set(Number(k), label);
+            }
         }
         this._constellationsData = consts;
         this._milkywayData = mw;
-        this._dsosData = dsos;
+        this._dsosData = this._mergeMessier(dsos, messier);
         this._planetsData = planets;
         this._mapReady = true;
         this.render();
+    }
+
+    // Merge the full M1..M110 list into the bright-DSO catalogue. messier.json
+    // has { name:"M13", desig:"NGC 6205", ... }; label with the M number and
+    // skip any Messier object already present in the bright set. No-op when
+    // messier.json is absent.
+    _mergeMessier(dsos, messier) {
+        if (!messier || !Array.isArray(messier.features)) return dsos;
+        const base = (dsos && dsos.features) ? dsos : { type: "FeatureCollection", features: [] };
+        const norm = (s) => String(s || "").replace(/\s+/g, "").toUpperCase();
+        const have = new Set();
+        for (const f of base.features) {
+            have.add(norm((f.properties && f.properties.desig) || f.id));
+        }
+        for (const m of messier.features) {
+            const mp = m.properties || {};
+            const name = mp.name || m.id;
+            if (!name || have.has(norm(name))) continue;
+            base.features.push({
+                type: "Feature",
+                id: name,
+                properties: { desig: name, type: mp.type, mag: mp.mag, dim: mp.dim, morph: mp.morph },
+                geometry: m.geometry,
+            });
+            have.add(norm(name));
+        }
+        return base;
+    }
+
+    _isMessier(dso) {
+        const desig = String((dso.properties && dso.properties.desig) || dso.id || '').toUpperCase();
+        return /^M\s*\d/.test(desig);
     }
 
     setLayerVisibility(layer, visible) {
@@ -609,11 +659,14 @@ export class SkyEngine {
             const centerRA = -this._currentRotation[0];
             const centerDec = -this._currentRotation[1];
             const pts = [];
+            const wantNames = this.layers.starnames && this._starNames && this._starNames.size;
+            const nameOut = wantNames ? [] : null;
             projectStars(
                 this._starVectors, centerRA, centerDec,
                 this._scale, w / 2, h / 2,
                 this._maxMagnitude, this._MAX_DRAW_STARS, pts,
-                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5))
+                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)),
+                wantNames ? (s) => this._starNames.get(s.id) : null, nameOut, 160
             );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
@@ -629,6 +682,14 @@ export class SkyEngine {
                 }
             }
             ctx.fill();
+            if (nameOut && nameOut.length) {
+                ctx.fillStyle = "rgba(180, 210, 255, 0.75)";
+                ctx.font = "11px sans-serif";
+                ctx.textAlign = "left";
+                for (let i = 0; i < nameOut.length; i += 3) {
+                    ctx.fillText(nameOut[i + 2], nameOut[i] + 5, nameOut[i + 1] + 3);
+                }
+            }
         }
 
         // 9. Labels méridiens
@@ -656,7 +717,7 @@ export class SkyEngine {
                     if (!this._dsoHasCatalog(dso)) continue;
                     const props = dso.properties || {};
                     const mag = parseFloat(props.mag);
-                    if (!isNaN(mag) && mag > this._maxMagnitude) continue;
+                    if (!isNaN(mag) && mag > this._maxMagnitude && !this._isMessier(dso)) continue;
                     const coords = dso.geometry.coordinates;
                     if (!this._celestialClip(coords)) continue;
                     const pt = this._projection(coords);
@@ -682,8 +743,8 @@ export class SkyEngine {
             }
         }
 
-        // 11. Planètes (à partir des éléments orbitaux)
-        if (this.layers.planets) this._renderPlanets(ctx);
+        // 11. Planètes (à partir des éléments orbitaux) + Soleil/Lune
+        if (this.layers.planets) { this._renderPlanets(ctx); this._renderSunMoon(ctx); }
 
         // 12. Zenith marker — RA = LST, Dec = latitude du site
         const zenithRa = this._lstDegrees(this._getObsDate(), this.siteLng);
@@ -949,6 +1010,113 @@ export class SkyEngine {
             ctx.textAlign = "left";
             ctx.fillText(planet.name.toUpperCase(), pt[0] + 8, pt[1] + 3);
         }
+    }
+
+    // ── Sun / Moon (Schlyter low-precision series, computed locally — the
+    //    planets.json elements for 'sol'/'lun' are empty placeholders) ──
+
+    _sunEcl(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const w = 282.9404 + 4.70935e-5 * d;
+        const e = 0.016709 - 1.151e-9 * d;
+        const M = rev(356.0470 + 0.9856002585 * d);
+        const E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        const r = Math.hypot(xv, yv);
+        const lon = rev(Math.atan2(yv, xv) / rad + w);
+        return { lon, lat: 0, r, M, w };
+    }
+    _eclToRaDec(lon, lat, d) {
+        const rad = Math.PI / 180;
+        const ecl = (23.4393 - 3.563e-7 * d) * rad;
+        const xg = Math.cos(lon * rad) * Math.cos(lat * rad);
+        const yg = Math.sin(lon * rad) * Math.cos(lat * rad);
+        const zg = Math.sin(lat * rad);
+        const xe = xg;
+        const ye = yg * Math.cos(ecl) - zg * Math.sin(ecl);
+        const ze = yg * Math.sin(ecl) + zg * Math.cos(ecl);
+        let ra = Math.atan2(ye, xe) / rad;
+        if (ra < 0) ra += 360;
+        return [ra, Math.atan2(ze, Math.hypot(xe, ye)) / rad];
+    }
+    _moonRaDec(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const s = this._sunEcl(d);
+        const N = 125.1228 - 0.0529538083 * d;
+        const i = 5.1454;
+        const w = 318.0634 + 0.1643573223 * d;
+        const e = 0.054900;
+        const M = rev(115.3654 + 13.0649929509 * d);
+        let E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        E = E - (E - e * (180 / Math.PI) * Math.sin(E * rad) - M) / (1 - e * Math.cos(E * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        let r = Math.hypot(xv, yv) * 60.2666;   // Earth radii
+        const v = Math.atan2(yv, xv) / rad;
+        const xh = r * (Math.cos(N * rad) * Math.cos((v + w) * rad) - Math.sin(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const yh = r * (Math.sin(N * rad) * Math.cos((v + w) * rad) + Math.cos(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const zh = r * Math.sin((v + w) * rad) * Math.sin(i * rad);
+        let lon = Math.atan2(yh, xh) / rad;
+        let lat = Math.atan2(zh, Math.hypot(xh, yh)) / rad;
+
+        const Ms = s.M, Ls = rev(s.w + s.M);
+        const Lm = rev(N + w + M), Dm = rev(Lm - Ls), F = rev(Lm - N);
+        const S = (deg) => Math.sin(deg * rad);
+        lon += -1.274 * S(M - 2 * Dm) + 0.658 * S(2 * Dm) - 0.186 * S(Ms)
+            - 0.059 * S(2 * M - 2 * Dm) - 0.057 * S(M - 2 * Dm + Ms) + 0.053 * S(M + 2 * Dm)
+            + 0.046 * S(2 * Dm - Ms) + 0.041 * S(M - Ms) - 0.035 * S(Dm)
+            - 0.031 * S(M + Ms) - 0.015 * S(2 * F - 2 * Dm) + 0.011 * S(M - 4 * Dm);
+        lat += -0.173 * S(F - 2 * Dm) - 0.055 * S(M - F - 2 * Dm) - 0.046 * S(M + F - 2 * Dm)
+            + 0.033 * S(F + 2 * Dm) + 0.017 * S(2 * M + F);
+        r += -0.58 * Math.cos((M - 2 * Dm) * rad) - 0.46 * Math.cos(2 * Dm * rad);
+
+        const [gra, gdec] = this._eclToRaDec(lon, lat, d);
+        let ra = gra, dec = gdec;
+
+        // topocentric parallax (Schlyter). Bail to geocentric if it produces
+        // an implausible shift — parallax is at most ~1°.
+        const lat0 = this.siteLat;
+        if (isFinite(lat0) && isFinite(r) && r > 1) {
+            const mpar = Math.asin(1 / r) / rad;
+            const gclat = lat0 - 0.1924 * S(2 * lat0);
+            const rho = 0.99833 + 0.00167 * Math.cos(2 * lat0 * rad);
+            const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const HA = rev(lst - gra);
+            const g = Math.atan(Math.tan(gclat * rad) / Math.cos(HA * rad)) / rad;
+            const tra = rev(gra - mpar * rho * Math.cos(gclat * rad) * Math.sin(HA * rad) / Math.cos(gdec * rad));
+            let tdec = gdec;
+            if (Math.abs(Math.sin(g * rad)) > 1e-4)
+                tdec = gdec - mpar * rho * Math.sin(gclat * rad) * Math.sin((g - gdec) * rad) / Math.sin(g * rad);
+            const dRa = Math.abs(((tra - gra + 540) % 360) - 180);
+            if (isFinite(tra) && isFinite(tdec) && dRa < 2 && Math.abs(tdec - gdec) < 2) {
+                ra = tra; dec = tdec;
+            }
+        }
+        return [ra, dec];
+    }
+
+    _renderSunMoon(ctx) {
+        const d = this._julianDate(this._getObsDate()) - 2451545.0;
+        const draw = (raDeg, decDeg, color, radius, label) => {
+            if (!this._celestialClip([raDeg, decDeg])) return;
+            const pt = this._projection([raDeg, decDeg]);
+            if (!pt) return;
+            const grad = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], radius * 3);
+            grad.addColorStop(0, color); grad.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius * 3, 0, 2 * Math.PI); ctx.fill();
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = "bold 14px monospace";
+            ctx.textAlign = "left";
+            ctx.fillText(label, pt[0] + radius + 5, pt[1] + 4);
+        };
+        const sun = this._sunEcl(d);
+        const [sra, sdec] = this._eclToRaDec(sun.lon, 0, d);
+        draw(sra, sdec, "#ffd21e", 7, (this._planetsData && this._planetsData.sol && this._planetsData.sol.name || "Sun").toUpperCase());
+        const [mra, mdec] = this._moonRaDec(d);
+        draw(mra, mdec, "#dfe6ef", 6, (this._planetsData && this._planetsData.lun && this._planetsData.lun.name || "Moon").toUpperCase());
     }
 
     _renderCameraFov(ctx) {
@@ -1523,9 +1691,14 @@ export class SkyEngine {
     }
 
     updateSite(lat, lng, elev) {
+        lat = Number(lat);
+        lng = Number(lng);
+        // Ignore an unset / implausible fix (e.g. 0,0 on a demo server) so the
+        // horizon doesn't collapse onto the pole.
+        if (!isFinite(lat) || Math.abs(lat) > 90 || (lat === 0 && (!isFinite(lng) || lng === 0))) return;
         this.siteLat = lat;
-        this.siteLng = lng;
-        this.siteElev = elev;
+        if (isFinite(lng) && Math.abs(lng) <= 180) this.siteLng = lng;
+        this.siteElev = Number(elev) || 0;
         this._updateSiderealRotation();
     }
 
