@@ -1363,7 +1363,10 @@ export class SkyEngine {
             const sinG = Math.sin(gamma);
             const sdx = d3.event.dx;
             const sdy = d3.event.dy;
-            const hDrag = sdx * cosG + sdy * sinG;   // true horizontal (azimuth)
+            // true horizontal (azimuth) — negated: _wrapMirrored flips the
+            // projection's screen x, so a rightward drag must turn the view
+            // the opposite way to still track the cursor.
+            const hDrag = -(sdx * cosG + sdy * sinG);
             const vDrag = -sdx * sinG + sdy * cosG;   // true vertical   (altitude)
 
             // Current center in alt/az
