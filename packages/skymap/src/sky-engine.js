@@ -781,79 +781,49 @@ export class SkyEngine {
             ctx.fillText(`ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0] + 8, pt[1] + 3);
         }
 
-        ctx.restore();
-
-        // 6b. Horizon local (orange, tirets) — calculé directement en alt/az
-        //     → canvas (sans projection D3) pour rester TOUJOURS horizontal
-        //     à l'écran, indépendamment du drag et de la projection.
+        // 6b. Horizon local (orange, tirets). Verified numerically against a
+        // reference projection: the old screen-ellipse formula (independent
+        // of _projection) only matched the true horizon at the symmetric
+        // due-south / dec-0 case — it diverges (not just in sign) as soon as
+        // the view is dragged or tracks away from it, which is what the
+        // "yoyo" was. Drawn as a real great circle through _projection,
+        // inside the same parallactic-rotation block as the rest of the sky
+        // so it stays aligned with it (and, since that rotation keeps
+        // alt/az's "up" pointed at screen-up, still reads as roughly
+        // horizontal — but now exactly, not by approximation).
         if (this.layers.horizon) {
             const currentLstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const horizon = this._getHorizon(currentLstDeg * Math.PI / 180);
 
-            // Centre de projection RA/Dec → alt/az
-            const raC = ((currentLstDeg - this._manualOffsetRA) % 360 + 360) % 360;
-            const decC = -this._decOffset;
-            const cAltAz = this._radecToAltAz(raC, decC, currentLstDeg);
-            const altCRad = cAltAz.alt * Math.PI / 180;
-            const azCRad = cAltAz.az * Math.PI / 180;
-            const sinAltC = Math.sin(altCRad);
-            const scale = this._scale;
-
-            // Arc visible : |az - az_c| < 90° (face avant de la sphère)
-            const azCenterDeg = cAltAz.az;
-            const azStartDeg = (azCenterDeg - 90 + 360) % 360;
-            const azEndDeg   = (azCenterDeg + 90 + 360) % 360;
-
-            // Ellipse horizontale : x = scale·sin(θ), y = scale·sin(alt_c)·cos(θ)
-            // avec θ = az - az_c, centrée à l'écran (cx, cy)
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]);
             ctx.beginPath();
-            let first = true;
-            const drawHzPt = (azDeg) => {
-                const theta = azDeg * Math.PI / 180 - azCRad;
-                const sx = cx + scale * Math.sin(theta);
-                const sy = cy + scale * sinAltC * Math.cos(theta);
-                if (first) { ctx.moveTo(sx, sy); first = false; }
-                else ctx.lineTo(sx, sy);
-            };
-            if (azStartDeg < azEndDeg) {
-                for (let az = azStartDeg; az <= azEndDeg; az++) drawHzPt(az);
-            } else {
-                for (let az = azStartDeg; az <= 360; az++) drawHzPt(az);
-                for (let az = 0; az <= azEndDeg; az++) drawHzPt(az);
-            }
+            this._pathGenerator(horizon);
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Graduations azimutales
             const azLabels = [
                 { az: 0, name: 'N' }, { az: 30, name: '30°' }, { az: 60, name: '60°' },
                 { az: 90, name: 'E' }, { az: 120, name: '120°' }, { az: 150, name: '150°' },
                 { az: 180, name: 'S' }, { az: 210, name: '210°' }, { az: 240, name: '240°' },
                 { az: 270, name: 'O' }, { az: 300, name: '300°' }, { az: 330, name: '330°' },
             ];
-
-            ctx.fillStyle = "rgba(255, 160, 50, 0.9)";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-
             for (const lbl of azLabels) {
-                let relAz = lbl.az - azCenterDeg;
-                if (relAz < -180) relAz += 360;
-                if (relAz > 180) relAz -= 360;
-                if (Math.abs(relAz) > 90) continue;
-
-                const theta = lbl.az * Math.PI / 180 - azCRad;
-                const sx = cx + scale * Math.sin(theta);
-                const sy = cy + scale * sinAltC * Math.cos(theta);
-
+                const rd = this._altAzToRadec(0, lbl.az, currentLstDeg);
+                if (!this._celestialClip([rd.ra, rd.dec])) continue;
+                const pt = this._projection([rd.ra, rd.dec]);
+                if (!pt) continue;
                 const isCardinal = lbl.az % 90 === 0;
                 ctx.font = isCardinal ? "bold 15px monospace" : "11px monospace";
                 ctx.fillStyle = isCardinal ? "rgba(255, 160, 50, 1.0)" : "rgba(255, 160, 50, 0.6)";
-                ctx.fillText(lbl.name, sx, sy + 12);
+                ctx.fillText(lbl.name, pt[0], pt[1] + 12);
             }
         }
+
+        ctx.restore();
 
         // 13. Labels cardinaux (N/S/E/O) — E à gauche, O à droite (ciel vu de l'intérieur)
         ctx.fillStyle = "#ffaa00";
