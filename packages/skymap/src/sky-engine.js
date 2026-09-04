@@ -90,7 +90,6 @@ export class SkyEngine {
         this._ctx = null;
         this._projection = null;
         this._pathGenerator = null;
-        this._graticule = null;
 
         this._starsData = null;
         this._constellationsData = null;
@@ -162,22 +161,13 @@ export class SkyEngine {
             document.body.appendChild(this._menuEl);
         }
 
-        this._rawProjection = d3.geo.orthographic()
-            .scale(this._scale)
-            .translate([this._width / 2, this._height / 2])
-            .clipAngle(90)
-            .rotate(this._currentRotation);
-
-        this._projection = this._wrapMirrored(this._rawProjection);
-        this._rawPathGenerator = d3.geo.path().projection(this._rawProjection).context(this._ctx);
-
-        this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
-        this._graticule = d3.geo.graticule().step([15, 10]);
+        this._buildProjection();
 
         // Géométries fixes en coordonnées RA/Dec : calculées une seule fois,
         // la rotation LST est appliquée par la projection à chaque rendu.
         // Note : l'horizon dépend du LST et est donc recalculé dans render().
-        this._cachedGraticule = this._graticule();
+        // La grille équatoriale est reconstruite à chaque frame (_drawGrid),
+        // adaptée au zoom — pas de graticule mise en cache.
         this._cachedEquator = this._getCelestialEquator();
         this._cachedEcliptic = this._getEcliptic();
 
@@ -199,39 +189,26 @@ export class SkyEngine {
         window.addEventListener('resize', () => this._onResize());
     }
 
-    _wrapMirrored(raw) {
-        const self = this;
-        const mirrored = function(coords) {
-            const pt = raw(coords);
-            if (pt) pt[0] = self._width - pt[0];
-            return pt;
-        };
-        mirrored.stream = function(listener) {
-            const s = raw.stream(listener);
-            return {
-                point: function(x, y) { s.point(self._width - x, y); },
-                lineStart: function() { s.lineStart(); },
-                lineEnd: function() { s.lineEnd(); },
-                polygonStart: function() { s.polygonStart(); },
-                polygonEnd: function() { s.polygonEnd(); },
-                sphere: function() { s.sphere(); }
-            };
-        };
-        mirrored.invert = function(pt) {
-            if (!pt) return null;
-            return raw.invert([self._width - pt[0], pt[1]]);
-        };
-        // déléguer les setters/getters D3
-        ['rotate','scale','translate','clipAngle','precision','clipExtent'].forEach(k=>{
-            if (typeof raw[k] === 'function') {
-                mirrored[k] = function(v) {
-                    if (!arguments.length) return raw[k]();
-                    raw[k](v);
-                    return mirrored;
-                };
-            }
-        });
-        return mirrored;
+    // Mirror east<->west (planetarium view: the sky as seen from inside,
+    // looking up) by reflecting the *raw* projection function before
+    // d3.geo.projection wraps it. Because the reflection sits inside what
+    // d3 streams, clipping / antimeridian cutting / resampling / winding
+    // are all still handled natively by d3 — unlike a post-hoc wrapper
+    // around the built projection (which breaks clipAngle and forces
+    // manual per-point reprojection for anything drawn as a path).
+    _buildProjection() {
+        function mirrorRaw(lambda, phi) {
+            const p = d3.geo.orthographic.raw(lambda, phi);
+            return p ? [-p[0], p[1]] : p;
+        }
+        mirrorRaw.invert = function (x, y) { return d3.geo.orthographic.raw.invert(-x, y); };
+
+        this._projection = d3.geo.projection(mirrorRaw)
+            .scale(this._scale)
+            .translate([this._width / 2, this._height / 2])
+            .clipAngle(90)
+            .rotate(this._currentRotation);
+        this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
     }
 
     async loadCatalogs() {
@@ -494,6 +471,126 @@ export class SkyEngine {
         return labels;
     }
 
+    // Zoom-adaptive equatorial grid: major/minor spacing narrows as the view
+    // zooms in (30°/10° down to 2°/0.5°), each parallel/meridian drawn as a
+    // full great circle so d3 clips it to the visible hemisphere, and the
+    // major-line coordinate labels are pinned to wherever the line leaves
+    // the visible area (screen edge or sphere limb) instead of a fixed spot.
+    _drawGrid(ctx, w, h, cx, cy) {
+        const minDim = Math.min(w, h);
+        const z = this._scale / (minDim * 0.42);
+        let maj, sub;
+        if      (z < 1.6) { maj = 30; sub = 10;  }
+        else if (z < 3.5) { maj = 15; sub = 5;   }
+        else if (z < 7)   { maj = 10; sub = 2;   }
+        else if (z < 14)  { maj = 5;  sub = 1;   }
+        else              { maj = 2;  sub = 0.5; }
+
+        const cinv = this._projection.invert([cx, cy]);
+        if (!cinv || !isFinite(cinv[0]) || !isFinite(cinv[1])) return;
+        const cra = cinv[0];
+        const cdec = Math.max(-89, Math.min(89, cinv[1]));
+        // angular radius to the screen *corner* (diagonal), not the short edge,
+        // so the grid reaches the whole visible field
+        const visRad = Math.asin(Math.min(1, (Math.hypot(w, h) / 2) / this._scale)) * 180 / Math.PI;
+        const pad = 2 * maj + 5;
+
+        const decLo = Math.max(-89.5, cdec - visRad - pad);
+        const decHi = Math.min(89.5, cdec + visRad + pad);
+        const fullRA = (Math.abs(cdec) + visRad + pad > 86) || (visRad + pad >= 80);
+        let raLo, raHi;
+        if (fullRA) {
+            raLo = 0; raHi = 360;
+        } else {
+            const edgeLat = Math.min(84, Math.abs(cdec) + visRad + pad) * Math.PI / 180;
+            const raHalf = Math.min(185, (visRad + pad) / Math.max(0.03, Math.cos(edgeLat)));
+            raLo = cra - raHalf; raHi = cra + raHalf;
+        }
+
+        const isMult = (v, s) => { const m = Math.abs(v % s); return m < 1e-4 || m > s - 1e-4; };
+        const build = (major) => {
+            const st = major ? maj : sub;
+            const merSt = (major || fullRA) ? maj : sub;
+            const lines = [];
+            for (let d = Math.ceil(decLo / st) * st; d <= decHi + 1e-6; d += st) {
+                if (!major && isMult(d, maj)) continue;
+                const ln = [];
+                for (let r = 0; r <= 360 + 1e-6; r += 4) ln.push([r, d]);
+                lines.push(ln);
+            }
+            for (let r = Math.ceil(raLo / merSt) * merSt; r <= raHi + 1e-6; r += merSt) {
+                if (!major && isMult(r, maj)) continue;
+                const ln = [];
+                for (let d = decLo; d <= decHi + 1e-6; d += 3) ln.push([r, d]);
+                lines.push(ln);
+            }
+            return { type: "Feature", geometry: { type: "MultiLineString", coordinates: lines } };
+        };
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.10)";
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        this._pathGenerator(build(false));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.26)";
+        ctx.beginPath();
+        this._pathGenerator(build(true));
+        ctx.stroke();
+
+        // Coordinate labels, pinned to where each major line leaves the
+        // visible area.
+        {
+            ctx.font = "11px monospace";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+            const mrg = 3;
+            const inScreen = (p) => p && p[0] >= mrg && p[0] <= w - mrg && p[1] >= 22 && p[1] <= h - mrg;
+
+            const raHM = (deg) => {
+                let hh = deg / 15;
+                let H = Math.floor(hh);
+                let M = Math.round((hh - H) * 60);
+                if (M === 60) { M = 0; H += 1; }
+                H = ((H % 24) + 24) % 24;
+                return String(H).padStart(2, '0') + ':' + String(M).padStart(2, '0');
+            };
+
+            // Only the arc within ~95° of the view centre genuinely faces us;
+            // sampling wider picks up the antipodal (back-side) half of the
+            // same great circle near the poles.
+            const dLo = Math.max(decLo, cdec - visRad - pad);
+            const dHi = Math.min(decHi, cdec + visRad + pad);
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "alphabetic";
+            for (let r = Math.ceil((cra - 95) / maj) * maj; r <= cra + 95; r += maj) {
+                let best = null;
+                for (let d = dLo; d <= Math.min(dHi, cdec + 4) + 1e-6; d += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[1] > best[1])) best = p;
+                }
+                if (best) ctx.fillText(raHM(((r % 360) + 360) % 360), best[0], Math.min(best[1] - 4, h - 6));
+            }
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            for (let d = Math.ceil(dLo / maj) * maj; d <= dHi + 1e-6; d += maj) {
+                if (Math.abs(d) > 89.5) continue;
+                let best = null;
+                for (let r = cra - 95; r <= cra + 95; r += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[0] < best[0])) best = p;
+                }
+                if (best) {
+                    const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
+                    ctx.fillText(sign + Math.abs(d) + '°', Math.max(best[0] + 4, mrg + 2), best[1]);
+                }
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  RENDER
     // ═══════════════════════════════════════════════════════════
@@ -522,88 +619,35 @@ export class SkyEngine {
         ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
         ctx.translate(-cx, -cy);
 
-        // 2. Voie lactée — données brutes via _rawPathGenerator (sans miroir
-        //    écran). Le _wrapMirrored détruit le clip orthographic de D3 (90°),
-        //    ce qui rend le remplissage uniforme sur tout le disque. Le
-        //    _rawPathGenerator conserve le clip correct. La voie lactée étant
-        //    une bande large et à peu près symétrique, l'absence de miroir
-        //    horizontal est visuellement négligeable.
-        //    nonZero (défaut) fonctionne correctement avec les winding rings.
+        // 2. Voie lactée. Now that _buildProjection lets d3 handle clipping /
+        // winding natively, this goes back through _pathGenerator like any
+        // other path — no more raw/unmirrored fallback needed.
         if (this.layers.milkyway && this._milkywayData) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
             ctx.beginPath();
-            this._rawPathGenerator(this._milkywayData);
+            this._pathGenerator(this._milkywayData);
             ctx.fill();
         }
 
-        // 3. Grille gratiulaire — tracé manuel via projectPoint pour
-        // cohérence avec étoiles/planètes/écliptique.
-        if (this.layers.grid) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            const gCenterRA = -this._currentRotation[0], gCenterDec = -this._currentRotation[1];
-            const gScale = this._scale, gTx = w / 2, gTy = h / 2;
-            const g = this._cachedGraticule;
-            let lines = [];
-            if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.type === 'Feature' && g.geometry?.coordinates) {
-                lines = g.geometry.type === 'MultiLineString' ? g.geometry.coordinates : [g.geometry.coordinates];
-            } else if (Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.geometry?.coordinates) lines = g.geometry.coordinates;
-            if (lines.length && Array.isArray(lines[0]) && Array.isArray(lines[0][0])) {
-                for (const line of lines) {
-                    let firstG = true;
-                    for (const c of line) {
-                        const pt = projectPoint(c[0], c[1], gCenterRA, gCenterDec, gScale, gTx, gTy);
-                        if (!pt) { firstG = true; continue; }
-                        if (firstG) { ctx.moveTo(pt[0], pt[1]); firstG = false; }
-                        else ctx.lineTo(pt[0], pt[1]);
-                    }
-                }
-            } else {
-                this._pathGenerator(this._cachedGraticule);
-            }
-            ctx.stroke();
-        }
+        // 3. Grille équatoriale, adaptée au zoom (voir _drawGrid).
+        if (this.layers.grid) this._drawGrid(ctx, w, h, cx, cy);
 
-        // 4. Équateur céleste (cyan) — tracé manuel
+        // 4. Équateur céleste (cyan)
         if (this.layers.equator) {
             ctx.strokeStyle = "rgba(0, 255, 255, 0.85)";
             ctx.lineWidth = 2.2;
             ctx.beginPath();
-            const eCenterRA = -this._currentRotation[0], eCenterDec = -this._currentRotation[1];
-            const eScale = this._scale, eTx = w / 2, eTy = h / 2;
-            let firstEq = true;
-            for (const c of this._cachedEquator.geometry.coordinates) {
-                const pt = projectPoint(c[0], c[1], eCenterRA, eCenterDec, eScale, eTx, eTy);
-                if (!pt) { firstEq = true; continue; }
-                if (firstEq) { ctx.moveTo(pt[0], pt[1]); firstEq = false; }
-                else ctx.lineTo(pt[0], pt[1]);
-            }
+            this._pathGenerator(this._cachedEquator);
             ctx.stroke();
         }
 
-        // 5. Écliptique (jaune, tirets) — tracé manuel via projectPoint
-        // pour alignement avec étoiles/planètes (même projection orthographique
-        // que projectStars, évite le décalage N/S du path D3).
+        // 5. Écliptique (jaune, tirets)
         if (this.layers.ecliptic) {
             ctx.strokeStyle = "rgba(255, 255, 0, 0.85)";
             ctx.lineWidth = 2;
             ctx.setLineDash([6, 3]);
             ctx.beginPath();
-            const centerRA_e = -this._currentRotation[0];
-            const centerDec_e = -this._currentRotation[1];
-            const scale_e = this._scale;
-            const tx_e = w / 2, ty_e = h / 2;
-            let firstE = true;
-            const coords = this._cachedEcliptic.geometry.coordinates;
-            for (const c of coords) {
-                const pt = projectPoint(c[0], c[1], centerRA_e, centerDec_e, scale_e, tx_e, ty_e);
-                if (!pt) { firstE = true; continue; }
-                if (firstE) { ctx.moveTo(pt[0], pt[1]); firstE = false; }
-                else ctx.lineTo(pt[0], pt[1]);
-            }
+            this._pathGenerator(this._cachedEcliptic);
             ctx.stroke();
             ctx.setLineDash([]);
         }
@@ -618,36 +662,12 @@ export class SkyEngine {
             ctx.stroke();
         }
 
-        // 7. Constellations — tracé manuel via projectPoint (même projection que les étoiles)
-        // pour garantir l'alignement pixel-par-pixel et la même rotation (fix du miroir partiel).
+        // 7. Constellations
         if (this.layers.constellations && this._constellationsData) {
-            const centerRA_c = -this._currentRotation[0];
-            const centerDec_c = -this._currentRotation[1];
-            const scale_c = this._scale;
-            const tx_c = w / 2;
-            const ty_c = h / 2;
             ctx.strokeStyle = "rgba(0, 255, 204, 0.2)";
             ctx.lineWidth = 1.2;
             ctx.beginPath();
-            const feats = this._constellationsData.features || [];
-            for (const feat of feats) {
-                const geom = feat.geometry;
-                if (!geom || !geom.coordinates) continue;
-                const drawLine = (coords) => {
-                    let started = false;
-                    for (const c of coords) {
-                        const pt = projectPoint(c[0], c[1], centerRA_c, centerDec_c, scale_c, tx_c, ty_c);
-                        if (!pt) { started = false; continue; }
-                        if (!started) { ctx.moveTo(pt[0], pt[1]); started = true; }
-                        else ctx.lineTo(pt[0], pt[1]);
-                    }
-                };
-                if (geom.type === 'MultiLineString') {
-                    for (const line of geom.coordinates) drawLine(line);
-                } else if (geom.type === 'LineString') {
-                    drawLine(geom.coordinates);
-                }
-            }
+            this._pathGenerator(this._constellationsData);
             ctx.stroke();
         }
 
@@ -1363,9 +1383,9 @@ export class SkyEngine {
             const sinG = Math.sin(gamma);
             const sdx = d3.event.dx;
             const sdy = d3.event.dy;
-            // true horizontal (azimuth) — negated: _wrapMirrored flips the
-            // projection's screen x, so a rightward drag must turn the view
-            // the opposite way to still track the cursor.
+            // true horizontal (azimuth) — negated: the mirrored projection
+            // flips screen x, so a rightward drag must turn the view the
+            // opposite way to still track the cursor.
             const hDrag = -(sdx * cosG + sdy * sinG);
             const vDrag = -sdx * sinG + sdy * cosG;   // true vertical   (altitude)
 
