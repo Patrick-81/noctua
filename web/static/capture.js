@@ -598,7 +598,7 @@ function renderCaptureFilter() {
             const idx = Math.round(Number(wheelPv.items[0].value));
             const curItem = wheelNames.items.find(i => {
                 const m = i.name.match(/_(\d+)$/);
-                return m && parseInt(m.group(1), 10) === idx;
+                return m && parseInt(m[1], 10) === idx;
             });
             current = curItem ? (curItem.value || curItem.label || curItem.name) : null;
         }

@@ -89,7 +89,7 @@ def test_guide_status_idle():
 
 def test_guide_start_stop():
     print("\n=== Test: guide start → stop ===")
-    r = api_post("/api/guide/start", {"exposure": 2.0, "aggressiveness": 0.6})
+    r = api_post("/api/guide/start", {"exposure": 2.0, "aggressiveness": 0.6, "loop": False})
     check(r.get("ok"), "start → ok")
     check(r.get("state") == "guiding", f"state=guiding (got {r.get('state')})")
     check(r.get("exposure_sec") == 2.0, "exposure=2.0")
@@ -100,8 +100,8 @@ def test_guide_start_stop():
 
 def test_guide_start_duplicate():
     print("\n=== Test: guide start while already guiding ===")
-    api_post("/api/guide/start")
-    r = api_post("/api/guide/start")
+    api_post("/api/guide/start", {"loop": False})
+    r = api_post("/api/guide/start", {"loop": False})
     check(r.get("ok") is False, "double start → ok=False")
     api_post("/api/guide/stop")
 
@@ -109,7 +109,7 @@ def test_guide_start_duplicate():
 def test_guide_step_sequence():
     print("\n=== Test: guide step sequence ===")
     api_post("/api/guide/reset")
-    api_post("/api/guide/start", {"exposure": 1.0, "aggressiveness": 1.0, "ra_gain": 10.0, "dec_gain": 10.0, "min_pulse_ms": 0})
+    api_post("/api/guide/start", {"exposure": 1.0, "aggressiveness": 1.0, "ra_gain": 10.0, "dec_gain": 10.0, "min_pulse_ms": 0, "loop": False})
 
     # First step sets reference
     r = api_post("/api/guide/step", {"x": 100.0, "y": 100.0})
@@ -142,7 +142,7 @@ def test_guide_step_sequence():
 def test_guide_pause_resume():
     print("\n=== Test: guide pause → resume ===")
     api_post("/api/guide/reset")
-    api_post("/api/guide/start")
+    api_post("/api/guide/start", {"loop": False})
     api_post("/api/guide/step", {"x": 100.0, "y": 100.0})
 
     r = api_post("/api/guide/pause")
@@ -165,7 +165,7 @@ def test_guide_pause_resume():
 def test_guide_set_reference():
     print("\n=== Test: guide set-reference ===")
     api_post("/api/guide/reset")
-    api_post("/api/guide/start")
+    api_post("/api/guide/start", {"loop": False})
     api_post("/api/guide/step", {"x": 100.0, "y": 100.0})
 
     r = api_post("/api/guide/set-reference", {"x": 200.0, "y": 300.0})
@@ -182,7 +182,7 @@ def test_guide_set_reference():
 
 def test_guide_reset():
     print("\n=== Test: guide reset ===")
-    api_post("/api/guide/start")
+    api_post("/api/guide/start", {"loop": False})
     api_post("/api/guide/step", {"x": 100.0, "y": 100.0})
     api_post("/api/guide/step", {"x": 110.0, "y": 100.0})
 
@@ -203,6 +203,7 @@ def test_guide_settings():
         "max_pulse_ms": 1000,
         "min_pulse_ms": 100,
         "plate_scale": 1.5,
+        "loop": False,
     })
     check(r.get("exposure_sec") == 3.0, "exposure=3.0")
     check(r.get("aggressiveness") == 0.4, "aggressiveness=0.4")

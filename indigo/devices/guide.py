@@ -1,14 +1,12 @@
 """
 guide.py — Autoguide state machine and drift correction.
 
-The frontend orchestrates the guide loop:
-  1. start(exposure, aggressiveness, ...) → sets reference star position
-  2. For each frame: expose guide camera → wait for image → measure centroid
-  3. step_result(x, y) → computes drift from reference, returns correction pulses
-  4. stop() → halts guiding
+The server owns the guide loop (see ``guide_loop.py`` : expose → measure
+centroid → step → mount pulses → telemetry). The frontend only renders
+telemetry and selects the reference star (``set_reference``).
 
-Correction pulses are returned as (direction_ms, ra_ms, dec_ms) for the frontend
-to send to the mount via timed MOUNT_MOTION commands.
+Correction pulses are computed here as (direction, ms) per axis and sent
+to the mount by the loop via timed MOUNT_MOTION commands.
 """
 
 from __future__ import annotations
@@ -33,8 +31,10 @@ class GuideState(str, Enum):
 class Guide:
     """Autoguide tracker.
 
-    The backend stores reference position, computes drift and correction pulses.
-    The frontend drives the actual loop (expose, centroid, send correction to mount).
+    Stores reference position, computes drift and correction pulses.
+    The server-side loop (``guide_loop.GuideLoopSession``) drives
+    expose → measure → step → mount pulses; ``step_result`` reste
+    appelable directement (tests, compat).
     """
 
     def __init__(self):
@@ -219,6 +219,40 @@ class Guide:
             log.info("Guide resumed at frame %d", self.frame_count)
         return self.status()
 
+    def update_config(
+        self,
+        exposure_sec: float | None = None,
+        aggressiveness: float | None = None,
+        ra_gain: float | None = None,
+        dec_gain: float | None = None,
+        max_pulse_ms: int | None = None,
+        min_pulse_ms: int | None = None,
+        plate_scale: float | None = None,
+    ) -> dict:
+        """Retune a running session without resetting it.
+
+        Mêmes clamps que :meth:`start`. Permet au frontend d'ajuster
+        l'exposition / les gains à chaud (l'ancienne boucle relisait les
+        inputs à chaque frame).
+        """
+        if exposure_sec is not None:
+            self.exposure_sec = max(0.1, min(30.0, float(exposure_sec)))
+        if aggressiveness is not None:
+            self.aggressiveness = max(0.0, min(1.0, float(aggressiveness)))
+        if ra_gain is not None:
+            self.ra_gain = max(0.1, float(ra_gain))
+        if dec_gain is not None:
+            self.dec_gain = max(0.1, float(dec_gain))
+        if max_pulse_ms is not None:
+            self.max_pulse_ms = max(100, min(5000, int(max_pulse_ms)))
+        if min_pulse_ms is not None:
+            self.min_pulse_ms = max(10, min(500, int(min_pulse_ms)))
+        if plate_scale is not None:
+            self.plate_scale = max(0.01, float(plate_scale))
+        log.info("Guide config updated: exposure=%.1fs aggr=%.2f ra_gain=%.2f dec_gain=%.2f",
+                 self.exposure_sec, self.aggressiveness, self.ra_gain, self.dec_gain)
+        return self.status()
+
     def stop(self) -> dict:
         """Stop guiding."""
         prev = self.state
@@ -309,9 +343,9 @@ async def wait_settle(
 ) -> dict:
     """Wait until the guide drift (arcsec) stays under ``settle_rms``.
 
-    Polls ``guide.status()`` every ``poll`` seconds (the frontend drives the
-    guide loop, so drift only refreshes as ``step_result`` lands). Requires
-    ``stable`` consecutive in-threshold samples. Aborts early if guiding stops.
+    Polls ``guide.status()`` every ``poll`` seconds (the server-side loop
+    refreshes drift on every frame). Requires ``stable`` consecutive
+    in-threshold samples. Aborts early if guiding stops.
 
     Returns ``{waited, rms, timed_out, aborted}``.
     """
@@ -347,8 +381,8 @@ async def apply_dither(guide: Guide, cfg: dict, log=None) -> dict:
     (s), ``settle_stable`` (consecutive good samples). ``log`` is an optional
     ``await log(level, msg)`` callable.
 
-    The guider is frontend-orchestrated: shifting its reference makes its
-    next correction pulses move the mount until the star lands on the new
+    The server-side loop shifts the guide reference and its next
+    correction pulses move the mount until the star lands on the new
     reference, i.e. a real mount dither — N.I.N.A. style. Returns the dict
     reported by ``sequence.status()`` as ``last_dither``.
     """

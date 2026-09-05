@@ -25,6 +25,7 @@ from .protocol import (
     build_new_switch_vector,
     build_new_text_vector,
     build_attach_driver,
+    build_detach_driver,
     parse_xml_message,
 )
 
@@ -208,6 +209,9 @@ class IndigoClient:
 
     async def send_attach_driver(self, driver_name: str) -> None:
         await self._send(build_attach_driver(driver_name))
+
+    async def send_detach_driver(self, driver_name: str) -> None:
+        await self._send(build_detach_driver(driver_name))
 
     # ── Receiving (blocking thread) ───────────────────────────────
 

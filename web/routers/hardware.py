@@ -59,7 +59,17 @@ def register(app, server: "WebServer") -> None:
 
     @app.get("/api/drivers")
     async def get_drivers():
-        return server.registry.drivers_list()
+        return SanitizedJSONResponse(server.registry.drivers_list())
+
+    @app.get("/api/drivers/grouped")
+    async def get_drivers_grouped():
+        """Drivers loadables groupés par catégorie (mount, camera, …).
+
+        Chaque entrée: {name, label, loaded, category}. Le groupement
+        reflète la diversité des drivers exposés par le serveur INDIGO
+        (indigo_mount_*, indigo_ccd_*, indigo_wheel_*, …).
+        """
+        return SanitizedJSONResponse(server.registry.drivers_grouped())
 
     @app.post("/api/drivers/attach")
     async def attach_driver(body: dict):
@@ -72,6 +82,19 @@ def register(app, server: "WebServer") -> None:
             return {"error": "not connected to INDIGO server"}
         await c.send_attach_driver(driver_name)
         log.info("Attach driver: %s", driver_name)
+        return {"ok": True, "driver": driver_name}
+
+    @app.post("/api/drivers/detach")
+    async def detach_driver(body: dict):
+        """Detach (unload) a driver from the INDIGO server (best effort)."""
+        driver_name = body.get("driver", "")
+        if not driver_name:
+            return {"error": "no driver specified"}
+        c = server.registry.client
+        if not c.connected:
+            return {"error": "not connected to INDIGO server"}
+        await c.send_detach_driver(driver_name)
+        log.info("Detach driver: %s", driver_name)
         return {"ok": True, "driver": driver_name}
 
     @app.post("/api/device/connect")

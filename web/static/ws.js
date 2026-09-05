@@ -4,12 +4,36 @@
 
 const DRIVER_TYPE_KEYWORDS = {
     mount: ['mount', 'telescope', 'lx200', 'onstep', 'eqmod', 'synscan', 'ioptron', 'celestron', 'synta', 'rainbow', 'gemini'],
-    ccd: ['ccd', 'camera', 'qhy', 'zwo', 'asi', 'sbig', 'atik', 'toup', 'playerone', 'svbony', 'guide'],
+    ccd: ['ccd', 'camera', 'qhy', 'zwo', 'asi', 'sbig', 'atik', 'toup', 'playerone', 'svbony', 'guide', 'altair', 'omegon', 'ogma', 'dslr'],
     focuser: ['focuser', 'focus', 'moonlite', 'highpoint', 'prima', 'unicat', 'robofocus'],
+    wheel: ['wheel', 'filter'],
+    dome: ['dome'],
+    gps: ['gps'],
+    rotator: ['rotator'],
+    agent: ['agent', 'guider'],
+    aux: ['aux'],
+};
+// Correspondance driverType (MODES) → catégories backend (registry.categorize_driver).
+const DRIVER_TYPE_TO_CATEGORIES = {
+    mount: ['mount'],
+    ccd: ['camera', 'guide_camera'],
+    focuser: ['focuser'],
+    wheel: ['filter_wheel'],
+    dome: ['dome'],
+    gps: ['gps'],
+    rotator: ['rotator'],
+    agent: ['agent'],
 };
 
 function filterDriversByType(drivers, type) {
     if (!type || !drivers.length) return drivers;
+    // Préfère la catégorie backend (structurée) quand elle est présente,
+    // sinon retombe sur les mots-clés historiques.
+    const cats = DRIVER_TYPE_TO_CATEGORIES[type];
+    if (cats) {
+        const byCat = drivers.filter(d => d.category && cats.includes(d.category));
+        if (byCat.length || drivers.some(d => d.category)) return byCat;
+    }
     const keywords = DRIVER_TYPE_KEYWORDS[type] || [];
     if (!keywords.length) return drivers;
     return drivers.filter(d => {
@@ -50,6 +74,8 @@ function connectWS() {
             Hub.emit('stacking:update', msg.status, { source: 'ws' });
         } else if (msg.type === 'sequence') {
             Hub.emit('sequence:update', msg.status, { source: 'ws' });
+        } else if (msg.type === 'guide') {
+            Hub.emit('guide:telemetry', msg.status, { source: 'ws' });
         }
     };
 }
@@ -247,12 +273,21 @@ async function refreshDriverList() {
     if (filtered.length === 0) {
         driverSelect.innerHTML = '<option value="">Aucun driver</option>';
     } else {
-        for (const d of filtered) {
+        // Tri structuré : catégorie puis label — reflète la diversité des drivers.
+        const order = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel', 'dome', 'gps', 'rotator', 'aux', 'ao', 'agent', 'system', 'other'];
+        filtered.slice().sort((a, b) => {
+            const ca = order.indexOf(a.category || 'other');
+            const cb = order.indexOf(b.category || 'other');
+            if (ca !== cb) return ca - cb;
+            return (a.label || a.name || '').localeCompare(b.label || b.name || '');
+        }).forEach((d) => {
             const opt = document.createElement('option');
             opt.value = d.name;
-            opt.textContent = d.label || d.name;
+            const loadedMark = d.loaded ? '● ' : '○ ';
+            const catMark = d.category ? ` [${d.category}]` : '';
+            opt.textContent = `${loadedMark}${d.label || d.name}${catMark}`;
             driverSelect.appendChild(opt);
-        }
+        });
     }
 
     // Restore previous selection if still present

@@ -60,6 +60,12 @@ function initGuidePanel() {
         });
     }
 
+    // Retune à chaud de la boucle serveur (ex-boucle frontend relue à chaque frame)
+    for (const id of ['guide-exposure', 'guide-aggressiveness', 'guide-ra-gain', 'guide-dec-gain', 'guide-max-pulse']) {
+        const el = document.getElementById(id);
+        if (el) el.addEventListener('change', _guidePushConfig);
+    }
+
     // Capture button
     const captureBtn = document.getElementById('guide-capture-btn');
     if (captureBtn) captureBtn.addEventListener('click', _guideCapHandler);
@@ -94,6 +100,16 @@ function initGuidePanel() {
             else addLog('warn', 'guide', i18n('log.guide.open_calibration'));
         }}
     ]);
+
+    // La boucle vit côté serveur : au chargement, adopter son état
+    // (guidage lancé depuis un autre onglet ou avant un refresh).
+    fetch('/api/guide/status').then(r => r.json()).then(st => {
+        if (st && (st.state === 'guiding' || st.state === 'paused')) {
+            _guideSetRunningUI(true);
+            _guideRefSet = !!st.ref_set;
+            if (st.history) { _guideDriftHistory = st.history; _guideDrawDrift(); _guideUpdateRms(); }
+        }
+    }).catch(() => {});
 }
 
 function _refreshGuideCameraList() {
@@ -150,14 +166,13 @@ async function _guideStart() {
 
     _guideRunning = true;
     _guideDriftHistory = [];
-    if (_guideStartBtn) _guideStartBtn.disabled = true;
-    if (_guideStopBtn) _guideStopBtn.disabled = false;
-    if (_guidePauseBtn) _guidePauseBtn.disabled = false;
+    _guideSetRunningUI(true);
 
     const res = await fetch('/api/guide/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+            camera: cam,
             exposure, aggressiveness: aggr,
             ra_gain: raGain, dec_gain: decGain,
             max_pulse_ms: maxPulse
@@ -170,60 +185,12 @@ async function _guideStart() {
         return;
     }
     addLog('info', 'guide', i18nFmt('log.guide.started', { expo: exposure, aggr }));
-    _guideLoop();
+    // La boucle tourne désormais côté serveur ; les frames arrivent en
+    // télémétrie WS (guide:telemetry). Pas de _guideLoop ici.
 }
 
-async function _guideLoop() {
-    if (!_guideRunning) return;
-    const cam = _guideCameraSelect?.value || '';
-    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
-
-    // Expose guide camera
-    apiPost('/api/camera/expose', { device: cam, duration: exposure });
-
-    // Wait for image
-    await new Promise(r => setTimeout(r, Math.max(500, exposure * 1000 + 500)));
-
-    // Measure star centroid via focus-metric
-    const metricUrl = '/api/focuser/focus-metric' + (cam ? `?device=${encodeURIComponent(cam)}` : '');
-    const metric = await fetch(metricUrl).then(r => r.json()).catch(() => null);
-
-    if (metric?.ok && metric.stars?.length > 0) {
-        const star = metric.stars[0];
-        const x = star.x;
-        const y = star.y;
-        _guideLastCentroid = { x, y, imgW: metric.width || null, imgH: metric.height || null };
-
-        // Report to guide backend
-        const step = await fetch('/api/guide/step', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ x, y, snr: star.snr ?? null })
-        }).then(r => r.json()).catch(() => null);
-
-        if (step?.ok) {
-            _guideRefSet = step.ref_set;
-            _guideUpdateUI(step);
-
-            // Send correction pulses to mount
-            if (step.ra_pulse_ms > 0 && step.ra_direction) {
-                const dir = step.ra_direction === 'E' ? 'EAST' : 'WEST';
-                apiPost('/api/mount/move', { direction: dir, rate: 'Guide' });
-                setTimeout(() => apiPost('/api/mount/halt'), step.ra_pulse_ms);
-            }
-            if (step.dec_pulse_ms > 0 && step.dec_direction) {
-                const dir = step.dec_direction === 'N' ? 'NORTH' : 'SOUTH';
-                apiPost('/api/mount/move', { direction: dir, rate: 'Guide' });
-                setTimeout(() => apiPost('/api/mount/halt'), step.dec_pulse_ms);
-            }
-        }
-    }
-
-    // Next frame
-    if (_guideRunning) {
-        _guideTimer = setTimeout(() => _guideLoop(), 200);
-    }
-}
+// La boucle d'acquisition/correction vit côté serveur
+// (GuideLoopSession) — le frontend ne fait que rendre la télémétrie.
 
 function _guideUpdateUI(status) {
     if (_guideFrameCountEl) _guideFrameCountEl.textContent = status.frame_count;
@@ -677,10 +644,16 @@ function _guideUpdateRms() {
     if (_guideRmsTotalEl) _guideRmsTotalEl.textContent = fmt(Math.sqrt((raSq + decSq) / n));
 }
 
+function _guideSetRunningUI(on) {
+    _guideRunning = !!on;
+    if (_guideStartBtn) _guideStartBtn.disabled = !!on;
+    if (_guideStopBtn) _guideStopBtn.disabled = !on;
+    if (_guidePauseBtn) _guidePauseBtn.disabled = !on;
+}
+
 async function _guideStop() {
     _guideRunning = false;
     _guideRefSet = false;
-    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/stop', { method: 'POST' }).catch(() => {});
     addLog('warning', 'guide', i18n('log.guide.stopped'));
     _guideCleanup();
@@ -689,7 +662,6 @@ async function _guideStop() {
 async function _guidePause() {
     if (!_guideRunning) return;
     _guideRunning = false;
-    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/pause', { method: 'POST' }).catch(() => {});
     addLog('info', 'guide', i18n('log.guide.paused'));
     if (_guideStartBtn) _guideStartBtn.disabled = false;
@@ -700,7 +672,6 @@ async function _guidePause() {
 async function _guideReset() {
     _guideRunning = false;
     _guideRefSet = false;
-    if (_guideTimer) { clearTimeout(_guideTimer); _guideTimer = null; }
     await fetch('/api/guide/reset', { method: 'POST' }).catch(() => {});
     _guideDriftHistory = [];
     _guideUpdateRms();
@@ -710,16 +681,46 @@ async function _guideReset() {
 }
 
 function _guideCleanup() {
-    _guideRunning = false;
-    if (_guideStartBtn) _guideStartBtn.disabled = false;
-    if (_guideStopBtn) _guideStopBtn.disabled = true;
-    if (_guidePauseBtn) _guidePauseBtn.disabled = true;
+    _guideSetRunningUI(false);
+}
+
+// Retune à chaud : l'ancienne boucle relisait les inputs à chaque frame.
+// La boucle serveur lit sa config interne → on la pousse via /api/guide/config.
+function _guidePushConfig() {
+    if (!_guideRunning) return;
+    apiPost('/api/guide/config', {
+        exposure: parseFloat(document.getElementById('guide-exposure')?.value || '1.0'),
+        aggressiveness: parseFloat(document.getElementById('guide-aggressiveness')?.value || '0.8'),
+        ra_gain: parseFloat(document.getElementById('guide-ra-gain')?.value || '1.0'),
+        dec_gain: parseFloat(document.getElementById('guide-dec-gain')?.value || '1.0'),
+        max_pulse_ms: parseInt(document.getElementById('guide-max-pulse')?.value || '2000'),
+    });
 }
 
 // ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur ws:state : rafraîchit la liste des caméras guide.
 Hub.subscribe('ws:state', 'guide', () => _refreshGuideCameraList());
+
+// Consommateur guide:telemetry : la boucle serveur pousse un statut par
+// frame — même rendu que l'ancien retour de /api/guide/step.
+Hub.subscribe('guide:telemetry', 'guide', (env) => {
+    const st = env.payload || {};
+    if (st.state === 'guiding' || st.state === 'paused') {
+        if (!_guideRunning) _guideSetRunningUI(true);
+        _guideRefSet = !!st.ref_set;
+        if (st.centroid) {
+            _guideLastCentroid = {
+                x: st.centroid.x, y: st.centroid.y,
+                imgW: st.centroid.w || null, imgH: st.centroid.h || null,
+            };
+        }
+        if (st.ok !== false) _guideUpdateUI(st);
+    } else if (_guideRunning) {
+        // Arrêté ailleurs (autre onglet, stop serveur, erreur) : resync UI.
+        _guideCleanup();
+    }
+});
 
 // Consommateur Hub device:connected : une caméra est arrivée — la liste
 // des caméras guide peut avoir changé.

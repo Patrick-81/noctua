@@ -33,13 +33,46 @@ def register(app, server: "WebServer") -> None:
         max_pulse = int(body.get("max_pulse_ms", 2000))
         min_pulse = int(body.get("min_pulse_ms", 50))
         plate_scale = float(body.get("plate_scale", 1.0))
+        camera = (body.get("camera") or "").strip() or None
+        if camera is None:
+            cams = server.registry.get_all_cameras()
+            camera = cams[0].name if cams else None
+        if camera is None:
+            return {"ok": False, "error": "no guide camera available"}
         # Re-enable drift sim if it was disabled by calibration
         await _calibrate_set_drift(True)
-        return SanitizedJSONResponse(server._guide.start(
-            exposure, aggressiveness, ra_gain, dec_gain, max_pulse, min_pulse, plate_scale))
+        res = server._guide.start(
+            exposure, aggressiveness, ra_gain, dec_gain, max_pulse, min_pulse, plate_scale)
+        if res.get("ok") and bool(body.get("loop", True)):
+            # La boucle serveur possède désormais les frames (plus de _guideLoop frontend).
+            # loop=false : pilotage manuel frame par frame (tests, clients externes).
+            server._guide_start_loop(camera)
+            server._broadcast_guide_status(res)
+        return SanitizedJSONResponse(res)
+
+    @app.post("/api/guide/config")
+    async def guide_config(body: dict):
+        """Retune une session en cours sans la réinitialiser (exposition,
+        agressivité, gains… — l'ancienne boucle relisait les inputs à chaud)."""
+        def _opt(key, fn=float):
+            v = body.get(key, None)
+            return None if v is None else fn(v)
+        res = server._guide.update_config(
+            exposure_sec=_opt("exposure"),
+            aggressiveness=_opt("aggressiveness"),
+            ra_gain=_opt("ra_gain"),
+            dec_gain=_opt("dec_gain"),
+            max_pulse_ms=None if body.get("max_pulse_ms") is None else int(body["max_pulse_ms"]),
+            min_pulse_ms=None if body.get("min_pulse_ms") is None else int(body["min_pulse_ms"]),
+            plate_scale=_opt("plate_scale"))
+        server._broadcast_guide_status(res)
+        return SanitizedJSONResponse(res)
 
     @app.post("/api/guide/step")
     async def guide_step(body: dict):
+        """Compat : la boucle serveur steppe elle-même ; cet endpoint reste
+        pour les tests et les clients externes (un double step frontend +
+        boucle fausserait frame_count/corrections — l'UI ne l'appelle plus)."""
         x = float(body.get("x", 0))
         y = float(body.get("y", 0))
         snr = body.get("snr")
@@ -62,11 +95,15 @@ def register(app, server: "WebServer") -> None:
 
     @app.post("/api/guide/stop")
     async def guide_stop():
-        return SanitizedJSONResponse(server._guide.stop())
+        res = server._guide.stop()
+        await server._guide_stop_loop()
+        return SanitizedJSONResponse(res)
 
     @app.post("/api/guide/reset")
     async def guide_reset():
-        return SanitizedJSONResponse(server._guide.reset())
+        res = server._guide.reset()
+        await server._guide_stop_loop()
+        return SanitizedJSONResponse(res)
 
     # ── Guide calibration ─────────────────────────────────────
 

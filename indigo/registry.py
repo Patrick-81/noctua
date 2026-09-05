@@ -30,6 +30,66 @@ log = logging.getLogger("indigo.registry")
 # All device classes, in priority order for detection
 DEVICE_CLASSES = [Mount, Camera, FilterWheel, Focuser]
 
+# Property vectors listing the loadable drivers.
+# - "DRIVERS" (device "Server"): legacy name used by old firmwares / mocks.
+# - "AGENT_CONFIG_DRIVERS" (device "Configuration Agent"): INDIGO v2
+#   (e.g. 2.0-374) exposes every loadable driver here (AnyOfMany, On=loaded).
+DRIVER_VECTOR_NAMES = {"DRIVERS", "AGENT_CONFIG_DRIVERS"}
+
+# Driver name prefixes (indigo_<category>_*) → UI category.
+# UI roles use: mount, camera, guide_camera, focuser, filter_wheel.
+DRIVER_CATEGORY_PREFIXES = {
+    "mount": "mount",
+    "ccd": "camera",
+    "guider": "guide_camera",
+    "focuser": "focuser",
+    "wheel": "filter_wheel",
+    "dome": "dome",
+    "gps": "gps",
+    "rotator": "rotator",
+    "aux": "aux",
+    "ao": "ao",
+    "agent": "agent",
+    "system": "system",
+}
+
+# Fallback keywords (name + label, lowercase) → category.
+DRIVER_CATEGORY_KEYWORDS = [
+    ("mount", ["mount", "telescope", "lx200", "onstep", "eqmod", "synscan",
+               "ioptron", "celestron", "synta", "rainbow", "gemini", "temma",
+               "starbook", "nexstar", "pmc8"]),
+    ("camera", ["ccd", "camera", "qhy", "zwo", "asi", "sbig", "atik", "toup",
+                "playerone", "svbony", "altair", "apogee", "omegon", "ogma",
+                "dslr", "canon", "nikon", "sony"]),
+    ("guide_camera", ["guider", "guide camera"]),
+    ("focuser", ["focuser", "focus", "moonlite", "focusdream", "waf"]),
+    ("filter_wheel", ["wheel", "filter"]),
+    ("dome", ["dome"]),
+    ("gps", ["gps"]),
+    ("rotator", ["rotator"]),
+]
+
+
+def categorize_driver(name: str, label: str = "") -> str:
+    """Return the UI category for a loadable INDIGO driver.
+
+    Primary key: the ``indigo_<category>_`` prefix used by INDIGO v2
+    drivers (``indigo_ccd_*`` → ``camera``, ``indigo_wheel_*`` →
+    ``filter_wheel``, …).  Falls back to keyword matching on
+    ``name`` + ``label``.  Unknown drivers → ``"other"``.
+    """
+    n = (name or "").lower()
+    if n.startswith("indigo_"):
+        rest = n[len("indigo_"):]
+        prefix = rest.split("_", 1)[0] if rest else ""
+        if prefix in DRIVER_CATEGORY_PREFIXES:
+            return DRIVER_CATEGORY_PREFIXES[prefix]
+    hay = f"{n} {(label or '').lower()}"
+    for category, keywords in DRIVER_CATEGORY_KEYWORDS:
+        if any(kw in hay for kw in keywords):
+            return category
+    return "other"
+
 
 class DeviceRegistry:
     """Discovers and manages INDIGO devices."""
@@ -97,11 +157,43 @@ class DeviceRegistry:
     def drivers_list(self) -> list[dict]:
         return list(self._drivers)
 
+    def drivers_grouped(self) -> dict[str, list[dict]]:
+        """Drivers grouped by UI category (mount, camera, …)."""
+        grouped: dict[str, list[dict]] = {}
+        for d in self._drivers:
+            grouped.setdefault(d.get("category", "other"), []).append(dict(d))
+        return grouped
+
+    def _store_drivers(self, pv: PropertyVector) -> None:
+        """Store the loadable-drivers vector (def or set update).
+
+        Fusionne les vecteurs legacy ``Server/DRIVERS`` et canonique
+        ``Configuration Agent/AGENT_CONFIG_DRIVERS`` par nom de driver
+        (le dernier état reçu gagne) au lieu d'écraser : un vrai serveur
+        INDIGO v2 envoie les deux, et le legacy seul masquerait la
+        diversité des drivers.
+        """
+        incoming = {
+            item.name: {
+                "name": item.name,
+                "label": item.label or item.name,
+                "loaded": bool(item.value),
+                "category": categorize_driver(item.name, item.label),
+            }
+            for item in pv.items
+        }
+        merged = {d["name"]: dict(d) for d in self._drivers}
+        merged.update(incoming)
+        self._drivers = sorted(merged.values(), key=lambda d: d["name"])
+        log.debug("DRIVERS (%s): %d drivers (fusionnés)", pv.name,
+                  len(self._drivers))
+
     # ── Client callbacks ─────────────────────────────────────────
 
     def _on_connected(self, connected: bool) -> None:
         if not connected:
             self._devices.clear()
+            self._drivers.clear()
             self._auto_connecting.clear()
             self._connect_retries.clear()
             self._connect_item_names.clear()
@@ -109,6 +201,7 @@ class DeviceRegistry:
             self._emit_state()
         else:
             # Reset retry state on fresh connection — auto-connect will re-fire from defConnection
+            self._drivers.clear()
             self._auto_connecting.clear()
             self._connect_retries.clear()
             self._connect_item_names.clear()
@@ -119,13 +212,11 @@ class DeviceRegistry:
         if not device_name:
             return
 
-        # Track DRIVERS switch
-        if pv.name.upper() == "DRIVERS":
-            self._drivers = [
-                {"name": item.name, "label": item.label}
-                for item in pv.items
-            ]
-            log.debug("DRIVERS: %s", [d["name"] for d in self._drivers])
+        # Track loadable-drivers vectors:
+        # - legacy "DRIVERS" (device "Server")
+        # - INDIGO v2 "AGENT_CONFIG_DRIVERS" (device "Configuration Agent")
+        if pv.name.upper() in DRIVER_VECTOR_NAMES:
+            self._store_drivers(pv)
             return
 
         # CONNECTION def — detect connection status + auto-connect
@@ -180,6 +271,14 @@ class DeviceRegistry:
         """Handle a set*Vector — update device state."""
         device_name = pv.device
         if not device_name:
+            return
+
+        # Driver list updates (load/unload) arrive as set*Vector too:
+        # keep the loadable-drivers list in sync so /api/drivers reflects
+        # the server state, not just the initial def wave.
+        if pv.name.upper() in DRIVER_VECTOR_NAMES:
+            self._store_drivers(pv)
+            self._emit_state()
             return
 
         if pv.name.upper() == "CONNECTION":

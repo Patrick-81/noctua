@@ -23,6 +23,12 @@ const HW_ICONS = { mount: '🔭', camera: '📷', focuser: '🔍', filterwheel: 
 
 let _hwDevices = {};
 let _hwProfiles = { active: null, profiles: [] };
+let _hwDriversGrouped = {};
+let _hwDriversFlat = [];
+let _hwSelectedDriver = null;
+
+const HW_DRIVER_CATEGORY_ORDER = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel', 'dome', 'gps', 'rotator', 'aux', 'ao', 'agent', 'system', 'other'];
+const HW_DRIVER_CATEGORY_ICONS = { mount: '🔭', camera: '📷', guide_camera: '🎯', focuser: '🔍', filter_wheel: '🎨', dome: '🏠', gps: '📍', rotator: '🔄', aux: '🔌', ao: '🌊', agent: '🤖', system: '⚙️', other: '📦' };
 
 function hwActiveProfile() {
     if (!_hwProfiles.profiles) return null;
@@ -34,7 +40,218 @@ async function hwLoad() {
         const data = await fetch('/api/hardware').then(r => r.json());
         _hwDevices = data.devices || {};
         _hwProfiles = data.profiles || { active: null, profiles: [] };
+        addLog('info', 'hw', i18nFmt('log.hw.devices_loaded', { n: Object.keys(_hwDevices).length }));
     } catch (e) { addLog('error', 'hw', e.message); }
+    await hwLoadDrivers();
+}
+
+// Détecte un mélange HTML/JS obsolète (cache navigateur) : si un id
+// attendu du panneau Matériel manque, les listes resteraient vides
+// sans aucune erreur — on le signale explicitement.
+function hwCheckDom() {
+    const expected = ['hw-profile-select', 'hw-driver-select', 'hw-driver-attach',
+        'hw-driver-detach', 'hw-drivers-refresh', 'hw-device-list', 'hw-role-assign', 'hw-driver-selected'];
+    const missing = expected.filter(id => !document.getElementById(id));
+    if (missing.length) {
+        addLog('error', 'hw', i18nFmt('log.hw.dom_stale', { ids: missing.join(', ') }));
+    }
+}
+
+async function hwLoadDrivers() {
+    // 1️⃣ Sélection — liste structurée par catégorie depuis le backend.
+    try {
+        const grouped = await fetch('/api/drivers/grouped').then(r => r.json());
+        if (grouped && typeof grouped === 'object' && !Array.isArray(grouped)) {
+            _hwDriversGrouped = grouped;
+            _hwDriversFlat = [];
+            for (const [cat, arr] of Object.entries(grouped)) {
+                for (const d of (arr || [])) _hwDriversFlat.push(d);
+            }
+            addLog('info', 'hw', i18nFmt('log.hw.drivers_loaded', { n: _hwDriversFlat.length, c: Object.keys(grouped).length }));
+            return;
+        }
+        throw new Error('réponse drivers/grouped inattendue');
+    } catch (e) {
+        addLog('error', 'hw', i18nFmt('log.hw.drivers_error', { err: e.message }));
+    }
+    try {
+        const flat = await fetch('/api/drivers').then(r => r.json());
+        _hwDriversFlat = Array.isArray(flat) ? flat : [];
+        _hwDriversGrouped = {};
+        for (const d of _hwDriversFlat) {
+            const cat = d.category || 'other';
+            if (!_hwDriversGrouped[cat]) _hwDriversGrouped[cat] = [];
+            _hwDriversGrouped[cat].push(d);
+        }
+    } catch (e2) { _hwDriversFlat = []; _hwDriversGrouped = {}; }
+}
+
+function hwSelectDriver(name) {
+    _hwSelectedDriver = name || null;
+    updateHwDriverInfo();
+    const sel = document.getElementById('hw-driver-select');
+    if (sel && _hwSelectedDriver && sel.value !== _hwSelectedDriver) {
+        sel.value = _hwSelectedDriver;
+    }
+}
+
+// Droplist arborescente : UN seul <select> avec <optgroup> par classe.
+// Pas d'état inter-sélecteurs à synchroniser : simple et robuste.
+let _hwDriverSelSig = null;
+
+function hwDriverSelSig() {
+    return Object.keys(_hwDriversGrouped).sort().map(c =>
+        `${c}:${(_hwDriversGrouped[c] || []).map(d => d.name + '=' + (d.loaded ? 1 : 0)).join(',')}`
+    ).join('|') + '##' + (_hwSelectedDriver || '');
+}
+
+function renderHwDrivers() {
+    const sel = document.getElementById('hw-driver-select');
+    if (!sel) return;
+    // Ne jamais reconstruire pendant que l'utilisateur a la liste ouverte
+    // (le focus reste sur le select) : sinon le menu se referme à chaque
+    // broadcast ws:state. Idem si rien n'a changé.
+    if (document.activeElement === sel) return;
+    const sig = hwDriverSelSig();
+    if (sig === _hwDriverSelSig && sel.options.length) return;
+    _hwDriverSelSig = sig;
+    const cats = Object.keys(_hwDriversGrouped).sort((a, b) =>
+        HW_DRIVER_CATEGORY_ORDER.indexOf(a) - HW_DRIVER_CATEGORY_ORDER.indexOf(b));
+    const prev = _hwSelectedDriver || sel.value || null;
+    sel.innerHTML = '';
+    if (!cats.length || !_hwDriversFlat.length) {
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = i18n('hw.no_drivers');
+        sel.appendChild(opt);
+        _hwSelectedDriver = null;
+        updateHwDriverInfo();
+        return;
+    }
+    for (const cat of cats) {
+        const arr = (_hwDriversGrouped[cat] || []).slice().sort((a, b) =>
+            (a.label || a.name).localeCompare(b.label || b.name));
+        if (!arr.length) continue;
+        const icon = HW_DRIVER_CATEGORY_ICONS[cat] || '📦';
+        const og = document.createElement('optgroup');
+        og.label = `${icon} ${cat} (${arr.length})`;
+        for (const d of arr) {
+            const opt = document.createElement('option');
+            opt.value = d.name;
+            opt.textContent = `${d.loaded ? '● ' : '○ '}${d.label || d.name}`;
+            og.appendChild(opt);
+        }
+        sel.appendChild(og);
+    }
+    if (prev && _hwDriversFlat.some(d => d.name === prev)) sel.value = prev;
+    else sel.selectedIndex = 0;
+    _hwSelectedDriver = sel.value || null;
+    updateHwDriverInfo();
+}
+
+function updateHwDriverInfo() {
+    const el = document.getElementById('hw-driver-selected');
+    if (!el) return;
+    const d = _hwDriversFlat.find(x => x.name === _hwSelectedDriver);
+    if (!d) { el.textContent = '—'; return; }
+    const icon = HW_DRIVER_CATEGORY_ICONS[d.category] || '📦';
+    el.textContent = `${icon} ${d.label || d.name} — ${d.name} [${d.category || '?'}] ${d.loaded ? '● chargé' : '○ non chargé'}`;
+    el.style.color = d.loaded ? '#44cc44' : '#00ffcc';
+    const attachBtn = document.getElementById('hw-driver-attach');
+    if (attachBtn) {
+        attachBtn.disabled = !!d.loaded;
+        attachBtn.style.opacity = d.loaded ? '0.4' : '';
+        attachBtn.title = d.loaded ? i18n('hw.driver_loaded_tip') : i18n('hw.driver_load');
+    }
+    const detachBtn = document.getElementById('hw-driver-detach');
+    if (detachBtn) {
+        detachBtn.disabled = !d.loaded;
+        detachBtn.style.opacity = d.loaded ? '' : '0.4';
+        detachBtn.title = d.loaded ? i18n('hw.driver_unload') : i18n('hw.driver_unloaded_tip');
+    }
+}
+
+async function hwDriverLoadedFlag(name) {
+    try {
+        const flat = await fetch('/api/drivers').then(r => r.json());
+        const d = (Array.isArray(flat) ? flat : []).find(x => x.name === name);
+        return d ? !!d.loaded : null; // null = absent du vecteur
+    } catch (e) { return undefined; }
+}
+
+// Vérifie que le serveur a vraiment (dé)chargé : l'endpoint ne fait
+// qu'envoyer l'ordre (fire-and-forget), et le serveur peut refuser
+// (ex. drivers fixés au démarrage d'indigo_server, non déchargeables).
+async function hwWaitDriverState(name, expectLoaded, timeoutMs = 9000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+        await new Promise(r => setTimeout(r, 1500));
+        const flag = await hwDriverLoadedFlag(name);
+        if (expectLoaded && flag === true) return true;
+        if (!expectLoaded && (flag === false || flag === null)) return true;
+    }
+    return false;
+}
+
+async function hwAttachDriver(name) {
+    const target = name || _hwSelectedDriver;
+    if (!target) { addLog('warning', 'hw', i18n('hw.driver_select_first')); return; }
+    // 2️⃣ Chargement (attach) — charge le driver côté serveur INDIGO.
+    addLog('info', 'hw', i18nFmt('log.hw.driver_loading', { driver: target }));
+    try {
+        const res = await fetch('/api/drivers/attach', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ driver: target }),
+        }).then(r => r.json());
+        if (res?.ok) {
+            if (await hwWaitDriverState(target, true)) {
+                addLog('info', 'hw', i18nFmt('log.hw.driver_loaded', { driver: target }));
+            } else {
+                addLog('error', 'hw', i18nFmt('log.hw.driver_not_loaded', { driver: target }));
+            }
+            await hwLoadDrivers();
+            await hwLoadDevicesOnly();
+            renderHardwarePanel();
+        } else {
+            addLog('error', 'hw', i18nFmt('log.hw.driver_error', { driver: target, err: res?.error || '?' }));
+        }
+    } catch (e) {
+        addLog('error', 'hw', i18nFmt('log.hw.driver_error', { driver: target, err: e.message }));
+    }
+}
+
+async function hwDetachDriver(name) {
+    const target = name || _hwSelectedDriver;
+    if (!target) { addLog('warning', 'hw', i18n('hw.driver_select_first')); return; }
+    if (!confirm(i18nFmt('hw.driver_confirm_unload', { driver: target }))) return;
+    addLog('info', 'hw', i18nFmt('log.hw.driver_unloading', { driver: target }));
+    try {
+        const res = await fetch('/api/drivers/detach', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ driver: target }),
+        }).then(r => r.json());
+        if (res?.ok) {
+            if (await hwWaitDriverState(target, false)) {
+                addLog('info', 'hw', i18nFmt('log.hw.driver_unloaded', { driver: target }));
+            } else {
+                addLog('error', 'hw', i18nFmt('log.hw.driver_refused', { driver: target }));
+            }
+            await hwLoadDrivers();
+            await hwLoadDevicesOnly();
+            renderHardwarePanel();
+        } else {
+            addLog('error', 'hw', i18nFmt('log.hw.driver_error', { driver: target, err: res?.error || '?' }));
+        }
+    } catch (e) {
+        addLog('error', 'hw', i18nFmt('log.hw.driver_error', { driver: target, err: e.message }));
+    }
+}
+
+async function hwLoadDevicesOnly() {
+    try {
+        const data = await fetch('/api/hardware').then(r => r.json());
+        _hwDevices = data.devices || {};
+    } catch (e) { /* silencieux */ }
 }
 
 function renderConnLeds() {
@@ -118,19 +335,19 @@ function renderHardwarePanel() {
     const names = Object.keys(_hwDevices);
     if (!names.length) {
         list.innerHTML = `<div style="color:#555; font-size:0.6rem; padding:4px;">${i18n('hw.no_devices')}</div>`;
-        return;
-    }
-    for (const name of names) {
-        const d = _hwDevices[name];
-        const icon = HW_ICONS[d.type] || HW_ICONS.generic;
-        const row = document.createElement('div');
-        row.className = 'hw-device';
-        row.innerHTML =
-            `<span class="hw-icon">${icon}</span>` +
-            `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
-            `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? i18n('hw.connected') : i18n('hw.offline')}</span>` +
-            `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
-        list.appendChild(row);
+    } else {
+        for (const name of names) {
+            const d = _hwDevices[name];
+            const icon = HW_ICONS[d.type] || HW_ICONS.generic;
+            const row = document.createElement('div');
+            row.className = 'hw-device';
+            row.innerHTML =
+                `<span class="hw-icon">${icon}</span>` +
+                `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
+                `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? i18n('hw.connected') : i18n('hw.offline')}</span>` +
+                `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
+            list.appendChild(row);
+        }
     }
 
     // Server connection status
@@ -142,15 +359,31 @@ function renderHardwarePanel() {
         }
     }).catch(() => {});
 
+    renderHwDrivers();
     renderHardwareRoles();
     renderConnLeds();
 }
 
 // Per-role selectors: for each role, list the detected devices compatible with it.
+// + connexion individuelle par rôle (ou globale via Tout connecter / APPLIQUER).
+let _hwRolesSig = null;
+
 function renderHardwareRoles() {
     const container = document.getElementById('hw-role-assign');
     if (!container) return;
+    // L'utilisateur est en train de choisir dans un sélecteur de rôle :
+    // ne pas reconstruire, sinon le menu déroulant se referme aussitôt.
+    if (container.contains(document.activeElement)) return;
     const ap = hwActiveProfile();
+    const sig = HW_ROLE_FIELDS.map(f => {
+        const types = HW_ROLE_TYPES[f] || [];
+        const cands = Object.keys(_hwDevices)
+            .filter(name => types.includes(_hwDevices[name].type)).sort()
+            .map(name => name + ':' + (_hwDevices[name].connected ? 1 : 0)).join(',');
+        return `${f}=${(ap && ap[f]) || ''}[${cands}]`;
+    }).join('|');
+    if (sig === _hwRolesSig && container.querySelector('.hw-role-select')) return;
+    _hwRolesSig = sig;
     const fields = HW_ROLE_FIELDS;
     container.innerHTML = '';
     for (const f of fields) {
@@ -159,17 +392,81 @@ function renderHardwareRoles() {
         const candidates = Object.keys(_hwDevices)
             .filter(name => types.includes(_hwDevices[name].type))
             .sort();
+        const assigned = ap?.[f] || '';
         const opts = [`<option value="">${i18n('hw.none')}</option>`];
         for (const name of candidates) {
-            opts.push(`<option value="${escapeAttr(name)}" ${ap?.[f] === name ? 'selected' : ''}>${escapeHTML(name)}</option>`);
+            const conn = _hwDevices[name]?.connected ? ' ●' : ' ○';
+            opts.push(`<option value="${escapeAttr(name)}" ${assigned === name ? 'selected' : ''}>${escapeHTML(name)}${conn}</option>`);
         }
         const row = document.createElement('div');
         row.className = 'hw-row';
+        const isConn = assigned && _hwDevices[assigned]?.connected;
         row.innerHTML =
             `<span class="hw-label">${escapeHTML(label)}:</span>` +
-            `<select class="hw-role-select" data-role="${f}">${opts.join('')}</select>`;
+            `<select class="hw-role-select" data-role="${f}" style="flex:1;">${opts.join('')}</select>` +
+            `<button class="btn-glass ${isConn ? 'danger' : 'success'} hw-role-conn" data-role="${f}" data-device="${escapeAttr(assigned)}" ${assigned ? '' : 'disabled style="opacity:0.4;flex:0;"'} style="font-size:0.55rem;flex:0;">${isConn ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
         container.appendChild(row);
     }
+    // Actions globales rôles : connecter / déconnecter tous les rôles assignés.
+    const bar = document.createElement('div');
+    bar.className = 'hw-row';
+    bar.style.marginTop = '4px';
+    bar.innerHTML =
+        `<button id="hw-roles-connect" class="btn-glass success" style="font-size:0.55rem;flex:1;">${i18n('hw.roles_connect')}</button>` +
+        `<button id="hw-roles-disconnect" class="btn-glass danger" style="font-size:0.55rem;flex:1;">${i18n('hw.roles_disconnect')}</button>`;
+    container.appendChild(bar);
+    const rc = bar.querySelector('#hw-roles-connect');
+    if (rc) rc.addEventListener('click', hwConnectRoles);
+    const rd = bar.querySelector('#hw-roles-disconnect');
+    if (rd) rd.addEventListener('click', hwDisconnectRoles);
+    const singles = container.querySelectorAll('.hw-role-conn');
+    singles.forEach(btn => btn.addEventListener('click', async () => {
+        const device = btn.dataset.device;
+        if (!device) return;
+        const connected = !!_hwDevices[device]?.connected;
+        const action = connected ? 'disconnect' : 'connect';
+        const res = await fetch(`/api/hardware/${action}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device }),
+        }).then(r => r.json()).catch(() => null);
+        if (res?.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
+        await hwLoad();
+        renderHardwarePanel();
+    }));
+}
+
+async function hwConnectRoles() {
+    const ap = hwActiveProfile();
+    if (!ap) { addLog('warning', 'hw', i18n('log.hw.no_profile_apply')); return; }
+    for (const f of HW_ROLE_FIELDS) {
+        const name = ap[f];
+        if (name && _hwDevices[name] && !_hwDevices[name].connected) {
+            await fetch('/api/hardware/connect', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: name }),
+            }).catch(() => null);
+        }
+    }
+    await hwLoad();
+    renderHardwarePanel();
+    addLog('info', 'hw', i18n('log.hw.connect_all'));
+}
+
+async function hwDisconnectRoles() {
+    const ap = hwActiveProfile();
+    if (!ap) return;
+    for (const f of HW_ROLE_FIELDS) {
+        const name = ap[f];
+        if (name && _hwDevices[name]?.connected) {
+            await fetch('/api/hardware/disconnect', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: name }),
+            }).catch(() => null);
+        }
+    }
+    await hwLoad();
+    renderHardwarePanel();
+    addLog('info', 'hw', i18n('log.hw.disconnect_all'));
 }
 
 async function hwAssignRole(role, name) {
@@ -377,6 +674,30 @@ function initHardwarePanel() {
         renderHardwarePanel();
     });
 
+    const drvAttach = document.getElementById('hw-driver-attach');
+    if (drvAttach) drvAttach.addEventListener('click', async () => {
+        const sel = document.getElementById('hw-driver-select');
+        await hwAttachDriver(sel?.value || _hwSelectedDriver);
+    });
+
+    const drvDetach = document.getElementById('hw-driver-detach');
+    if (drvDetach) drvDetach.addEventListener('click', async () => {
+        const sel = document.getElementById('hw-driver-select');
+        await hwDetachDriver(sel?.value || _hwSelectedDriver);
+    });
+
+    const drvRefresh = document.getElementById('hw-drivers-refresh');
+    if (drvRefresh) drvRefresh.addEventListener('click', async () => {
+        await hwLoadDrivers();
+        renderHwDrivers();
+    });
+
+    const drvSelect = document.getElementById('hw-driver-select');
+    if (drvSelect) drvSelect.addEventListener('change', () => {
+        hwSelectDriver(drvSelect.value);
+    });
+
+    hwCheckDom();
     hwLoad().then(() => { renderHardwarePanel(); renderConnLeds(); });
 }
 

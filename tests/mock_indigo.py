@@ -85,6 +85,26 @@ def _make_fits(width: int, height: int, stars: list[tuple[int, int, float, float
 # ── Property definitions ───────────────────────────────────────────
 
 PROP_DEFS = [
+    # ── Loadable drivers (diversité reflétant un vrai serveur INDIGO v2) ──
+    '<defSwitchVector device="Configuration Agent" name="AGENT_CONFIG_DRIVERS" state="Ok" perm="ro" rule="AnyOfMany" label="Drivers">'
+    '<defSwitch name="indigo_mount_lx200" value="On" label="LX200 Mount"/>'
+    '<defSwitch name="indigo_mount_onstep" value="Off" label="OnStep Mount"/>'
+    '<defSwitch name="indigo_ccd_asi" value="On" label="ZWO ASI Camera"/>'
+    '<defSwitch name="indigo_ccd_qhy" value="Off" label="QHY Camera"/>'
+    '<defSwitch name="indigo_ccd_svbony" value="Off" label="SVBONY Camera"/>'
+    '<defSwitch name="indigo_wheel_manual" value="On" label="Manual Filter Wheel"/>'
+    '<defSwitch name="indigo_focuser_moonlite" value="On" label="Moonlite Focuser"/>'
+    '<defSwitch name="indigo_dome_simulator" value="Off" label="Dome Simulator"/>'
+    '<defSwitch name="indigo_gps_nmea" value="Off" label="GPS NMEA"/>'
+    '<defSwitch name="indigo_rotator_simulator" value="Off" label="Rotator Simulator"/>'
+    '<defSwitch name="indigo_agent_guider" value="Off" label="Guider Agent"/>'
+    '</defSwitchVector>',
+    '<defSwitchVector device="Server" name="DRIVERS" state="Ok" perm="rw" rule="AnyOfMany" label="Drivers (legacy)">'
+    '<defSwitch name="indigo_mount_lx200" value="On" label="LX200 Mount"/>'
+    '<defSwitch name="indigo_ccd_asi" value="On" label="ZWO ASI Camera"/>'
+    '<defSwitch name="indigo_wheel_manual" value="On" label="Manual Filter Wheel"/>'
+    '<defSwitch name="indigo_focuser_moonlite" value="On" label="Moonlite Focuser"/>'
+    '</defSwitchVector>',
     # ── Mount ──
     '<defSwitchVector device="Mount" name="CONNECTION" state="Ok" perm="rw" label="Connection">'
     '<defSwitch name="CONNECT" value="Off" label="Connect"/>'
@@ -865,6 +885,28 @@ class MockIndigoServer:
         self._slew_task = None
         self._fw_connected = False
         self._fw_slot = "L"
+        # Loadable-drivers state (mirrors the AGENT_CONFIG_DRIVERS defs above)
+        self._driver_state = {
+            "indigo_mount_lx200": True,
+            "indigo_mount_onstep": False,
+            "indigo_ccd_asi": True,
+            "indigo_ccd_qhy": False,
+            "indigo_ccd_svbony": False,
+            "indigo_wheel_manual": True,
+            "indigo_focuser_moonlite": True,
+            "indigo_dome_simulator": False,
+            "indigo_gps_nmea": False,
+            "indigo_rotator_simulator": False,
+            "indigo_agent_guider": False,
+        }
+
+    def drivers_state_xml(self, device_name: str, prop_name: str) -> str:
+        parts = "".join(
+            f'<oneSwitch name="{d}">{"On" if on else "Off"}</oneSwitch>'
+            for d, on in self._driver_state.items()
+        )
+        return (f'<setSwitchVector device="{device_name}" name="{prop_name}" '
+                f'state="Ok">{parts}</setSwitchVector>')
 
     async def start(self):
         server = await asyncio.start_server(self._handle_client, self.host, self.port)
@@ -982,6 +1024,16 @@ class MockIndigoServer:
                                 self._fw_slot = on_items[0]
                             writer.write((self.fw_slot_state() + "\n").encode())
                             await writer.drain()
+                    elif device_name in ("Configuration Agent", "Server") and prop_name in ("AGENT_CONFIG_DRIVERS", "DRIVERS"):
+                        # Attach (On) / detach (Off) driver: update state and echo
+                        # the full vector so the client registry refreshes.
+                        for drv, val in items.items():
+                            if drv in self._driver_state:
+                                self._driver_state[drv] = val.lower() in ("on", "true", "1")
+                                log.info("%s driver: %s",
+                                         "Attach" if self._driver_state[drv] else "Detach", drv)
+                        writer.write((self.drivers_state_xml(device_name, prop_name) + "\n").encode())
+                        await writer.drain()
 
                 elif msg.startswith("<enableBLOB"):
                     pass  # ignore

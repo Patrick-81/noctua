@@ -120,6 +120,10 @@ class WebServer:
         self._autofocus = AutoFocus()
         self._guide = Guide()
         self._guide_cal = GuideCalibration()
+        # Boucle d'autoguidage serveur (guide_loop.GuideLoopSession) :
+        # tâche asyncio + caméra guide courante (None = pas de boucle).
+        self._guide_task: asyncio.Task | None = None
+        self._guide_camera: str | None = None
         # Flat-field capture wizard
         from indigo.devices.flat_wizard import FlatWizard
         self._flat_wizard = FlatWizard()
@@ -780,6 +784,141 @@ class WebServer:
 
         for ws in self._ws_clients[:]:
             loop.create_task(_safe_send(ws))
+
+    # ── Boucle d'autoguidage serveur ─────────────────────────────
+
+    def _broadcast_guide_status(self, status: dict | None = None) -> None:
+        """Broadcast guide telemetry to all WebSocket clients
+        (message type ``guide`` → topic Hub ``guide:telemetry``)."""
+        if not self._ws_clients:
+            return
+        payload = json.dumps(_sanitize({
+            "type": "guide",
+            "status": status if status is not None else self._guide.status(),
+        }))
+        loop = asyncio.get_running_loop()
+
+        async def _safe_send(ws):
+            try:
+                await ws.send_text(payload)
+            except Exception:
+                self._safe_remove_client(ws)
+
+        for ws in self._ws_clients[:]:
+            loop.create_task(_safe_send(ws))
+
+    def _guide_start_loop(self, camera_name: str) -> None:
+        """Lance la boucle de guidage serveur (no-op si déjà en cours)."""
+        if self._guide_task is not None and not self._guide_task.done():
+            return
+        from indigo.devices.guide_loop import GuideLoopSession
+        self._guide_camera = camera_name
+        session = GuideLoopSession(
+            self._guide, camera_name, self._guide_loop_hooks(camera_name))
+        self._guide_task = asyncio.get_running_loop().create_task(
+            session.run(), name=f"guide-loop-{camera_name}")
+        log.info("Guide loop task started (camera=%s)", camera_name)
+
+    async def _guide_stop_loop(self) -> None:
+        """Stoppe la boucle (annulation + halt monture de sécurité)."""
+        task, self._guide_task = self._guide_task, None
+        self._guide_camera = None
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:  # noqa: BLE001
+                log.warning("Guide loop task ended with error: %s", e)
+        # Sécurité : une impulsion a pu être interrompue entre move et halt.
+        try:
+            m = self.registry.get_mount()
+            if m is not None:
+                await m.halt_move()
+        except Exception:  # noqa: BLE001
+            pass
+        self._broadcast_guide_status()
+
+    def _guide_loop_hooks(self, camera_name: str) -> dict:
+        """Hooks matériels de GuideLoopSession (caméra, métrique, monture)."""
+        server = self
+        guide_log = logging.getLogger("indigo.guide")
+
+        async def _log(level: str, msg: str) -> None:
+            # Le WebLogHandler (racine) relaie vers le panneau Log via WS.
+            guide_log.log(
+                logging.WARNING if level in ("warning", "error") else logging.INFO,
+                "guide-loop: %s", msg)
+
+        async def capture_frame(duration: float, timeout: float) -> bytes | None:
+            cam = server.registry.get_camera(camera_name)
+            if cam is None:
+                raise RuntimeError(f"caméra guide '{camera_name}' introuvable")
+            if not cam.is_ready:
+                raise RuntimeError(f"caméra guide '{camera_name}' non prête")
+            baseline = server._camera_images.get(cam.name, b"")
+            await cam.expose(float(duration), "LIGHT")
+            loop = asyncio.get_running_loop()
+            while cam.exposing:
+                await asyncio.sleep(0.1)
+            deadline = loop.time() + float(timeout)
+            while loop.time() < deadline:
+                cur = server._camera_images.get(cam.name, b"")
+                if cur and cur != baseline:
+                    await asyncio.sleep(0.2)
+                    return cur
+                await asyncio.sleep(0.1)
+            return None
+
+        async def measure(img: bytes) -> dict | None:
+            from indigo.devices.focus_metrics import compute_focus_metrics
+            res = await asyncio.to_thread(compute_focus_metrics, img)
+            stars = (res or {}).get("stars") or []
+            if not stars:
+                return None
+            best = stars[0]
+            return {
+                "x": float(best["x"]),
+                "y": float(best["y"]),
+                "snr": best.get("snr"),
+                "width": (res or {}).get("width"),
+                "height": (res or {}).get("height"),
+            }
+
+        async def pulse(direction: str, ms: int) -> None:
+            m = server.registry.get_mount()
+            if m is None:
+                raise RuntimeError("pas de monture pour corriger")
+            # Le halt est protégé de l'annulation : jamais de slew infini
+            # si la tâche est stoppée entre move et halt.
+            await asyncio.shield(_pulse_guarded(m, direction, ms))
+
+        async def _pulse_guarded(m, direction: str, ms: int) -> None:
+            await m.move(direction)
+            try:
+                await asyncio.sleep(max(0, ms) / 1000.0)
+            finally:
+                await m.halt_move()
+
+        async def set_rate(rate: str) -> None:
+            m = server.registry.get_mount()
+            if m is None:
+                raise RuntimeError("pas de monture pour régler la vitesse")
+            await m.set_slew_rate(rate)
+
+        def broadcast(payload: dict) -> None:
+            server._broadcast_guide_status(payload)
+
+        return {
+            "capture_frame": capture_frame,
+            "measure": measure,
+            "pulse": pulse,
+            "set_rate": set_rate,
+            "broadcast": broadcast,
+            "log": _log,
+            "sleep": asyncio.sleep,
+        }
 
     async def _broadcast_stacking_snapshot(self, path: str = "") -> None:
         """Broadcast the current live-stack preview to WebSocket clients."""

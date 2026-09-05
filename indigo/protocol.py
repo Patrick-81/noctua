@@ -374,7 +374,25 @@ def build_new_text_vector(device: str, prop_name: str,
 
 
 def build_attach_driver(driver_name: str) -> str:
-    """Build a DRIVERS switch to load a driver on the server."""
+    """Build a switch message to load a driver on the server.
+
+    The writable vector is ``Server / DRIVERS`` (``perm=rw``) — setting
+    the driver item On loads it.  ``Configuration Agent /
+    AGENT_CONFIG_DRIVERS`` exposes the same list but read-only
+    (``perm=ro``) on current servers, so writes must NOT target it.
+    """
     return build_new_switch_vector("Server", "DRIVERS", [
         {"name": driver_name, "value": True},
+    ])
+
+
+def build_detach_driver(driver_name: str) -> str:
+    """Build a switch message to unload a driver from the server.
+
+    Mirrors :func:`build_attach_driver` — setting the driver item Off
+    in ``Server / DRIVERS`` unloads it (best effort : le serveur peut
+    refuser si le driver est en usage).
+    """
+    return build_new_switch_vector("Server", "DRIVERS", [
+        {"name": driver_name, "value": False},
     ])
