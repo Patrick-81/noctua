@@ -107,7 +107,10 @@ test.describe.serial('sky-projection parity with d3', () => {
 
           for (const [ra, dec] of pts) {
 const fast = mod.projectPoint(ra, dec, cRA, cDec, s, tx, ty);
-          const d3p = proj([ra, dec]);
+          let d3p = proj([ra, dec]);
+          // Miroir ciel (vue depuis l'intérieur de la sphère céleste) :
+          // projectPoint applique rawX = -cosDec·sinDR, soit x = 2·tx - x_d3.
+          if (d3p) d3p = [2 * tx - d3p[0], d3p[1]];
           if (fast === null) {
             // hémisphère arrière : on ne compare pas — on vérifie seulement que
             // les points visibles correspondent.
