@@ -862,10 +862,11 @@ export class SkyEngine {
             // clipped to the visible disk. d3's clip-and-stitch of this ring
             // yields one closed piece, but which side (ground vs sky) it
             // represents flips with the ring winding AND with whether the
-            // view centre is above/below the horizon. Decide it by fact:
-            // build the fill, and if the *zenith* (always sky) landed inside
-            // it, use the reversed ring. Checked over a sweep of
-            // orientations, incl. views below the horizon.
+            // view is pointed above or below the horizon. Decide it by fact,
+            // using the screen centre (always on screen, unlike the zenith
+            // which leaves the disk when looking well below the horizon):
+            // the centre must be inside the ground fill iff its altitude is
+            // negative. Reverse the ring when the built fill disagrees.
             ctx.save();
             ctx.beginPath();
             ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
@@ -873,9 +874,8 @@ export class SkyEngine {
             const ring = horizon.geometry.coordinates;
             ctx.beginPath();
             this._pathGenerator({ type: "Polygon", coordinates: [ring] });
-            const zPt = this._celestialClip([currentLstDeg, this.siteLat])
-                ? this._projection([currentLstDeg, this.siteLat]) : null;
-            if (zPt && ctx.isPointInPath(zPt[0], zPt[1])) {
+            const cAlt = this._radecToAltAz(-this._currentRotation[0], -this._currentRotation[1], currentLstDeg).alt;
+            if (ctx.isPointInPath(cx, cy) !== (cAlt < 0)) {
                 ctx.beginPath();
                 this._pathGenerator({ type: "Polygon", coordinates: [ring.slice().reverse()] });
             }
