@@ -858,15 +858,30 @@ export class SkyEngine {
             const currentLstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
             const horizon = this._getHorizon(currentLstDeg * Math.PI / 180);
 
-            // Ground shade removed: filling the horizon polygon through the
-            // projection visibly dimmed a whole region of the visible disk
-            // (whichever side the fill picked), washing out faint stars
-            // under it even at 10% opacity -- reported as "missing stars" /
-            // empty caps. Neither a fixed reverse() nor picking the side via
-            // isPointInPath (view centre, then the actual zenith) eliminated
-            // it reliably across orientations, so the shade is dropped
-            // rather than keep shipping something this fragile. The horizon
-            // line + compass are unaffected.
+            // Ground shade: fill the horizon polygon through the projection,
+            // clipped to the visible disk. d3's clip-and-stitch of this ring
+            // yields one closed piece, but which side (ground vs sky) it
+            // represents flips with the ring winding AND with whether the
+            // view centre is above/below the horizon. Decide it by fact:
+            // build the fill, and if the *zenith* (always sky) landed inside
+            // it, use the reversed ring. Checked over a sweep of
+            // orientations, incl. views below the horizon.
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
+            ctx.clip();
+            const ring = horizon.geometry.coordinates;
+            ctx.beginPath();
+            this._pathGenerator({ type: "Polygon", coordinates: [ring] });
+            const zPt = this._celestialClip([currentLstDeg, this.siteLat])
+                ? this._projection([currentLstDeg, this.siteLat]) : null;
+            if (zPt && ctx.isPointInPath(zPt[0], zPt[1])) {
+                ctx.beginPath();
+                this._pathGenerator({ type: "Polygon", coordinates: [ring.slice().reverse()] });
+            }
+            ctx.fillStyle = "rgba(150, 160, 175, 0.10)";
+            ctx.fill();
+            ctx.restore();
 
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
             ctx.lineWidth = 2;
