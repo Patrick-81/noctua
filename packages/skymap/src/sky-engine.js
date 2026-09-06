@@ -99,7 +99,7 @@ export class SkyEngine {
         this._starVectors = null;      // vecteurs unitaires triés par magnitude
         this._starNames = null;        // Map<star id, label> for the optional name layer
         this._dsoCache = null;         // { key, items: [{x, y, name}] }
-        this._MAX_DRAW_STARS = 20000;  // deeper catalogue (stars.14) → allow more on screen
+        this._MAX_DRAW_STARS = 60000;  // deeper catalogue (stars.14, ~118k) → allow more on screen
 
         // Layer visibility
         this.layers = {
@@ -858,21 +858,15 @@ export class SkyEngine {
             const currentLstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
             const horizon = this._getHorizon(currentLstDeg * Math.PI / 180);
 
-            // ground shade: fill the horizon spherical polygon through the
-            // projection, clipped to the visible disk. The ring is reversed
-            // so the fill lands on the ground side, not the sky side.
-            ctx.save();
-            ctx.beginPath();
-            ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
-            ctx.clip();
-            ctx.beginPath();
-            this._pathGenerator({
-                type: "Polygon",
-                coordinates: [horizon.geometry.coordinates.slice().reverse()],
-            });
-            ctx.fillStyle = "rgba(150, 160, 175, 0.10)";
-            ctx.fill();
-            ctx.restore();
+            // Ground shade removed: filling the horizon polygon through the
+            // projection visibly dimmed a whole region of the visible disk
+            // (whichever side the fill picked), washing out faint stars
+            // under it even at 10% opacity -- reported as "missing stars" /
+            // empty caps. Neither a fixed reverse() nor picking the side via
+            // isPointInPath (view centre, then the actual zenith) eliminated
+            // it reliably across orientations, so the shade is dropped
+            // rather than keep shipping something this fragile. The horizon
+            // line + compass are unaffected.
 
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
             ctx.lineWidth = 2;
@@ -1530,7 +1524,7 @@ export class SkyEngine {
             else this._scale /= 1.1;
             this._scale = Math.max(
                 Math.min(this._width, this._height) * 0.15,
-                Math.min(Math.min(this._width, this._height) * 8, this._scale)
+                Math.min(Math.min(this._width, this._height) * 80, this._scale)
             );
             this._projection.scale(this._scale);
             this.render();

@@ -66,9 +66,11 @@ export function buildStarVectors(features) {
 // Projette les étoiles visibles dans `out` (triplés x, y, size).
 // - Respecte le seuil de magnitude (magMax) ; `stars` étant trié par magnitude
 //   croissante, on sort de la boucle dès qu'on le dépasse.
-// - Ne compte / n'écrit que les étoiles réellement DANS le cadre (canvas
-//   0..2·tx × 0..2·ty) : le budget `maxStars` est donc dépensé pour l'écran
-//   visible, si bien qu'en zoomant on atteint des étoiles plus faibles.
+// - Ne compte / n'écrit que les étoiles à moins d'une demi-diagonale de
+//   canvas du centre (tx, ty) : le budget `maxStars` est donc dépensé pour
+//   l'écran visible, si bien qu'en zoomant on atteint des étoiles plus
+//   faibles. Rayon (et pas rectangle) car l'appelant fait pivoter toute la
+//   couche étoiles de l'angle parallactique autour de (tx, ty) APRÈS coup.
 // - sizeFn(mag) calcule le rayon d'affichage.
 // Retourne le nombre d'étoiles écrites.
 // nameOf / namesOut / maxNames (optionnels) : quand nameOf(star) renvoie une
@@ -81,7 +83,13 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
     nameOf, namesOut, maxNames, stereo) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
-    const xMax = 2 * tx, yMax = 2 * ty, m = 8;
+    // Cull radius = half the canvas diagonal (+ a small margin). The caller
+    // rotates the whole star layer by the parallactic angle around (tx, ty)
+    // AFTER this runs, so a tight [0,w]×[0,h] rectangle test would wrongly
+    // drop stars destined for the screen corners once rotated — leaving a
+    // band of stars parallel to the un-rotated frame, tilted on screen with
+    // the horizon. A radial test around the rotation centre is rotation-proof.
+    const cullR2 = (Math.hypot(tx, ty) + 8) ** 2;
     const czMin = 0;   // both modes clip at the hemisphere (stereo edge stays finite)
     const wantNames = !!(nameOf && namesOut && maxNames);
     let count = 0;
@@ -96,7 +104,8 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
         if (stereo) { const k = 1 + cz; rawX /= k; rawY /= k; }
         const px = rawX * scale + tx;
         const py = -rawY * scale + ty;
-        if (px < -m || px > xMax + m || py < -m || py > yMax + m) continue;
+        const dpx = px - tx, dpy = py - ty;
+        if (dpx * dpx + dpy * dpy > cullR2) continue;
         out.push(px, py, sizeFn(s.mag));
         count++;
         if (wantNames && nameCount < maxNames) {
