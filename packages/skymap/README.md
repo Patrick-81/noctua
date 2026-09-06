@@ -61,6 +61,7 @@ en global (fichier fourni dans `public/lib/d3.min.js`).
 | `setLayerVisibility(layer, visible)` | Active/désactive une couche. |
 | `setCatalogVisibility(catalog, visible)` | Active/désactive un catalogue DSO. |
 | `setProjection(mode)` | `'orthographic'` (globe) ou `'stereographic'` (planisphère, montre plus large mais compresse moins vers le bord). Les deux sont bridées à un hémisphère (`clipAngle(90)`). |
+| `setDragMode(mode)` | `'trackball'` (défaut : le point saisi suit le curseur exactement, roulis libre) ou `'orbit'` (le ciel reste vertical, léger décalage du point sur les grands glissers). |
 | `render()` | Redessine. |
 | `destroy()` | Libère les timers. |
 

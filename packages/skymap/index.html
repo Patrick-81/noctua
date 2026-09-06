@@ -50,6 +50,11 @@
             <option value="orthographic">Orthographique (globe)</option>
             <option value="stereographic">Stéréographique (planisphère)</option>
         </select>
+        <label for="drag-select" style="margin-top: 8px;">Glisser :</label>
+        <select id="drag-select" style="width: 100%; background: #14142a; color: #e0e0e0; border: 1px solid rgba(255,0,85,0.25); border-radius: 4px; padding: 3px;">
+            <option value="trackball">Trackball (le point suit le curseur)</option>
+            <option value="orbit">Orbite (ciel toujours droit)</option>
+        </select>
     </div>
 
     <div id="info">
@@ -98,6 +103,8 @@
         // Projection selector
         const projSelect = document.getElementById('proj-select');
         projSelect.addEventListener('change', () => engine.setProjection(projSelect.value));
+        const dragSelect = document.getElementById('drag-select');
+        dragSelect.addEventListener('change', () => engine.setDragMode(dragSelect.value));
 
         // Info display update
         function updateInfo() {

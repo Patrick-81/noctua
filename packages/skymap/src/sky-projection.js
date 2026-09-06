@@ -79,10 +79,15 @@ export function buildStarVectors(features) {
 // stereo (optionnel) : projection stéréographique au lieu d'orthographique —
 // divise les coordonnées du plan tangent par (1 + cz), montre au-delà d'un
 // hémisphère.
+// rollRad (optionnel) : roulis (gamma de la rotation d3) autour du centre.
+//   Le plan tangent est tourné de -rollRad pour co-tourner avec les couches
+//   d3 (grille, DSO, constellations) en mode trackball ; 0 en mode orbite.
 export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn,
-    nameOf, namesOut, maxNames, stereo) {
+    nameOf, namesOut, maxNames, stereo, rollRad) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
+    const rc = rollRad ? Math.cos(-rollRad) : 1;
+    const rs = rollRad ? Math.sin(-rollRad) : 0;
     // Cull radius = half the canvas diagonal (+ a small margin). The caller
     // rotates the whole star layer by the parallactic angle around (tx, ty)
     // AFTER this runs, so a tight [0,w]×[0,h] rectangle test would wrongly
@@ -102,6 +107,11 @@ export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, 
         let rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
         let rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
         if (stereo) { const k = 1 + cz; rawX /= k; rawY /= k; }
+        if (rollRad) {
+            const rx = rawX * rc - rawY * rs;
+            rawY = rawX * rs + rawY * rc;
+            rawX = rx;
+        }
         const px = rawX * scale + tx;
         const py = -rawY * scale + ty;
         const dpx = px - tx, dpy = py - ty;
