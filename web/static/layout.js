@@ -90,8 +90,8 @@ function updateMobileDock() {
     dock.classList.toggle('dense', isDesktop);
     dock.style.display = 'flex';
     const ids = (MODES[currentMode]?.applets || []).slice();
-    // Inclure le dashboard s'il est visible dans ce mode (toujours visible sauf hardware)
-    if (!ids.includes('applet-status') && document.getElementById('applet-status')?.style.display !== 'none') {
+    // Inclure le dashboard toujours dans le dock (pour pouvoir le ré-afficher s'il est escamoté)
+    if (!ids.includes('applet-status')) {
         ids.unshift('applet-status');
     }
     dock.innerHTML = '';

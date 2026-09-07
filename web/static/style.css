@@ -128,7 +128,7 @@ body {
     display: flex; gap: 3px;
     padding: 6px 10px;
     z-index: 30;
-    max-width: calc(100vw - 520px);
+    max-width: calc(50vw - 280px);
     overflow-x: auto;
     scrollbar-width: none;
 }
@@ -2254,20 +2254,15 @@ body {
     #mobile-dock { display: none !important; }
     #mobile-dock.dense { display: flex !important; pointer-events: auto !important; }
     #mobile-stack { display: contents; }
-    /* PC : bandeau à droite pour éviter l'overlap avec la barre de modes (9 onglets) */
+    /* PC : bandeau centré — sanitizePanelLayout le décale sous la barre de modes si overlap */
     #applet-connection {
         position: absolute !important;
         top: 12px !important;
-        left: auto !important;
-        right: 12px !important;
-        transform: none !important;
+        left: 50% !important;
+        right: auto !important;
+        transform: translateX(-50%) !important;
         width: auto !important;
-        max-width: calc(100vw - 600px) !important;
-    }
-    /* Astrométrie : 6 panneaux → limite la hauteur pour tenir sur 800px */
-    #applet-pointing, #applet-target, #applet-framing, #applet-polar {
-        max-height: 320px !important;
-        overflow-y: auto !important;
+        max-width: calc(100vw - 24px) !important;
     }
 }
 
