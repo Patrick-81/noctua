@@ -1107,6 +1107,11 @@ body {
 .slider-container input[type="range"] {
     width: 100%; accent-color: #ff0055; cursor: pointer; background: transparent;
 }
+.slider-container select {
+    width: 100%; padding: 3px 4px; font-size: 0.72rem; cursor: pointer;
+    background: var(--bg-panel); color: var(--accent);
+    border: 1px solid var(--border-default); border-radius: 3px;
+}
 
 .rotation-locks {
     margin-top: 8px; padding-top: 8px;

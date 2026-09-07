@@ -346,7 +346,20 @@
 
             <div class="slider-container">
                 <label for="mag-slider"><span data-i18n="hud.mag">Magnitude Limite :</span> <span id="mag-value">6.0</span></label>
-                <input type="range" id="mag-slider" min="0.0" max="8.0" step="0.2" value="6.0">
+                <input type="range" id="mag-slider" min="0.0" max="14.0" step="0.2" value="6.0">
+            </div>
+
+            <div class="slider-container">
+                <label for="proj-select" data-i18n="hud.proj">Projection :</label>
+                <select id="proj-select">
+                    <option value="orthographic" data-i18n="hud.proj.ortho">Orthographique (globe)</option>
+                    <option value="stereographic" data-i18n="hud.proj.stereo">Stéréographique (planisphère)</option>
+                </select>
+                <label for="drag-select" data-i18n="hud.drag" style="margin-top:6px;">Glisser :</label>
+                <select id="drag-select">
+                    <option value="trackball" data-i18n="hud.drag.trackball">Trackball (le point suit le curseur)</option>
+                    <option value="orbit" data-i18n="hud.drag.orbit">Orbite (ciel toujours droit)</option>
+                </select>
             </div>
 
             <div class="rotation-locks">
@@ -375,6 +388,7 @@
                     <div class="toggle-section">
                         <div class="toggle-section-label" data-i18n="hud.section.objects">Objets</div>
                         <label class="layer-cb"><input type="checkbox" data-layer="stars" checked> <span data-i18n="hud.stars">⚪ Étoiles</span></label>
+                        <label class="layer-cb"><input type="checkbox" data-layer="starnames"> <span data-i18n="hud.starnames">🏷 Noms d'étoiles</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="dsos" checked> <span data-i18n="hud.dso">🔴 DSO</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="planets" checked> <span data-i18n="hud.planets">🟡 Planètes</span></label>
                         <label class="layer-cb"><input type="checkbox" data-layer="constellations" checked> <span data-i18n="hud.constellations">✶ Constellations</span></label>

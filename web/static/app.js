@@ -293,6 +293,28 @@ async function initSkyEngine() {
         });
     }
 
+    // Projection selector
+    const projSelect = document.getElementById('proj-select');
+    if (projSelect) {
+        projSelect.addEventListener('change', () => {
+            if (skyEngine) skyEngine.setProjection(projSelect.value);
+            if (!uiConfig.sky) uiConfig.sky = {};
+            uiConfig.sky.projection = projSelect.value;
+            saveUiConfig();
+        });
+    }
+
+    // Drag mode selector
+    const dragSelect = document.getElementById('drag-select');
+    if (dragSelect) {
+        dragSelect.addEventListener('change', () => {
+            if (skyEngine) skyEngine.setDragMode(dragSelect.value);
+            if (!uiConfig.sky) uiConfig.sky = {};
+            uiConfig.sky.dragMode = dragSelect.value;
+            saveUiConfig();
+        });
+    }
+
     // Update station display
     const stationEl = document.getElementById('station-display');
     if (stationEl) stationEl.textContent = `Station : ${siteLat.toFixed(2)}°N / ${siteLng.toFixed(2)}°E`;
@@ -588,6 +610,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (magSlider) { magSlider.value = uiConfig.sky.magnitude_limit; }
         if (magValue) { magValue.textContent = parseFloat(uiConfig.sky.magnitude_limit).toFixed(1); }
         if (skyEngine) skyEngine.setMagnitudeLimit(uiConfig.sky.magnitude_limit);
+    }
+
+    // Apply UI config: projection
+    if (uiConfig.sky?.projection) {
+        const projSelect = document.getElementById('proj-select');
+        if (projSelect) projSelect.value = uiConfig.sky.projection;
+        if (skyEngine) skyEngine.setProjection(uiConfig.sky.projection);
+    }
+
+    // Apply UI config: drag mode
+    if (uiConfig.sky?.dragMode) {
+        const dragSelect = document.getElementById('drag-select');
+        if (dragSelect) dragSelect.value = uiConfig.sky.dragMode;
+        if (skyEngine) skyEngine.setDragMode(uiConfig.sky.dragMode);
     }
 
     // Apply UI config: rotation lock

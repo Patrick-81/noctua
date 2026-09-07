@@ -57,31 +57,71 @@ export function buildStarVectors(features) {
         if (!coords || coords.length < 2) continue;
         const mag = Number(f.properties && f.properties.mag);
         if (!isFinite(mag)) continue;
-        stars.push({ u: raDecToUnit(coords[0], coords[1]), mag });
+        stars.push({ u: raDecToUnit(coords[0], coords[1]), mag, id: f.id });
     }
     stars.sort((a, b) => a.mag - b.mag);
     return stars;
 }
 
 // Projette les étoiles visibles dans `out` (triplés x, y, size).
-// - Respecte le seuil de magnitude (magMax).
-// - S'arrête dès que `maxStars` étoiles visibles sont atteintes (les plus
-//   brillantes sont d'abord dans `stars`, donc les plus faibles tronquées).
+// - Respecte le seuil de magnitude (magMax) ; `stars` étant trié par magnitude
+//   croissante, on sort de la boucle dès qu'on le dépasse.
+// - Ne compte / n'écrit que les étoiles à moins d'une demi-diagonale de
+//   canvas du centre (tx, ty) : le budget `maxStars` est donc dépensé pour
+//   l'écran visible, si bien qu'en zoomant on atteint des étoiles plus
+//   faibles. Rayon (et pas rectangle) car l'appelant fait pivoter toute la
+//   couche étoiles de l'angle parallactique autour de (tx, ty) APRÈS coup.
 // - sizeFn(mag) calcule le rayon d'affichage.
 // Retourne le nombre d'étoiles écrites.
-export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn) {
+// nameOf / namesOut / maxNames (optionnels) : quand nameOf(star) renvoie une
+// chaîne non vide, elle est ajoutée à namesOut en triplets [x, y, texte, ...],
+// les plus brillantes d'abord, plafonné à maxNames.
+// stereo (optionnel) : projection stéréographique au lieu d'orthographique —
+// divise les coordonnées du plan tangent par (1 + cz), montre au-delà d'un
+// hémisphère.
+// rollRad (optionnel) : roulis (gamma de la rotation d3) autour du centre.
+//   Le plan tangent est tourné de -rollRad pour co-tourner avec les couches
+//   d3 (grille, DSO, constellations) en mode trackball ; 0 en mode orbite.
+export function projectStars(stars, centerRA, centerDec, scale, tx, ty, magMax, maxStars, out, sizeFn,
+    nameOf, namesOut, maxNames, stereo, rollRad) {
     const [east, north] = tangentBasis(centerRA, centerDec);
     const c = raDecToUnit(centerRA, centerDec);
+    const rc = rollRad ? Math.cos(-rollRad) : 1;
+    const rs = rollRad ? Math.sin(-rollRad) : 0;
+    // Cull radius = half the canvas diagonal (+ a small margin). The caller
+    // rotates the whole star layer by the parallactic angle around (tx, ty)
+    // AFTER this runs, so a tight [0,w]×[0,h] rectangle test would wrongly
+    // drop stars destined for the screen corners once rotated — leaving a
+    // band of stars parallel to the un-rotated frame, tilted on screen with
+    // the horizon. A radial test around the rotation centre is rotation-proof.
+    const cullR2 = (Math.hypot(tx, ty) + 8) ** 2;
+    const czMin = 0;   // both modes clip at the hemisphere (stereo edge stays finite)
+    const wantNames = !!(nameOf && namesOut && maxNames);
     let count = 0;
+    let nameCount = 0;
     for (const s of stars) {
-        if (s.mag > magMax) continue;
+        if (s.mag > magMax) break;
         const u = s.u;
         const cz = u[0] * c[0] + u[1] * c[1] + u[2] * c[2];
-        if (cz <= 0) continue;
-        const rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
-        const rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
-        out.push(rawX * scale + tx, -rawY * scale + ty, sizeFn(s.mag));
+        if (cz <= czMin) continue;
+        let rawX = -(u[0] * east[0] + u[1] * east[1] + u[2] * east[2]);
+        let rawY = u[0] * north[0] + u[1] * north[1] + u[2] * north[2];
+        if (stereo) { const k = 1 + cz; rawX /= k; rawY /= k; }
+        if (rollRad) {
+            const rx = rawX * rc - rawY * rs;
+            rawY = rawX * rs + rawY * rc;
+            rawX = rx;
+        }
+        const px = rawX * scale + tx;
+        const py = -rawY * scale + ty;
+        const dpx = px - tx, dpy = py - ty;
+        if (dpx * dpx + dpy * dpy > cullR2) continue;
+        out.push(px, py, sizeFn(s.mag));
         count++;
+        if (wantNames && nameCount < maxNames) {
+            const nm = nameOf(s);
+            if (nm) { namesOut.push(px, py, nm); nameCount++; }
+        }
         if (count >= maxStars) break;
     }
     return count;

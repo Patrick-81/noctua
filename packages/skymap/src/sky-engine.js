@@ -40,8 +40,58 @@
 import {
     buildStarVectors,
     projectStars,
-    projectPoint,
 } from './sky-projection.js';
+
+// ── Versor (unit quaternion) helpers ──────────────────────────
+// Angle triple <-> quaternion, matching d3.geo.rotation's [lambda, phi, gamma]
+// (degrees). Used by the trackball / orbit drag so the grabbed sky point
+// follows the cursor via a single minimal rotation instead of accumulating
+// azimuth/altitude increments (which blow up near the zenith).
+const _VR = Math.PI / 180;
+function versorFromAngles(e) {
+    const l = e[0] * _VR / 2, sl = Math.sin(l), cl = Math.cos(l);
+    const p = (e[1] || 0) * _VR / 2, sp = Math.sin(p), cp = Math.cos(p);
+    const g = (e[2] || 0) * _VR / 2, sg = Math.sin(g), cg = Math.cos(g);
+    return [
+        cl * cp * cg + sl * sp * sg,
+        sl * cp * cg - cl * sp * sg,
+        cl * sp * cg + sl * cp * sg,
+        cl * cp * sg - sl * sp * cg,
+    ];
+}
+function versorToAngles(q) {
+    return [
+        Math.atan2(2 * (q[0] * q[1] + q[2] * q[3]), 1 - 2 * (q[1] * q[1] + q[2] * q[2])) / _VR,
+        Math.asin(Math.max(-1, Math.min(1, 2 * (q[0] * q[2] - q[3] * q[1])))) / _VR,
+        Math.atan2(2 * (q[0] * q[3] + q[1] * q[2]), 1 - 2 * (q[2] * q[2] + q[3] * q[3])) / _VR,
+    ];
+}
+function versorMultiply(a, b) {
+    return [
+        a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3],
+        a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+        a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1],
+        a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0],
+    ];
+}
+const versorConjugate = (q) => [q[0], -q[1], -q[2], -q[3]];
+function versorCartesian(lonlat) {
+    const l = lonlat[0] * _VR, p = lonlat[1] * _VR, cp = Math.cos(p);
+    return [cp * Math.cos(l), cp * Math.sin(l), Math.sin(p)];
+}
+// smallest rotation taking unit vector v0 to unit vector v1. The imaginary
+// axis is a permutation of the cross product ([w2, -w1, w0]) so it lines up
+// with versorFromAngles / d3.geo.rotation's axis convention.
+function versorDelta(v0, v1) {
+    const wx = v0[1] * v1[2] - v0[2] * v1[1];
+    const wy = v0[2] * v1[0] - v0[0] * v1[2];
+    const wz = v0[0] * v1[1] - v0[1] * v1[0];
+    const l = Math.sqrt(wx * wx + wy * wy + wz * wz);
+    if (!l) return [1, 0, 0, 0];
+    const dot = Math.max(-1, Math.min(1, v0[0] * v1[0] + v0[1] * v1[1] + v0[2] * v1[2]));
+    const t = Math.acos(dot) / 2, s = Math.sin(t);
+    return [Math.cos(t), wz / l * s, -wy / l * s, wx / l * s];
+}
 
 export class SkyEngine {
     constructor(container, options = {}) {
@@ -75,6 +125,14 @@ export class SkyEngine {
         this._mapReady = false;
 
         this._maxMagnitude = 6.0;
+        this._projMode = 'orthographic';   // 'orthographic' | 'stereographic'
+        this._dragMode = 'trackball';      // 'trackball' (grabbed point tracks exactly, free roll)
+                                           // | 'orbit' (sky kept upright, small drift on big drags)
+        // Source of truth for the manual orientation, relative to the sidereal
+        // frame. _currentRotation / _manualOffsetRA / _decOffset are derived
+        // from it every _updateSiderealRotation().
+        this._manualQ = [1, 0, 0, 0];
+        this._dragging = false;
         this._currentRotation = [0, 0, 0];
         this._manualOffsetRA = 0;
         this._decOffset = 0;
@@ -90,7 +148,6 @@ export class SkyEngine {
         this._ctx = null;
         this._projection = null;
         this._pathGenerator = null;
-        this._graticule = null;
 
         this._starsData = null;
         this._constellationsData = null;
@@ -98,14 +155,16 @@ export class SkyEngine {
         this._dsosData = null;
         this._planetsData = null;
         this._starVectors = null;      // vecteurs unitaires triés par magnitude
+        this._starNames = null;        // Map<star id, label> for the optional name layer
         this._dsoCache = null;         // { key, items: [{x, y, name}] }
-        this._MAX_DRAW_STARS = 7000;
+        this._MAX_DRAW_STARS = 60000;  // deeper catalogue (stars.14, ~118k) → allow more on screen
 
         // Layer visibility
         this.layers = {
             milkyway: true,
             constellations: true,
             stars: true,
+            starnames: false,
             dsos: true,
             planets: true,
             grid: true,
@@ -160,22 +219,13 @@ export class SkyEngine {
             document.body.appendChild(this._menuEl);
         }
 
-        this._rawProjection = d3.geo.orthographic()
-            .scale(this._scale)
-            .translate([this._width / 2, this._height / 2])
-            .clipAngle(90)
-            .rotate(this._currentRotation);
-
-        this._projection = this._wrapMirrored(this._rawProjection);
-        this._rawPathGenerator = d3.geo.path().projection(this._rawProjection).context(this._ctx);
-
-        this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
-        this._graticule = d3.geo.graticule().step([15, 10]);
+        this._buildProjection();
 
         // Géométries fixes en coordonnées RA/Dec : calculées une seule fois,
         // la rotation LST est appliquée par la projection à chaque rendu.
         // Note : l'horizon dépend du LST et est donc recalculé dans render().
-        this._cachedGraticule = this._graticule();
+        // La grille équatoriale est reconstruite à chaque frame (_drawGrid),
+        // adaptée au zoom — pas de graticule mise en cache.
         this._cachedEquator = this._getCelestialEquator();
         this._cachedEcliptic = this._getEcliptic();
 
@@ -197,63 +247,111 @@ export class SkyEngine {
         window.addEventListener('resize', () => this._onResize());
     }
 
-    _wrapMirrored(raw) {
-        const self = this;
-        const mirrored = function(coords) {
-            const pt = raw(coords);
-            if (pt) pt[0] = self._width - pt[0];
-            return pt;
-        };
-        mirrored.stream = function(listener) {
-            const s = raw.stream(listener);
-            return {
-                point: function(x, y) { s.point(self._width - x, y); },
-                lineStart: function() { s.lineStart(); },
-                lineEnd: function() { s.lineEnd(); },
-                polygonStart: function() { s.polygonStart(); },
-                polygonEnd: function() { s.polygonEnd(); },
-                sphere: function() { s.sphere(); }
-            };
-        };
-        mirrored.invert = function(pt) {
-            if (!pt) return null;
-            return raw.invert([self._width - pt[0], pt[1]]);
-        };
-        // déléguer les setters/getters D3
-        ['rotate','scale','translate','clipAngle','precision','clipExtent'].forEach(k=>{
-            if (typeof raw[k] === 'function') {
-                mirrored[k] = function(v) {
-                    if (!arguments.length) return raw[k]();
-                    raw[k](v);
-                    return mirrored;
-                };
-            }
-        });
-        return mirrored;
+    // Mirror east<->west (planetarium view: the sky as seen from inside,
+    // looking up) by reflecting the *raw* projection function before
+    // d3.geo.projection wraps it. Because the reflection sits inside what
+    // d3 streams, clipping / antimeridian cutting / resampling / winding
+    // are all still handled natively by d3 — unlike a post-hoc wrapper
+    // around the built projection (which breaks clipAngle and forces
+    // manual per-point reprojection for anything drawn as a path).
+    _buildProjection() {
+        const stereo = this._projMode === 'stereographic';
+        const raw = stereo ? d3.geo.stereographic.raw : d3.geo.orthographic.raw;
+        function mirrorRaw(lambda, phi) {
+            const p = raw(lambda, phi);
+            return p ? [-p[0], p[1]] : p;
+        }
+        mirrorRaw.invert = function (x, y) { return raw.invert(-x, y); };
+
+        this._projection = d3.geo.projection(mirrorRaw)
+            .scale(this._scale)
+            .translate([this._width / 2, this._height / 2])
+            .clipAngle(90)   // both modes: exactly a hemisphere (stereo's edge stays finite)
+            .rotate(this._currentRotation);
+        this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
+        this._dsoCache = null;
+    }
+
+    // 'orthographic' (globe, compresses toward the limb) | 'stereographic'
+    // (planisphere, conformal, shows well past a hemisphere -- still capped
+    // to a hemisphere here via clipAngle(90) above, same as orthographic).
+    setProjection(mode) {
+        mode = mode === 'stereographic' ? 'stereographic' : 'orthographic';
+        if (mode === this._projMode) return;
+        this._projMode = mode;
+        if (this._projection) { this._buildProjection(); this._updateSiderealRotation(); }
     }
 
     async loadCatalogs() {
         const base = this._dataBaseUrl;
         const load = (path) => fetch(base + path).then(r => r.json()).catch(() => null);
 
-        const [stars, consts, mw, dsos, planets] = await Promise.all([
-            load('stars.8.json'),
+        const [stars14, consts, mw, dsos, planets, starNames, messier] = await Promise.all([
+            load('stars.14.json'),   // ~mag 14; falls back to stars.8 when not served
             load('constellations.lines.json'),
             load('mw.json'),
             load('dsos.6.bright.json'),
             load('planets.json'),
+            load('starnames.json'),  // optional: { <id>: { name, bayer, c } }
+            load('messier.json'),    // optional: full M1..M110
         ]);
+        const stars = stars14 || await load('stars.8.json');
 
         this._starsData = stars;
         if (stars && stars.features) {
             this._starVectors = buildStarVectors(stars.features);
+            const faint = this._starVectors.length
+                ? this._starVectors[this._starVectors.length - 1].mag : null;
+            console.log('[sky] star catalogue:', this._starVectors.length, 'stars, faintest mag',
+                faint, stars14 ? '(stars.14)' : '(stars.8 fallback)');
+        }
+        if (starNames && typeof starNames === 'object') {
+            this._starNames = new Map();
+            for (const k of Object.keys(starNames)) {
+                const v = starNames[k] || {};
+                let label = v.name;
+                if (!label && v.bayer) label = v.bayer + (v.c ? ' ' + v.c : '');
+                if (label) this._starNames.set(Number(k), label);
+            }
         }
         this._constellationsData = consts;
         this._milkywayData = mw;
-        this._dsosData = dsos;
+        this._dsosData = this._mergeMessier(dsos, messier);
         this._planetsData = planets;
         this._mapReady = true;
         this.render();
+    }
+
+    // Merge the full M1..M110 list into the bright-DSO catalogue. messier.json
+    // has { name:"M13", desig:"NGC 6205", ... }; label with the M number and
+    // skip any Messier object already present in the bright set. No-op when
+    // messier.json is absent.
+    _mergeMessier(dsos, messier) {
+        if (!messier || !Array.isArray(messier.features)) return dsos;
+        const base = (dsos && dsos.features) ? dsos : { type: "FeatureCollection", features: [] };
+        const norm = (s) => String(s || "").replace(/\s+/g, "").toUpperCase();
+        const have = new Set();
+        for (const f of base.features) {
+            have.add(norm((f.properties && f.properties.desig) || f.id));
+        }
+        for (const m of messier.features) {
+            const mp = m.properties || {};
+            const name = mp.name || m.id;
+            if (!name || have.has(norm(name))) continue;
+            base.features.push({
+                type: "Feature",
+                id: name,
+                properties: { desig: name, type: mp.type, mag: mp.mag, dim: mp.dim, morph: mp.morph },
+                geometry: m.geometry,
+            });
+            have.add(norm(name));
+        }
+        return base;
+    }
+
+    _isMessier(dso) {
+        const desig = String((dso.properties && dso.properties.desig) || dso.id || '').toUpperCase();
+        return /^M\s*\d/.test(desig);
     }
 
     setLayerVisibility(layer, visible) {
@@ -333,7 +431,9 @@ export class SkyEngine {
     _startSiderealSync() {
         this._stopSiderealSync();
         this._updateSiderealRotation();
-        this._realtimer = setInterval(() => this._updateSiderealRotation(), 1000);
+        this._realtimer = setInterval(() => {
+            if (!this._dragging) this._updateSiderealRotation();
+        }, 1000);
     }
 
     _stopSiderealSync() {
@@ -347,13 +447,25 @@ export class SkyEngine {
         const date = this._getObsDate();
         const lst = this._lstDegrees(date, this.siteLng);
 
-        const centerRA = lst - this._manualOffsetRA;
-        const centerDEC = -this._decOffset;
-        const ha = this._manualOffsetRA;
-        const gamma = -this._parallacticAngle(ha, centerDEC) * 180 / Math.PI;
+        // Full rotation = manual orientation composed with the sidereal spin.
+        const full = versorMultiply(this._manualQ, versorFromAngles([-lst, 0, 0]));
+        let rot = versorToAngles(full);
 
-        this._parallacticAngleDeg = gamma;
-        this._currentRotation = [-lst + this._manualOffsetRA, this._decOffset, 0];
+        // Convenience scalars (HUD, framing readers) from the manual part.
+        const man = versorToAngles(this._manualQ);
+        this._manualOffsetRA = man[0];
+        this._decOffset = man[1];
+
+        if (this._dragMode === 'trackball') {
+            // Free roll lives in the quaternion; no separate canvas upright.
+            this._parallacticAngleDeg = 0;
+        } else {
+            // Orbit: keep the projection roll-free and re-upright the field
+            // to the local vertical via the canvas parallactic rotation.
+            rot = [rot[0], rot[1], 0];
+            this._parallacticAngleDeg = -this._parallacticAngle(man[0], -man[1]) * 180 / Math.PI;
+        }
+        this._currentRotation = rot;
         this._projection.rotate(this._currentRotation);
 
         const lstEl = document.getElementById('lst-display');
@@ -387,6 +499,23 @@ export class SkyEngine {
         const lambda = (coords[0] + r[0]) * d2r;
         const phi0 = -r[1] * d2r;
         return (Math.sin(phi0) * Math.sin(phi) + Math.cos(phi0) * Math.cos(phi) * Math.cos(lambda)) > 0;
+    }
+
+    // Draw text at screen point (x,y), with a screen-space offset (dx,dy),
+    // counter-rotating against the current parallactic-angle canvas
+    // rotation so the glyphs stay upright — everything drawn between the
+    // "Apply parallactic angle rotation" ctx.save()/ctx.restore() pairs in
+    // render() is under that rotation, and text should not tilt with it.
+    // Preserves the caller's current font / fillStyle / textAlign /
+    // textBaseline (only translate/rotate are pushed and popped).
+    _drawLabel(ctx, text, x, y, dx, dy) {
+        const a = -(this._parallacticAngleDeg || 0) * Math.PI / 180;
+        if (!a) { ctx.fillText(text, x + (dx || 0), y + (dy || 0)); return; }
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(a);
+        ctx.fillText(text, dx || 0, dy || 0);
+        ctx.restore();
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -444,6 +573,126 @@ export class SkyEngine {
         return labels;
     }
 
+    // Zoom-adaptive equatorial grid: major/minor spacing narrows as the view
+    // zooms in (30°/10° down to 2°/0.5°), each parallel/meridian drawn as a
+    // full great circle so d3 clips it to the visible hemisphere, and the
+    // major-line coordinate labels are pinned to wherever the line leaves
+    // the visible area (screen edge or sphere limb) instead of a fixed spot.
+    _drawGrid(ctx, w, h, cx, cy) {
+        const minDim = Math.min(w, h);
+        const z = this._scale / (minDim * 0.42);
+        let maj, sub;
+        if      (z < 1.6) { maj = 30; sub = 10;  }
+        else if (z < 3.5) { maj = 15; sub = 5;   }
+        else if (z < 7)   { maj = 10; sub = 2;   }
+        else if (z < 14)  { maj = 5;  sub = 1;   }
+        else              { maj = 2;  sub = 0.5; }
+
+        const cinv = this._projection.invert([cx, cy]);
+        if (!cinv || !isFinite(cinv[0]) || !isFinite(cinv[1])) return;
+        const cra = cinv[0];
+        const cdec = Math.max(-89, Math.min(89, cinv[1]));
+        // angular radius to the screen *corner* (diagonal), not the short edge,
+        // so the grid reaches the whole visible field
+        const visRad = Math.asin(Math.min(1, (Math.hypot(w, h) / 2) / this._scale)) * 180 / Math.PI;
+        const pad = 2 * maj + 5;
+
+        const decLo = Math.max(-89.5, cdec - visRad - pad);
+        const decHi = Math.min(89.5, cdec + visRad + pad);
+        const fullRA = (Math.abs(cdec) + visRad + pad > 86) || (visRad + pad >= 80);
+        let raLo, raHi;
+        if (fullRA) {
+            raLo = 0; raHi = 360;
+        } else {
+            const edgeLat = Math.min(84, Math.abs(cdec) + visRad + pad) * Math.PI / 180;
+            const raHalf = Math.min(185, (visRad + pad) / Math.max(0.03, Math.cos(edgeLat)));
+            raLo = cra - raHalf; raHi = cra + raHalf;
+        }
+
+        const isMult = (v, s) => { const m = Math.abs(v % s); return m < 1e-4 || m > s - 1e-4; };
+        const build = (major) => {
+            const st = major ? maj : sub;
+            const merSt = (major || fullRA) ? maj : sub;
+            const lines = [];
+            for (let d = Math.ceil(decLo / st) * st; d <= decHi + 1e-6; d += st) {
+                if (!major && isMult(d, maj)) continue;
+                const ln = [];
+                for (let r = 0; r <= 360 + 1e-6; r += 4) ln.push([r, d]);
+                lines.push(ln);
+            }
+            for (let r = Math.ceil(raLo / merSt) * merSt; r <= raHi + 1e-6; r += merSt) {
+                if (!major && isMult(r, maj)) continue;
+                const ln = [];
+                for (let d = decLo; d <= decHi + 1e-6; d += 3) ln.push([r, d]);
+                lines.push(ln);
+            }
+            return { type: "Feature", geometry: { type: "MultiLineString", coordinates: lines } };
+        };
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.10)";
+        ctx.setLineDash([2, 4]);
+        ctx.beginPath();
+        this._pathGenerator(build(false));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.26)";
+        ctx.beginPath();
+        this._pathGenerator(build(true));
+        ctx.stroke();
+
+        // Coordinate labels, pinned to where each major line leaves the
+        // visible area.
+        {
+            ctx.font = "11px monospace";
+            ctx.fillStyle = "rgba(255, 255, 255, 0.6)";
+            const mrg = 3;
+            const inScreen = (p) => p && p[0] >= mrg && p[0] <= w - mrg && p[1] >= 22 && p[1] <= h - mrg;
+
+            const raHM = (deg) => {
+                let hh = deg / 15;
+                let H = Math.floor(hh);
+                let M = Math.round((hh - H) * 60);
+                if (M === 60) { M = 0; H += 1; }
+                H = ((H % 24) + 24) % 24;
+                return String(H).padStart(2, '0') + ':' + String(M).padStart(2, '0');
+            };
+
+            // Only the arc within ~95° of the view centre genuinely faces us;
+            // sampling wider picks up the antipodal (back-side) half of the
+            // same great circle near the poles.
+            const dLo = Math.max(decLo, cdec - visRad - pad);
+            const dHi = Math.min(decHi, cdec + visRad + pad);
+
+            ctx.textAlign = "center";
+            ctx.textBaseline = "alphabetic";
+            for (let r = Math.ceil((cra - 95) / maj) * maj; r <= cra + 95; r += maj) {
+                let best = null;
+                for (let d = dLo; d <= Math.min(dHi, cdec + 4) + 1e-6; d += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[1] > best[1])) best = p;
+                }
+                if (best) this._drawLabel(ctx, raHM(((r % 360) + 360) % 360), best[0], Math.min(best[1] - 4, h - 6), 0, 0);
+            }
+
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            for (let d = Math.ceil(dLo / maj) * maj; d <= dHi + 1e-6; d += maj) {
+                if (Math.abs(d) > 89.5) continue;
+                let best = null;
+                for (let r = cra - 95; r <= cra + 95; r += 3) {
+                    const p = this._projection([r, d]);
+                    if (inScreen(p) && (!best || p[0] < best[0])) best = p;
+                }
+                if (best) {
+                    const sign = d > 0 ? '+' : (d < 0 ? '−' : ' ');
+                    this._drawLabel(ctx, sign + Math.abs(d) + '°', Math.max(best[0] + 4, mrg + 2), best[1], 0, 0);
+                }
+            }
+        }
+    }
+
     // ═══════════════════════════════════════════════════════════
     //  RENDER
     // ═══════════════════════════════════════════════════════════
@@ -472,132 +721,87 @@ export class SkyEngine {
         ctx.rotate((this._parallacticAngleDeg || 0) * Math.PI / 180);
         ctx.translate(-cx, -cy);
 
-        // 2. Voie lactée — données brutes via _rawPathGenerator (sans miroir
-        //    écran). Le _wrapMirrored détruit le clip orthographic de D3 (90°),
-        //    ce qui rend le remplissage uniforme sur tout le disque. Le
-        //    _rawPathGenerator conserve le clip correct. La voie lactée étant
-        //    une bande large et à peu près symétrique, l'absence de miroir
-        //    horizontal est visuellement négligeable.
-        //    nonZero (défaut) fonctionne correctement avec les winding rings.
+        // 2. Voie lactée. Now that _buildProjection lets d3 handle clipping /
+        // winding natively, this goes back through _pathGenerator like any
+        // other path — no more raw/unmirrored fallback needed.
         if (this.layers.milkyway && this._milkywayData) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.06)";
             ctx.beginPath();
-            this._rawPathGenerator(this._milkywayData);
+            this._pathGenerator(this._milkywayData);
             ctx.fill();
         }
 
-        // 3. Grille gratiulaire — tracé manuel via projectPoint pour
-        // cohérence avec étoiles/planètes/écliptique.
-        if (this.layers.grid) {
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            const gCenterRA = -this._currentRotation[0], gCenterDec = -this._currentRotation[1];
-            const gScale = this._scale, gTx = w / 2, gTy = h / 2;
-            const g = this._cachedGraticule;
-            let lines = [];
-            if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.type === 'Feature' && g.geometry?.coordinates) {
-                lines = g.geometry.type === 'MultiLineString' ? g.geometry.coordinates : [g.geometry.coordinates];
-            } else if (Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.geometry?.coordinates) lines = g.geometry.coordinates;
-            if (lines.length && Array.isArray(lines[0]) && Array.isArray(lines[0][0])) {
-                for (const line of lines) {
-                    let firstG = true;
-                    for (const c of line) {
-                        const pt = projectPoint(c[0], c[1], gCenterRA, gCenterDec, gScale, gTx, gTy);
-                        if (!pt) { firstG = true; continue; }
-                        if (firstG) { ctx.moveTo(pt[0], pt[1]); firstG = false; }
-                        else ctx.lineTo(pt[0], pt[1]);
-                    }
-                }
-            } else {
-                this._pathGenerator(this._cachedGraticule);
-            }
-            ctx.stroke();
-        }
+        // 3. Grille équatoriale, adaptée au zoom (voir _drawGrid).
+        if (this.layers.grid) this._drawGrid(ctx, w, h, cx, cy);
 
-        // 4. Équateur céleste (cyan) — tracé manuel
+        // 4. Équateur céleste (cyan)
         if (this.layers.equator) {
             ctx.strokeStyle = "rgba(0, 255, 255, 0.85)";
             ctx.lineWidth = 2.2;
             ctx.beginPath();
-            const eCenterRA = -this._currentRotation[0], eCenterDec = -this._currentRotation[1];
-            const eScale = this._scale, eTx = w / 2, eTy = h / 2;
-            let firstEq = true;
-            for (const c of this._cachedEquator.geometry.coordinates) {
-                const pt = projectPoint(c[0], c[1], eCenterRA, eCenterDec, eScale, eTx, eTy);
-                if (!pt) { firstEq = true; continue; }
-                if (firstEq) { ctx.moveTo(pt[0], pt[1]); firstEq = false; }
-                else ctx.lineTo(pt[0], pt[1]);
-            }
+            this._pathGenerator(this._cachedEquator);
             ctx.stroke();
         }
 
-        // 5. Écliptique (jaune, tirets) — tracé manuel via projectPoint
-        // pour alignement avec étoiles/planètes (même projection orthographique
-        // que projectStars, évite le décalage N/S du path D3).
+        // 5. Écliptique (jaune, tirets)
         if (this.layers.ecliptic) {
             ctx.strokeStyle = "rgba(255, 255, 0, 0.85)";
             ctx.lineWidth = 2;
             ctx.setLineDash([6, 3]);
             ctx.beginPath();
-            const centerRA_e = -this._currentRotation[0];
-            const centerDec_e = -this._currentRotation[1];
-            const scale_e = this._scale;
-            const tx_e = w / 2, ty_e = h / 2;
-            let firstE = true;
-            const coords = this._cachedEcliptic.geometry.coordinates;
-            for (const c of coords) {
-                const pt = projectPoint(c[0], c[1], centerRA_e, centerDec_e, scale_e, tx_e, ty_e);
-                if (!pt) { firstE = true; continue; }
-                if (firstE) { ctx.moveTo(pt[0], pt[1]); firstE = false; }
-                else ctx.lineTo(pt[0], pt[1]);
-            }
+            this._pathGenerator(this._cachedEcliptic);
             ctx.stroke();
             ctx.setLineDash([]);
         }
 
-        // 6. Méridien local (magenta) — toujours vertical écran (comme l'horizon reste horizontal)
+        // 6. Méridien local (magenta) : plein de plein sud → zénith → pôle
+        // céleste (az 180° puis az 0°), pointillé du pôle → nord. La ligne
+        // verticale fixe précédente n'était pas un méridien : elle ne
+        // passait ni par le sud, ni par le zénith, ni par le pôle dès que le
+        // centre de vue s'écartait du cas particulier plein-sud/dec-0 (même
+        // défaut que l'ancien horizon). Tracé en grand cercle réel, comme le
+        // reste du ciel.
         if (this.layers.meridian) {
-            ctx.strokeStyle = "rgba(255, 0, 255, 0.85)";
+            const merLst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const poleAlt = Math.max(0, this.siteLat);   // pôle nord sur le méridien, az 0°
+            const line = (coords) => {
+                ctx.beginPath();
+                this._pathGenerator({ type: "Feature", geometry: { type: "LineString", coordinates: coords } });
+                ctx.stroke();
+            };
+
+            const solid = [];
+            for (let alt = 0; alt <= 90; alt += 1) {                 // S → zénith
+                const p = this._altAzToRadec(alt, 180, merLst);
+                solid.push([p.ra, p.dec]);
+            }
+            for (let alt = 89; alt > poleAlt; alt -= 1) {            // zénith → pôle
+                const p = this._altAzToRadec(alt, 0, merLst);
+                solid.push([p.ra, p.dec]);
+            }
+            const pole = this._altAzToRadec(poleAlt, 0, merLst);
+            solid.push([pole.ra, pole.dec]);
+
+            const dashed = [[pole.ra, pole.dec]];
+            for (let alt = Math.floor(poleAlt); alt >= 0; alt -= 1) {  // pôle → N
+                const p = this._altAzToRadec(alt, 0, merLst);
+                dashed.push([p.ra, p.dec]);
+            }
+
+            ctx.strokeStyle = "rgba(255, 0, 255, 0.7)";
             ctx.lineWidth = 2;
-            ctx.beginPath();
-            ctx.moveTo(cx, cy - rsky);
-            ctx.lineTo(cx, cy + rsky);
-            ctx.stroke();
+            line(solid);
+            ctx.setLineDash([6, 4]);
+            line(dashed);
+            ctx.setLineDash([]);
         }
 
-        // 7. Constellations — tracé manuel via projectPoint (même projection que les étoiles)
-        // pour garantir l'alignement pixel-par-pixel et la même rotation (fix du miroir partiel).
+        // 7. Constellations
         if (this.layers.constellations && this._constellationsData) {
-            const centerRA_c = -this._currentRotation[0];
-            const centerDec_c = -this._currentRotation[1];
-            const scale_c = this._scale;
-            const tx_c = w / 2;
-            const ty_c = h / 2;
             ctx.strokeStyle = "rgba(0, 255, 204, 0.2)";
             ctx.lineWidth = 1.2;
             ctx.beginPath();
-            const feats = this._constellationsData.features || [];
-            for (const feat of feats) {
-                const geom = feat.geometry;
-                if (!geom || !geom.coordinates) continue;
-                const drawLine = (coords) => {
-                    let started = false;
-                    for (const c of coords) {
-                        const pt = projectPoint(c[0], c[1], centerRA_c, centerDec_c, scale_c, tx_c, ty_c);
-                        if (!pt) { started = false; continue; }
-                        if (!started) { ctx.moveTo(pt[0], pt[1]); started = true; }
-                        else ctx.lineTo(pt[0], pt[1]);
-                    }
-                };
-                if (geom.type === 'MultiLineString') {
-                    for (const line of geom.coordinates) drawLine(line);
-                } else if (geom.type === 'LineString') {
-                    drawLine(geom.coordinates);
-                }
-            }
+            this._pathGenerator(this._constellationsData);
             ctx.stroke();
         }
 
@@ -609,11 +813,16 @@ export class SkyEngine {
             const centerRA = -this._currentRotation[0];
             const centerDec = -this._currentRotation[1];
             const pts = [];
+            const wantNames = this.layers.starnames && this._starNames && this._starNames.size;
+            const nameOut = wantNames ? [] : null;
             projectStars(
                 this._starVectors, centerRA, centerDec,
                 this._scale, w / 2, h / 2,
                 this._maxMagnitude, this._MAX_DRAW_STARS, pts,
-                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5))
+                (mag) => Math.max(0.6, Math.min(5, (6.5 - mag) * scaleFactor * 0.5)),
+                wantNames ? (s) => this._starNames.get(s.id) : null, nameOut, 160,
+                this._projMode === 'stereographic',
+                this._currentRotation[2] * (Math.PI / 180)
             );
             ctx.fillStyle = "#ffffff";
             ctx.beginPath();
@@ -629,6 +838,14 @@ export class SkyEngine {
                 }
             }
             ctx.fill();
+            if (nameOut && nameOut.length) {
+                ctx.fillStyle = "rgba(180, 210, 255, 0.75)";
+                ctx.font = "11px sans-serif";
+                ctx.textAlign = "left";
+                for (let i = 0; i < nameOut.length; i += 3) {
+                    this._drawLabel(ctx, nameOut[i + 2], nameOut[i], nameOut[i + 1], 5, 3);
+                }
+            }
         }
 
         // 9. Labels méridiens
@@ -639,7 +856,7 @@ export class SkyEngine {
         for (const label of meridianLabels) {
             if (!this._celestialClip([label.ra, 0])) continue;
             const pt = this._projection([label.ra, 0]);
-            if (pt) ctx.fillText(label.text, pt[0], pt[1] - 6);
+            if (pt) this._drawLabel(ctx, label.text, pt[0], pt[1] - 6, 0, 0);
         }
 
         // 10. DSOs : positions projetées en cache (clé = rotation + mag + échelle +
@@ -656,7 +873,7 @@ export class SkyEngine {
                     if (!this._dsoHasCatalog(dso)) continue;
                     const props = dso.properties || {};
                     const mag = parseFloat(props.mag);
-                    if (!isNaN(mag) && mag > this._maxMagnitude) continue;
+                    if (!isNaN(mag) && mag > this._maxMagnitude && !this._isMessier(dso)) continue;
                     const coords = dso.geometry.coordinates;
                     if (!this._celestialClip(coords)) continue;
                     const pt = this._projection(coords);
@@ -678,12 +895,12 @@ export class SkyEngine {
                 ctx.fillStyle = "rgba(255, 0, 150, 0.85)";
                 ctx.font = "14px monospace";
                 ctx.textAlign = "left";
-                ctx.fillText(item.name, item.x + 7, item.y + 3);
+                this._drawLabel(ctx, item.name, item.x, item.y, 7, 3);
             }
         }
 
-        // 11. Planètes (à partir des éléments orbitaux)
-        if (this.layers.planets) this._renderPlanets(ctx);
+        // 11. Planètes (à partir des éléments orbitaux) + Soleil/Lune
+        if (this.layers.planets) { this._renderPlanets(ctx); this._renderSunMoon(ctx); }
 
         // 12. Zenith marker — RA = LST, Dec = latitude du site
         const zenithRa = this._lstDegrees(this._getObsDate(), this.siteLng);
@@ -697,92 +914,140 @@ export class SkyEngine {
             ctx.fillStyle = "rgba(0, 255, 0, 0.8)";
             ctx.font = "15px monospace";
             ctx.textAlign = "left";
-            ctx.fillText(`ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0] + 8, pt[1] + 3);
+            this._drawLabel(ctx, `ZENITH ${this.siteLat.toFixed(2)}°N`, pt[0], pt[1], 8, 3);
         }
 
-        ctx.restore();
-
-        // 6b. Horizon local (orange, tirets) — calculé directement en alt/az
-        //     → canvas (sans projection D3) pour rester TOUJOURS horizontal
-        //     à l'écran, indépendamment du drag et de la projection.
+        // 6b. Horizon local (orange, tirets). Verified numerically against a
+        // reference projection: the old screen-ellipse formula (independent
+        // of _projection) only matched the true horizon at the symmetric
+        // due-south / dec-0 case — it diverges (not just in sign) as soon as
+        // the view is dragged or tracks away from it, which is what the
+        // "yoyo" was. Drawn as a real great circle through _projection,
+        // inside the same parallactic-rotation block as the rest of the sky
+        // so it stays aligned with it (and, since that rotation keeps
+        // alt/az's "up" pointed at screen-up, still reads as roughly
+        // horizontal — but now exactly, not by approximation).
         if (this.layers.horizon) {
             const currentLstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const horizon = this._getHorizon(currentLstDeg * Math.PI / 180);
 
-            // Centre de projection RA/Dec → alt/az
-            const raC = ((currentLstDeg - this._manualOffsetRA) % 360 + 360) % 360;
-            const decC = -this._decOffset;
-            const cAltAz = this._radecToAltAz(raC, decC, currentLstDeg);
-            const altCRad = cAltAz.alt * Math.PI / 180;
-            const azCRad = cAltAz.az * Math.PI / 180;
-            const sinAltC = Math.sin(altCRad);
-            const scale = this._scale;
+            // Ground shade: fill the horizon polygon through the projection,
+            // clipped to the visible disk. d3's clip-and-stitch of this ring
+            // yields one closed piece, but which side (ground vs sky) it
+            // represents flips with the ring winding AND with whether the
+            // view is pointed above or below the horizon. Decide it by fact,
+            // using the screen centre (always on screen, unlike the zenith
+            // which leaves the disk when looking well below the horizon):
+            // the centre must be inside the ground fill iff its altitude is
+            // negative. Reverse the ring when the built fill disagrees.
+            ctx.save();
+            ctx.beginPath();
+            ctx.arc(cx, cy, rsky, 0, 2 * Math.PI);
+            ctx.clip();
+            const ring = horizon.geometry.coordinates;
+            ctx.beginPath();
+            this._pathGenerator({ type: "Polygon", coordinates: [ring] });
+            const cAlt = this._radecToAltAz(-this._currentRotation[0], -this._currentRotation[1], currentLstDeg).alt;
+            if (ctx.isPointInPath(cx, cy) !== (cAlt < 0)) {
+                ctx.beginPath();
+                this._pathGenerator({ type: "Polygon", coordinates: [ring.slice().reverse()] });
+            }
+            ctx.fillStyle = "rgba(150, 160, 175, 0.10)";
+            ctx.fill();
+            ctx.restore();
 
-            // Arc visible : |az - az_c| < 90° (face avant de la sphère)
-            const azCenterDeg = cAltAz.az;
-            const azStartDeg = (azCenterDeg - 90 + 360) % 360;
-            const azEndDeg   = (azCenterDeg + 90 + 360) % 360;
-
-            // Ellipse horizontale : x = scale·sin(θ), y = scale·sin(alt_c)·cos(θ)
-            // avec θ = az - az_c, centrée à l'écran (cx, cy)
             ctx.strokeStyle = "rgba(255, 160, 50, 0.8)";
             ctx.lineWidth = 2;
             ctx.setLineDash([8, 4]);
             ctx.beginPath();
-            let first = true;
-            const drawHzPt = (azDeg) => {
-                const theta = azDeg * Math.PI / 180 - azCRad;
-                const sx = cx + scale * Math.sin(theta);
-                const sy = cy + scale * sinAltC * Math.cos(theta);
-                if (first) { ctx.moveTo(sx, sy); first = false; }
-                else ctx.lineTo(sx, sy);
-            };
-            if (azStartDeg < azEndDeg) {
-                for (let az = azStartDeg; az <= azEndDeg; az++) drawHzPt(az);
-            } else {
-                for (let az = azStartDeg; az <= 360; az++) drawHzPt(az);
-                for (let az = 0; az <= azEndDeg; az++) drawHzPt(az);
-            }
+            this._pathGenerator(horizon);
             ctx.stroke();
             ctx.setLineDash([]);
 
-            // Graduations azimutales
             const azLabels = [
                 { az: 0, name: 'N' }, { az: 30, name: '30°' }, { az: 60, name: '60°' },
                 { az: 90, name: 'E' }, { az: 120, name: '120°' }, { az: 150, name: '150°' },
                 { az: 180, name: 'S' }, { az: 210, name: '210°' }, { az: 240, name: '240°' },
                 { az: 270, name: 'O' }, { az: 300, name: '300°' }, { az: 330, name: '330°' },
             ];
-
-            ctx.fillStyle = "rgba(255, 160, 50, 0.9)";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
-
             for (const lbl of azLabels) {
-                let relAz = lbl.az - azCenterDeg;
-                if (relAz < -180) relAz += 360;
-                if (relAz > 180) relAz -= 360;
-                if (Math.abs(relAz) > 90) continue;
-
-                const theta = lbl.az * Math.PI / 180 - azCRad;
-                const sx = cx + scale * Math.sin(theta);
-                const sy = cy + scale * sinAltC * Math.cos(theta);
-
+                const rd = this._altAzToRadec(0, lbl.az, currentLstDeg);
+                if (!this._celestialClip([rd.ra, rd.dec])) continue;
+                const pt = this._projection([rd.ra, rd.dec]);
+                if (!pt) continue;
                 const isCardinal = lbl.az % 90 === 0;
                 ctx.font = isCardinal ? "bold 15px monospace" : "11px monospace";
                 ctx.fillStyle = isCardinal ? "rgba(255, 160, 50, 1.0)" : "rgba(255, 160, 50, 0.6)";
-                ctx.fillText(lbl.name, sx, sy + 12);
+                this._drawLabel(ctx, lbl.name, pt[0], pt[1], 0, 12);
             }
         }
 
-        // 13. Labels cardinaux (N/S/E/O) — E à gauche, O à droite (ciel vu de l'intérieur)
-        ctx.fillStyle = "#ffaa00";
-        ctx.font = "bold 20px monospace";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("N", cx, cy - rsky + 15);
-        ctx.fillText("S", cx, cy + rsky - 15);
-        ctx.fillText("E", cx - rsky + 15, cy);
-        ctx.fillText("O", cx + rsky - 15, cy);
+        // 13. Compas cardinal (N/S/E/O) — placé sur le vrai point cardinal de
+        // l'horizon via la projection elle-même quand il est à l'écran ; sinon
+        // rabattu sur le bord, dans la direction écran du cap vers ce point
+        // (grand cercle centre→cap, ramené dans l'hémisphère visible). Les 4
+        // positions fixes précédentes n'étaient pas volontaires (confirmé) :
+        // même défaut que l'ancien horizon/méridien, corrigé de la même façon.
+        {
+            const compassLst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const unit = (raDeg, decDeg) => {
+                const a = raDeg * Math.PI / 180, d = decDeg * Math.PI / 180, cd = Math.cos(d);
+                return [cd * Math.cos(a), cd * Math.sin(a), Math.sin(d)];
+            };
+            const cinv = this._projection.invert([cx, cy]);
+            if (cinv && isFinite(cinv[0])) {
+                const cU = unit(cinv[0], cinv[1]);
+                const margin = 24;
+                const edgeR = Math.min(w, h) / 2 - margin;
+                ctx.font = "bold 20px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                for (const [az, name] of [[0, 'N'], [90, 'E'], [180, 'S'], [270, 'O']]) {
+                    const rd = this._altAzToRadec(0, az, compassLst);
+                    const direct = this._projection([rd.ra, rd.dec]);
+                    let sx, sy, faded = false;
+                    if (direct && direct[0] > margin && direct[0] < w - margin &&
+                                  direct[1] > margin && direct[1] < h - margin) {
+                        sx = direct[0]; sy = direct[1];
+                    } else {
+                        const tU = unit(rd.ra, rd.dec);
+                        let dot = cU[0] * tU[0] + cU[1] * tU[1] + cU[2] * tU[2];
+                        dot = Math.max(-1, Math.min(1, dot));
+                        const sep = Math.acos(dot);
+                        if (sep < 1e-3 || sep > Math.PI - 1e-3) continue;
+                        // intermediate point ≤70° from centre → always front-hemisphere
+                        const f = Math.min(0.9, (70 * Math.PI / 180) / sep);
+                        const s = Math.sin(sep);
+                        const k0 = Math.sin((1 - f) * sep) / s;
+                        const k1 = Math.sin(f * sep) / s;
+                        let mx = k0 * cU[0] + k1 * tU[0];
+                        let my = k0 * cU[1] + k1 * tU[1];
+                        let mz = k0 * cU[2] + k1 * tU[2];
+                        const ml = Math.hypot(mx, my, mz) || 1;
+                        mx /= ml; my /= ml; mz /= ml;
+                        const mp = this._projection([
+                            Math.atan2(my, mx) * 180 / Math.PI,
+                            Math.asin(Math.max(-1, Math.min(1, mz))) * 180 / Math.PI,
+                        ]);
+                        if (!mp) continue;
+                        const ddx = mp[0] - cx, ddy = mp[1] - cy;
+                        const dl = Math.hypot(ddx, ddy);
+                        if (dl < 1e-6) continue;
+                        sx = cx + edgeR * ddx / dl;
+                        sy = cy + edgeR * ddy / dl;
+                        faded = sep > Math.PI / 2;   // behind the visible hemisphere
+                    }
+                    ctx.globalAlpha = faded ? 0.4 : 1;
+                    ctx.fillStyle = "#ffaa00";
+                    this._drawLabel(ctx, name, sx, sy, 0, 0);
+                }
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        ctx.restore();
 
         // 14. Réticule centre (rouge)
         ctx.strokeStyle = "#ff0055";
@@ -838,7 +1103,7 @@ export class SkyEngine {
                     ctx.font = "bold 14px monospace";
                     ctx.textAlign = "left";
                     ctx.textBaseline = "bottom";
-                    ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
+                    this._drawLabel(ctx, "TELESCOPE", pt[0], pt[1], 16, -4);
                 }
             }
         }
@@ -911,9 +1176,6 @@ export class SkyEngine {
         const epsilon = 23.4393 * Math.PI / 180;
         const cosEps = Math.cos(epsilon);
         const sinEps = Math.sin(epsilon);
-        const centerRA = -this._currentRotation[0];
-        const centerDec = -this._currentRotation[1];
-        const pScale = this._scale, pTx = this._width / 2, pTy = this._height / 2;
 
         for (const [key, planet] of Object.entries(this._planetsData)) {
             if (key === 'ter') continue;
@@ -935,9 +1197,11 @@ export class SkyEngine {
             const decDeg = decRad * 180 / Math.PI;
             if (raDeg < 0) raDeg += 360;
 
-            // Projection manuelle (même que étoiles/constellations) pour
-            // garantir l'alignement — projectPoint gère le clip à 90°.
-            const pt = projectPoint(raDeg, decDeg, centerRA, centerDec, pScale, pTx, pTy);
+            // Through _projection like DSOs/zenith/telescope, so it stays
+            // consistent across orthographic/stereographic and doesn't need
+            // its own hemisphere-clip logic.
+            if (!this._celestialClip([raDeg, decDeg])) continue;
+            const pt = this._projection([raDeg, decDeg]);
             if (!pt) continue;
 
             ctx.fillStyle = "#ffcc00";
@@ -947,8 +1211,115 @@ export class SkyEngine {
             ctx.fillStyle = "#ffcc00";
             ctx.font = "bold 15px monospace";
             ctx.textAlign = "left";
-            ctx.fillText(planet.name.toUpperCase(), pt[0] + 8, pt[1] + 3);
+            this._drawLabel(ctx, planet.name.toUpperCase(), pt[0], pt[1], 8, 3);
         }
+    }
+
+    // ── Sun / Moon (Schlyter low-precision series, computed locally — the
+    //    planets.json elements for 'sol'/'lun' are empty placeholders) ──
+
+    _sunEcl(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const w = 282.9404 + 4.70935e-5 * d;
+        const e = 0.016709 - 1.151e-9 * d;
+        const M = rev(356.0470 + 0.9856002585 * d);
+        const E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        const r = Math.hypot(xv, yv);
+        const lon = rev(Math.atan2(yv, xv) / rad + w);
+        return { lon, lat: 0, r, M, w };
+    }
+    _eclToRaDec(lon, lat, d) {
+        const rad = Math.PI / 180;
+        const ecl = (23.4393 - 3.563e-7 * d) * rad;
+        const xg = Math.cos(lon * rad) * Math.cos(lat * rad);
+        const yg = Math.sin(lon * rad) * Math.cos(lat * rad);
+        const zg = Math.sin(lat * rad);
+        const xe = xg;
+        const ye = yg * Math.cos(ecl) - zg * Math.sin(ecl);
+        const ze = yg * Math.sin(ecl) + zg * Math.cos(ecl);
+        let ra = Math.atan2(ye, xe) / rad;
+        if (ra < 0) ra += 360;
+        return [ra, Math.atan2(ze, Math.hypot(xe, ye)) / rad];
+    }
+    _moonRaDec(d) {
+        const rad = Math.PI / 180, rev = (x) => ((x % 360) + 360) % 360;
+        const s = this._sunEcl(d);
+        const N = 125.1228 - 0.0529538083 * d;
+        const i = 5.1454;
+        const w = 318.0634 + 0.1643573223 * d;
+        const e = 0.054900;
+        const M = rev(115.3654 + 13.0649929509 * d);
+        let E = M + e * (180 / Math.PI) * Math.sin(M * rad) * (1 + e * Math.cos(M * rad));
+        E = E - (E - e * (180 / Math.PI) * Math.sin(E * rad) - M) / (1 - e * Math.cos(E * rad));
+        const xv = Math.cos(E * rad) - e;
+        const yv = Math.sqrt(1 - e * e) * Math.sin(E * rad);
+        let r = Math.hypot(xv, yv) * 60.2666;   // Earth radii
+        const v = Math.atan2(yv, xv) / rad;
+        const xh = r * (Math.cos(N * rad) * Math.cos((v + w) * rad) - Math.sin(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const yh = r * (Math.sin(N * rad) * Math.cos((v + w) * rad) + Math.cos(N * rad) * Math.sin((v + w) * rad) * Math.cos(i * rad));
+        const zh = r * Math.sin((v + w) * rad) * Math.sin(i * rad);
+        let lon = Math.atan2(yh, xh) / rad;
+        let lat = Math.atan2(zh, Math.hypot(xh, yh)) / rad;
+
+        const Ms = s.M, Ls = rev(s.w + s.M);
+        const Lm = rev(N + w + M), Dm = rev(Lm - Ls), F = rev(Lm - N);
+        const S = (deg) => Math.sin(deg * rad);
+        lon += -1.274 * S(M - 2 * Dm) + 0.658 * S(2 * Dm) - 0.186 * S(Ms)
+            - 0.059 * S(2 * M - 2 * Dm) - 0.057 * S(M - 2 * Dm + Ms) + 0.053 * S(M + 2 * Dm)
+            + 0.046 * S(2 * Dm - Ms) + 0.041 * S(M - Ms) - 0.035 * S(Dm)
+            - 0.031 * S(M + Ms) - 0.015 * S(2 * F - 2 * Dm) + 0.011 * S(M - 4 * Dm);
+        lat += -0.173 * S(F - 2 * Dm) - 0.055 * S(M - F - 2 * Dm) - 0.046 * S(M + F - 2 * Dm)
+            + 0.033 * S(F + 2 * Dm) + 0.017 * S(2 * M + F);
+        r += -0.58 * Math.cos((M - 2 * Dm) * rad) - 0.46 * Math.cos(2 * Dm * rad);
+
+        const [gra, gdec] = this._eclToRaDec(lon, lat, d);
+        let ra = gra, dec = gdec;
+
+        // topocentric parallax (Schlyter). Bail to geocentric if it produces
+        // an implausible shift — parallax is at most ~1°.
+        const lat0 = this.siteLat;
+        if (isFinite(lat0) && isFinite(r) && r > 1) {
+            const mpar = Math.asin(1 / r) / rad;
+            const gclat = lat0 - 0.1924 * S(2 * lat0);
+            const rho = 0.99833 + 0.00167 * Math.cos(2 * lat0 * rad);
+            const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const HA = rev(lst - gra);
+            const g = Math.atan(Math.tan(gclat * rad) / Math.cos(HA * rad)) / rad;
+            const tra = rev(gra - mpar * rho * Math.cos(gclat * rad) * Math.sin(HA * rad) / Math.cos(gdec * rad));
+            let tdec = gdec;
+            if (Math.abs(Math.sin(g * rad)) > 1e-4)
+                tdec = gdec - mpar * rho * Math.sin(gclat * rad) * Math.sin((g - gdec) * rad) / Math.sin(g * rad);
+            const dRa = Math.abs(((tra - gra + 540) % 360) - 180);
+            if (isFinite(tra) && isFinite(tdec) && dRa < 2 && Math.abs(tdec - gdec) < 2) {
+                ra = tra; dec = tdec;
+            }
+        }
+        return [ra, dec];
+    }
+
+    _renderSunMoon(ctx) {
+        const d = this._julianDate(this._getObsDate()) - 2451545.0;
+        const draw = (raDeg, decDeg, color, radius, label) => {
+            if (!this._celestialClip([raDeg, decDeg])) return;
+            const pt = this._projection([raDeg, decDeg]);
+            if (!pt) return;
+            const grad = ctx.createRadialGradient(pt[0], pt[1], 0, pt[0], pt[1], radius * 3);
+            grad.addColorStop(0, color); grad.addColorStop(1, "rgba(0,0,0,0)");
+            ctx.fillStyle = grad;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius * 3, 0, 2 * Math.PI); ctx.fill();
+            ctx.fillStyle = color;
+            ctx.beginPath(); ctx.arc(pt[0], pt[1], radius, 0, 2 * Math.PI); ctx.fill();
+            ctx.font = "bold 14px monospace";
+            ctx.textAlign = "left";
+            this._drawLabel(ctx, label, pt[0], pt[1], radius + 5, 4);
+        };
+        const sun = this._sunEcl(d);
+        const [sra, sdec] = this._eclToRaDec(sun.lon, 0, d);
+        draw(sra, sdec, "#ffd21e", 7, (this._planetsData && this._planetsData.sol && this._planetsData.sol.name || "Sun").toUpperCase());
+        const [mra, mdec] = this._moonRaDec(d);
+        draw(mra, mdec, "#dfe6ef", 6, (this._planetsData && this._planetsData.lun && this._planetsData.lun.name || "Moon").toUpperCase());
     }
 
     _renderCameraFov(ctx) {
@@ -1184,50 +1555,78 @@ export class SkyEngine {
         return { ra, dec: dec * 180 / Math.PI };
     }
 
+    // 'orbit' : the grabbed sky point tracks the cursor, but the field is kept
+    //           upright (no roll) — small drift toward the edges.
+    // 'trackball' : the grabbed point tracks the cursor exactly, roll is free.
+    setDragMode(mode) {
+        mode = mode === 'trackball' ? 'trackball' : 'orbit';
+        if (mode === this._dragMode) return;
+        if (mode === 'orbit') {
+            const a = versorToAngles(this._manualQ);
+            this._manualQ = versorFromAngles([a[0], a[1], 0]);   // drop accumulated roll
+        }
+        this._dragMode = mode;
+        this._updateSiderealRotation();
+    }
+
     _setupDrag() {
-        const drag = d3.behavior.drag().on("drag", () => {
-            const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
-            const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+        let v0 = null, q0 = null;   // grabbed sky vector + full rotation, snapshot at dragstart
 
-            // Un-rotate screen drag by parallactic angle to get true horizontal/vertical
-            const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
-            const cosG = Math.cos(gamma);
-            const sinG = Math.sin(gamma);
-            const sdx = d3.event.dx;
-            const sdy = d3.event.dy;
-            const hDrag = sdx * cosG + sdy * sinG;   // true horizontal (azimuth)
-            const vDrag = -sdx * sinG + sdy * cosG;   // true vertical   (altitude)
+        const mouseLonLat = () => {
+            const p = d3.mouse(this.container);
+            const inv = this._projection.invert(p);
+            return (inv && isFinite(inv[0]) && isFinite(inv[1])) ? inv : null;
+        };
 
-            // Current center in alt/az
-            const centerRA = lst - this._manualOffsetRA;
-            const centerDEC = -this._decOffset;
-            const current = this._radecToAltAz(centerRA, centerDEC, lst);
-
-            let newAz = current.az;
-            let newAlt = current.alt;
-
-            if (this._lockRA) {
-                // Zenith lock: only altitude (vertical)
-                if (!this._lockDEC) newAlt += vDrag * sensitivity;
-            } else if (this._lockDEC) {
-                // E/O lock: only azimuth (horizontal)
-                newAz += hDrag * sensitivity;
-            } else {
-                newAz += hDrag * sensitivity;
-                newAlt += vDrag * sensitivity;
-            }
-
-            newAlt = Math.max(-90, Math.min(90, newAlt));
-            newAz = ((newAz % 360) + 360) % 360;
-
-            // Convert back to RA/DEC and update offsets
-            const newCenter = this._altAzToRadec(newAlt, newAz, lst);
-            this._manualOffsetRA = lst - newCenter.ra;
-            this._decOffset = -newCenter.dec;
-
-            this._updateSiderealRotation();
-        });
+        const drag = d3.behavior.drag()
+            .on("dragstart", () => {
+                if (this._lockRA || this._lockDEC) return;   // legacy alt/az path (see .on drag)
+                const ll = mouseLonLat();
+                if (!ll) { v0 = null; return; }
+                v0 = versorCartesian(ll);
+                q0 = versorFromAngles(this._projection.rotate());
+                this._dragging = true;
+            })
+            .on("drag", () => {
+                if (this._lockRA || this._lockDEC) { this._dragLocked(); return; }
+                if (!v0) return;
+                // Solve against the dragstart frame → absolute tracking, no accumulation/drift.
+                this._projection.rotate(versorToAngles(q0));
+                const ll = mouseLonLat();
+                if (!ll) { this._projection.rotate(this._currentRotation); return; }
+                let q1 = versorMultiply(q0, versorDelta(v0, versorCartesian(ll)));
+                if (this._dragMode !== 'trackball') {
+                    const a = versorToAngles(q1);       // orbit: strip the introduced roll
+                    q1 = versorFromAngles([a[0], a[1], 0]);
+                }
+                const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+                this._manualQ = versorMultiply(q1, versorConjugate(versorFromAngles([-lst, 0, 0])));
+                this._updateSiderealRotation();
+            })
+            .on("dragend", () => {
+                this._dragging = false;
+                v0 = null;
+            });
         d3.select(this.container).call(drag);
+    }
+
+    // Legacy incremental alt/az pan, only used while a rotation lock is on
+    // (zenith / E-O buttons in the pointing console).
+    _dragLocked() {
+        const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
+        const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
+        const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+        const cosG = Math.cos(gamma), sinG = Math.sin(gamma);
+        const hDrag = -(d3.event.dx * cosG + d3.event.dy * sinG);
+        const vDrag = -d3.event.dx * sinG + d3.event.dy * cosG;
+        const current = this._radecToAltAz(lst - this._manualOffsetRA, -this._decOffset, lst);
+        let newAz = current.az, newAlt = current.alt;
+        if (this._lockRA) { if (!this._lockDEC) newAlt += vDrag * sensitivity; }
+        else if (this._lockDEC) newAz += hDrag * sensitivity;
+        newAlt = Math.max(-90, Math.min(90, newAlt));
+        newAz = ((newAz % 360) + 360) % 360;
+        const nc = this._altAzToRadec(newAlt, newAz, lst);
+        this._setCenter(nc.ra, nc.dec);
     }
 
     _setupZoom() {
@@ -1238,7 +1637,7 @@ export class SkyEngine {
             else this._scale /= 1.1;
             this._scale = Math.max(
                 Math.min(this._width, this._height) * 0.15,
-                Math.min(Math.min(this._width, this._height) * 8, this._scale)
+                Math.min(Math.min(this._width, this._height) * 80, this._scale)
             );
             this._projection.scale(this._scale);
             this.render();
@@ -1486,8 +1885,9 @@ export class SkyEngine {
 
     _setCenter(raDeg, decDeg) {
         const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
-        this._manualOffsetRA = lst - raDeg;
-        this._decOffset = -decDeg;
+        // manual orientation that puts (raDeg, decDeg) at screen centre, roll-free
+        const full = versorFromAngles([-raDeg, -decDeg, 0]);
+        this._manualQ = versorMultiply(full, versorConjugate(versorFromAngles([-lst, 0, 0])));
         this._updateSiderealRotation();
     }
 
@@ -1523,9 +1923,14 @@ export class SkyEngine {
     }
 
     updateSite(lat, lng, elev) {
+        lat = Number(lat);
+        lng = Number(lng);
+        // Ignore an unset / implausible fix (e.g. 0,0 on a demo server) so the
+        // horizon doesn't collapse onto the pole.
+        if (!isFinite(lat) || Math.abs(lat) > 90 || (lat === 0 && (!isFinite(lng) || lng === 0))) return;
         this.siteLat = lat;
-        this.siteLng = lng;
-        this.siteElev = elev;
+        if (isFinite(lng) && Math.abs(lng) <= 180) this.siteLng = lng;
+        this.siteElev = Number(elev) || 0;
         this._updateSiderealRotation();
     }
 
@@ -1543,8 +1948,7 @@ export class SkyEngine {
 
     setRealTime() {
         this._timeMode = 'realtime';
-        this._manualOffsetRA = 0;
-        this._decOffset = 0;
+        this._manualQ = [1, 0, 0, 0];
         this._startSiderealSync();
     }
 
