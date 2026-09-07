@@ -2263,6 +2263,11 @@ body {
         width: auto !important;
         max-width: calc(100vw - 600px) !important;
     }
+    /* Astrométrie : 6 panneaux → limite la hauteur pour tenir sur 800px */
+    #applet-pointing, #applet-target, #applet-framing, #applet-polar {
+        max-height: 320px !important;
+        overflow-y: auto !important;
+    }
 }
 
 /* ── Mobile dock : icônes uniformes verticales ────────────────── */
