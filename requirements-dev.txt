@@ -1,0 +1,7 @@
+# Dépendances de développement / tests — installer via:
+#   .venv/bin/pip install -r requirements-dev.txt
+# ou
+#   ./install.sh --dev
+-r requirements.txt
+pytest>=7.0
+httpx>=0.24

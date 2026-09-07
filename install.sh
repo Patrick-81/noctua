@@ -43,6 +43,12 @@ python -m pip install --upgrade pip --quiet
 echo "• Installation des dépendances (requirements.txt)…"
 python -m pip install -r requirements.txt
 
+# --- 3bis. Dépendances de dev (optionnel) ------------------------------------
+if [ "${1:-}" = "--dev" ] || [ "${1:-}" = "--with-dev" ]; then
+    echo "• Installation des dépendances de dev (requirements-dev.txt)…"
+    python -m pip install -r requirements-dev.txt
+fi
+
 # --- 4. Vérification seiza (solveur Rust) --------------------------------------
 if ! python -c "import seiza" 2>/dev/null; then
     echo
