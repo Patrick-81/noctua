@@ -45,6 +45,26 @@ function switchMode(mode) {
             }
         }
     }
+    // Desktop dense (>4 panneaux) : repli par défaut pour éviter l'encombrement — garde 2 premiers ouverts
+    if (window.innerWidth >= 1100) {
+        const ids = MODES[mode].applets;
+        if (ids.length > 4 && !currentModeConfig().collapsed) {
+            // Pas d'état sauvegardé → replie tout sauf les 2 premiers
+            ids.slice(2).forEach(id => {
+                const el = document.getElementById(id);
+                if (el && !el.classList.contains('collapsed')) {
+                    el.classList.add('collapsed');
+                    const btn = el.querySelector('.applet-minimize');
+                    if (btn) btn.classList.add('collapsed-label');
+                }
+            });
+            // Persiste l'état initial
+            currentModeConfig().collapsed = {};
+            ids.slice(2).forEach(id => { currentModeConfig().collapsed[id] = true; });
+            ids.slice(0,2).forEach(id => { currentModeConfig().collapsed[id] = false; });
+            saveUiConfig();
+        }
+    }
 
     document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);

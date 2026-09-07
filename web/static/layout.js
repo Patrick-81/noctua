@@ -83,7 +83,11 @@ function getPanelTitle(id) {
 function updateMobileDock() {
     const dock = document.getElementById('mobile-dock');
     if (!dock) return;
-    if (window.innerWidth >= 1100) { dock.innerHTML = ''; dock.style.display = 'none'; return; }
+    const isDesktop = window.innerWidth >= 1100;
+    const appletCount = (MODES[currentMode]?.applets || []).length;
+    // Desktop: n'afficher le dock que pour les modes denses (>4 panneaux) — ex. astrometry 6, guiding 5, capture 4
+    if (isDesktop && appletCount <= 4) { dock.innerHTML = ''; dock.style.display = 'none'; dock.classList.remove('dense'); return; }
+    dock.classList.toggle('dense', isDesktop);
     dock.style.display = 'flex';
     const ids = (MODES[currentMode]?.applets || []).slice();
     // Inclure le dashboard s'il est visible dans ce mode (toujours visible sauf hardware)
