@@ -98,6 +98,9 @@ function configureViewerForMode(mode) {
     if (mode === 'guiding') {
         if (guideViewer) guideViewer.configure('guiding');
         if (captureViewer) captureViewer.configure('guiding');
+    } else if (mode === 'aberration') {
+        if (captureViewer) captureViewer.configure('aberration');
+        if (guideViewer) guideViewer.configure('aberration');
     } else {
         if (captureViewer) captureViewer.configure(mode);
     }
@@ -528,6 +531,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     initFocuserPanel();
     initGuidePanel();
     initDashboard();
+    if (typeof initCollimationPanel === 'function') initCollimationPanel();
+    if (typeof initAberrationPanel === 'function') initAberrationPanel();
     setInterval(() => _guideChecklist?.update(), 1000);
     initCalibrationPanel();
     initSessionPanel();

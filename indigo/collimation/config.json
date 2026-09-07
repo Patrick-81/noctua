@@ -1,0 +1,29 @@
+{
+  "hardware": {
+    "diametre_mm": 203,
+    "focale_mm": 800,
+    "obstruction_ratio": 0.345,
+    "n_araignees": 4,
+    "epaisseur_araignee": 0.0005,
+    "pixel_size_um": 3.76,
+    "patch_size_px": 128,
+    "defocus_waves": 4.5,
+    "wavelength_um": 0.55,
+    "npix_pupil": 256
+  },
+  "vis": {
+    "pas_secondaire_mm": 0.7,
+    "pas_primaire_mm": 1.0,
+    "rayon_levier_mm": 82
+  },
+  "dataset": {
+    "n_samples": 10000,
+    "decenter_max_mm": 2.0,
+    "tilt_max_deg": 0.3
+  },
+  "train": {
+    "epochs": 40,
+    "batch_size": 32,
+    "lr": 0.001
+  }
+}

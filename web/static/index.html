@@ -43,6 +43,8 @@
     <script src="/pointing.js"></script>
     <script src="/framing.js"></script>
     <script src="/visibility.js"></script>
+    <script src="/collimation.js"></script>
+    <script src="/aberration.js"></script>
 </head>
 <body>
 
@@ -81,6 +83,14 @@
             <button class="mode-btn" data-mode="astrometry" title="Astrométrie" data-i18n-title="mode.astrometry.title">
                 <span class="mode-icon">⭐</span>
                 <span class="mode-label" data-i18n="mode.astrometry">Astro</span>
+            </button>
+            <button class="mode-btn" data-mode="collimation" title="Collimation" data-i18n-title="mode.collimation.title">
+                <span class="mode-icon">◎</span>
+                <span class="mode-label" data-i18n="mode.collimation">Collimation</span>
+            </button>
+            <button class="mode-btn" data-mode="aberration" title="Aberration & Tilt" data-i18n-title="mode.aberration.title">
+                <span class="mode-icon">◉</span>
+                <span class="mode-label" data-i18n="mode.aberration">Aberr</span>
             </button>
         </div>
 
@@ -345,6 +355,18 @@
                     <button id="btn-lock-zenith" class="btn-glass lock-btn" title="Bloquer rotation azimutale — ne garder que le bas/haut (altitude)" data-i18n-title="hud.lock_zenith.title" data-i18n="hud.lock_zenith">⊕ Zénith</button>
                     <button id="btn-lock-ew" class="btn-glass lock-btn" title="Bloquer rotation altitude — ne garder que l'axe E/O (azimut)" data-i18n-title="hud.lock_ew.title" data-i18n="hud.lock_ew">⟷ E/O</button>
                 </div>
+            </div>
+
+            <div class="horizon-align">
+                <div class="hud-title" style="font-size:0.6rem; margin:6px 0 3px;">HORIZON — Vue</div>
+                <div class="horizon-row" style="display:flex; gap:4px;">
+                    <button class="btn-glass horizon-btn" data-az="0" title="Nord — horizon au centre, N en bas">N</button>
+                    <button class="btn-glass horizon-btn" data-az="90" title="Est — horizon au centre, E en bas">E</button>
+                    <button class="btn-glass horizon-btn" data-az="180" title="Sud — horizon au centre, S en bas">S</button>
+                    <button class="btn-glass horizon-btn" data-az="270" title="Ouest — horizon au centre, O en bas">O</button>
+                    <button class="btn-glass horizon-btn" data-az="zenith" title="Zénith — horizon en bas de l'écran">Z</button>
+                </div>
+                <div style="font-size:0.5rem; color:#666; margin-top:2px;">Horizon ↔ horizontale écran</div>
             </div>
 
             <div class="layer-toggles">
@@ -1013,6 +1035,7 @@
                     <canvas id="cap-preview-canvas" style="width:100%; height:100%; display:block; border-radius:4px;"></canvas>
                     <canvas id="offset-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                     <canvas id="focus-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
+                    <canvas id="aberr-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                 </div>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
                 <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
@@ -1563,6 +1586,198 @@
         <div id="applet-props" class="glass-panel applet" style="display:none;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" id="applet-props-title" data-i18n="props.title">PROPRIÉTÉS</span></div>
         </div>
+
+        <!-- ══════════════════════════════════════════════════════ -->
+        <!-- APPLET: COLLIMATION (mode collimation)                -->
+        <!-- ══════════════════════════════════════════════════════ -->
+        <div id="applet-collimation" class="glass-panel applet mode-specific" data-modes="collimation" style="display:none; top:80px; left:16px; width:620px; max-height:calc(100vh - 120px); overflow-y:auto;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◎ COLLIMATION — CollimAI</span><span id="collim-badge-model" style="margin-left:8px; font-size:0.6rem; color:#4a4; display:none;">● Modèle prêt</span><span id="collim-badge-rpi" style="margin-left:6px; font-size:0.55rem; color:#fa0; display:none;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div id="collim-warn-rpi" style="display:none; padding:6px 8px; background:rgba(255,170,0,0.12); border:1px solid rgba(255,170,0,0.35); border-radius:6px; font-size:0.62rem; color:#fa0; margin-bottom:6px;">
+                    ⚠ RPi détecté — l'onglet <b>Apprentissage</b> (génération dataset + entraînement) est désactivé (CPU/RAM insuffisants). Lancez <code>generate_psf_dataset.py</code> et <code>train_model.py</code> sur Orion puis copiez <code>best_model.pt</code>. L'<b>Inférence</b> reste active.
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px;">
+                    <button class="btn-glass collim-tab active" data-collim-tab="infer" style="flex:1;">🔍 Inférence</button>
+                    <button class="btn-glass collim-tab" data-collim-tab="learn" style="flex:1;">🧠 Apprentissage</button>
+                </div>
+
+                <!-- Pane Inférence -->
+                <div id="collim-pane-infer">
+                    <div id="collim-instrument-recap" style="padding:5px 7px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.15); border-radius:6px; font-size:0.58rem; color:#aaa; margin-bottom:6px; line-height:1.5;">
+                        Chargement instrument...
+                    </div>
+                    <div style="display:flex; gap:6px; align-items:center; margin-bottom:6px;">
+                        <div style="flex:1; display:flex; gap:4px;">
+                            <input id="collim-inp-path" type="text" class="input-glass" placeholder="/chemin/vers/etoile_defoc.fits ou dossier" style="flex:1; font-family:monospace; font-size:0.62rem;">
+                            <button id="collim-btn-path" class="btn-glass success" style="font-size:0.65rem;">Charger ↗</button>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:4px; align-items:center; margin-bottom:6px;">
+                        <label class="btn-glass" style="font-size:0.6rem; cursor:pointer;">
+                            Sélectionner FITS...
+                            <input type="file" id="collim-inp-file" accept=".fit,.fits,.png,.jpg,.tif,.tiff,.npy" style="display:none">
+                        </label>
+                        <button id="collim-btn-reload" class="btn-glass" style="font-size:0.6rem; display:none;">↺ Recharger</button>
+                        <span id="collim-field-info" style="font-size:0.58rem; color:#888; margin-left:6px;"></span>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <div style="flex:0 0 320px;">
+                            <canvas id="collim-field-canvas" width="320" height="320" style="width:320px; height:320px; background:#05080f; border-radius:6px; border:1px solid rgba(255,255,255,0.08); cursor:crosshair; display:block;"></canvas>
+                            <div id="collim-star-table-card" style="display:none; margin-top:6px; max-height:140px; overflow-y:auto; font-size:0.62rem;">
+                                <table style="width:100%; border-collapse:collapse;">
+                                    <thead><tr style="color:#666; font-size:0.55rem;"><th>#</th><th>Zone</th><th>ADU</th><th>Ellip</th><th>Dist</th><th>Statut</th></tr></thead>
+                                    <tbody id="collim-star-tbody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div style="flex:1; min-width:220px;">
+                            <div id="collim-steps" style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px;">
+                                <div><span id="collim-sn1" class="collim-sn s-idle">1</span> <span id="collim-sl1">Charger FITS</span></div>
+                                <div><span id="collim-sn2" class="collim-sn s-idle">2</span> <span id="collim-sl2">Détection</span></div>
+                                <div><span id="collim-sn3" class="collim-sn s-idle">3</span> <span id="collim-sl3">Sélection étoile</span></div>
+                                <div><span id="collim-sn4" class="collim-sn s-idle">4</span> <span id="collim-sl4">Inférence</span></div>
+                            </div>
+                            <div id="collim-psf-panel" style="display:none; padding:6px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px;">
+                                <div id="collim-star-info" style="font-size:0.62rem; color:#aaa; margin-bottom:4px;"></div>
+                                <button id="collim-btn-infer" class="btn-glass success" style="width:100%; font-size:0.68rem;">▶ Analyser → correction</button>
+                                <div id="collim-infer-prog" style="display:none; font-size:0.6rem; color:#0ff; margin-top:4px;">Analyse Monte Carlo 30 passes...</div>
+                            </div>
+                            <div id="collim-result-panel" style="display:none; padding:6px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.18); border-radius:6px;">
+                                <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;"><span style="font-size:0.68rem;" id="collim-result-badge">—</span><span style="margin-left:auto; font-size:0.58rem; color:#888;">Score <span id="collim-r-score">—</span></span></div>
+                                <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.62rem; margin-bottom:6px;">
+                                    <div>ΔX sec <span id="collim-r-dx" style="font-family:monospace; color:#0ff;">—</span></div>
+                                    <div>ΔY sec <span id="collim-r-dy" style="font-family:monospace; color:#0ff;">—</span></div>
+                                    <div>Tilt X <span id="collim-r-tx" style="font-family:monospace; color:#fa0;">—</span></div>
+                                    <div>Tilt Y <span id="collim-r-ty" style="font-family:monospace; color:#fa0;">—</span></div>
+                                </div>
+                                <div id="collim-vis-list" style="font-size:0.62rem;"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Pane Apprentissage (grisé sur RPi, données réelles sur PC) -->
+                <div id="collim-pane-learn" style="display:none;">
+                    <div id="collim-config-card" style="padding:6px 8px; background:rgba(255,255,255,0.04); border:1px solid rgba(255,255,255,0.08); border-radius:6px; margin-bottom:6px;">
+                        <div style="font-size:0.68rem; margin-bottom:4px;">⚙️ Configuration instrument — génération images virtuelles</div>
+                        <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                            <input id="collim-instr-name" type="text" class="input-glass" placeholder="Nom instrument (ex: GSO Photon 200/800, Skywatcher 150/750)" style="flex:1; font-size:0.62rem;">
+                            <button id="collim-btn-lookup" class="btn-glass" style="font-size:0.62rem; white-space:nowrap;">🔍 Auto-remplir via IA (free)</button>
+                        </div>
+                        <div id="collim-lookup-status" style="font-size:0.55rem; color:#888; margin-bottom:4px;"></div>
+                        <div style="font-size:0.52rem; color:#666; margin-bottom:4px;">Provider free : <code>OPENROUTER_API_KEY</code> (modèle <code>meta-llama/llama-3.1-8b-instruct:free</code> — clé free sur <a href="https://openrouter.ai/keys" target="_blank" style="color:#0af">openrouter.ai/keys</a>) ou <code>HF_TOKEN</code>. Sans clé : parsing Ø/F heuristique (ex: 200/800 → 200mm/800mm).</div>
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem;">
+                            <label>Ø diamètre (mm)<br><input id="collim-hw-D" type="number" class="input-glass" value="203" step="1" style="width:100%"></label>
+                            <label>Focale (mm)<br><input id="collim-hw-f" type="number" class="input-glass" value="800" step="10" style="width:100%"></label>
+                            <label>F/D auto<br><input id="collim-hw-fd" type="text" class="input-glass" readonly style="width:100%"></label>
+                            <label>Obstruction (0-1)<br><input id="collim-hw-obs" type="number" class="input-glass" value="0.345" step="0.001" style="width:100%"></label>
+                            <label>Nb araignées<br><input id="collim-hw-ara" type="number" class="input-glass" value="4" step="1" style="width:100%"></label>
+                            <label>Ép. araignée (mm)<br><input id="collim-hw-ep" type="number" class="input-glass" value="0.5" step="0.1" style="width:100%"></label>
+                            <label>Pixel (µm)<br><input id="collim-hw-px" type="number" class="input-glass" value="3.76" step="0.01" style="width:100%"></label>
+                            <label>Patch CNN (px)<br><input id="collim-hw-patch" type="number" class="input-glass" value="128" step="32" style="width:100%"></label>
+                            <label>Défocus (λ)<br><input id="collim-hw-def" type="number" class="input-glass" value="4.5" step="0.5" style="width:100%"></label>
+                            <label>λ (µm)<br><input id="collim-hw-wl" type="number" class="input-glass" value="0.55" step="0.01" style="width:100%"></label>
+                            <label>Vis sec pas (mm/tr)<br><input id="collim-vis-s" type="number" class="input-glass" value="0.7" step="0.1" style="width:100%"></label>
+                            <label>Vis prim pas (mm/tr)<br><input id="collim-vis-p" type="number" class="input-glass" value="1.0" step="0.1" style="width:100%"></label>
+                            <label>Rayon levier (mm)<br><input id="collim-vis-lev" type="number" class="input-glass" value="82" step="1" style="width:100%"></label>
+                            <label>Dataset N<br><input id="collim-ds-n" type="number" class="input-glass" value="10000" step="1000" style="width:100%"></label>
+                            <label>Decenter max (mm)<br><input id="collim-ds-dec" type="number" class="input-glass" value="2.0" step="0.1" style="width:100%"></label>
+                            <label>Tilt max (°)<br><input id="collim-ds-tilt" type="number" class="input-glass" value="0.3" step="0.05" style="width:100%"></label>
+                        </div>
+                        <div style="display:flex; gap:6px; margin-top:6px; align-items:center;">
+                            <button id="collim-btn-save-config" class="btn-glass success" style="font-size:0.62rem;">💾 Sauvegarder config</button>
+                            <span id="collim-config-saved" style="font-size:0.58rem; color:#4a4; display:none;">✓ Sauvegardée</span>
+                            <span id="collim-config-rpi-warn" style="font-size:0.55rem; color:#fa0; display:none;">Lecture seule sur RPi</span>
+                        </div>
+                    </div>
+                    <div id="collim-dataset-recap" style="padding:6px 8px; background:rgba(0,180,255,0.06); border:1px solid rgba(0,180,255,0.15); border-radius:6px; font-size:0.58rem; color:#aaa; margin-bottom:6px; line-height:1.6;">
+                        Chargement dataset...
+                    </div>
+                    <div style="padding:6px 8px; background:rgba(255,255,255,0.03); border-radius:6px; margin-bottom:6px; text-align:center;">
+                        <div style="font-size:0.62rem; color:#888; margin-bottom:4px;">Aperçu PSF défocalisées 128×128 — GSO 200/800 — 3969 déjà générées (268M)</div>
+                        <img id="collim-preview-img" src="/api/collimation/dataset/preview" alt="preview PSF" style="max-width:100%; border-radius:6px; border:1px solid rgba(255,255,255,0.08);">
+                        <div id="collim-preview-meta" style="font-size:0.55rem; color:#666; margin-top:3px;"></div>
+                    </div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:6px; font-size:0.58rem;">
+                        <div style="padding:6px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                            <div style="font-weight:bold; margin-bottom:3px;">📦 Dataset Poppy</div>
+                            <div id="collim-dataset-stats" style="color:#888;">—</div>
+                            <div style="margin-top:4px; color:#666;">Lancer sur Orion :<br><code>python generate_psf_dataset.py --n 10000</code></div>
+                        </div>
+                        <div style="padding:6px; background:rgba(255,255,255,0.03); border-radius:6px;">
+                            <div style="font-weight:bold; margin-bottom:3px;">🧠 Entraînement CollimNet</div>
+                            <div id="collim-train-stats" style="color:#888;">—</div>
+                            <div style="margin-top:4px; color:#666;">Lancer sur Orion :<br><code>python train_model.py</code></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- APPLET: ABERRATION & TILT (mode aberration, réutilise capture viewer) -->
+        <div id="applet-aberration" class="glass-panel applet mode-specific" data-modes="aberration" style="display:none; top:80px; left:16px; width:640px; max-height:calc(100vh - 120px); overflow-y:auto;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◉ ABERRATION & TILT</span><span id="aberr-badge" style="margin-left:8px; font-size:0.55rem; color:#888;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div style="padding:6px 8px;">
+                <div id="aberr-header-info" style="font-size:0.55rem; color:#888; margin-bottom:4px; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:4px;">Aucune capture</div>
+                <div style="display:flex; gap:4px; margin-bottom:6px;">
+                    <button class="btn-glass aberr-tab active" data-aberr-tab="aber" style="flex:1;">◎ Aberrations</button>
+                    <button class="btn-glass aberr-tab" data-aberr-tab="tilt" style="flex:1;">◉ Tilt capteur</button>
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                    <button id="aberr-btn-last" class="btn-glass success" style="font-size:0.62rem;">Analyser dernière capture (viewer)</button>
+                    <span style="font-size:0.55rem; color:#666;">ou</span>
+                    <input id="aberr-inp-path" type="text" class="input-glass" placeholder="/chemin/vers/image.fits ou dossier" style="flex:1; font-size:0.58rem;">
+                    <button id="aberr-btn-path" class="btn-glass" style="font-size:0.62rem;">Charger ↗</button>
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
+                    <label class="btn-glass" style="font-size:0.58rem; cursor:pointer;">Fichier FITS...
+                        <input type="file" id="aberr-inp-file" accept=".fit,.fits,.png,.jpg,.tif,.tiff,.npy" style="display:none">
+                    </label>
+                    <span id="aberr-info" style="font-size:0.58rem; color:#888; margin-left:6px;"></span>
+                </div>
+
+                <!-- Sous-onglet Aberrations -->
+                <div id="aberr-pane-aber">
+                    <div id="aberr-results" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px; padding:6px; background:rgba(0,255,180,0.06); border:1px solid rgba(0,255,180,0.15); border-radius:6px;">
+                            <div>HFR moy <b id="aberr-hfr">—</b></div>
+                            <div>FWHM moy <b id="aberr-fwhm">—</b></div>
+                            <div>Qualité <b id="aberr-quality">—</b></div>
+                            <div>Ellip moy <b id="aberr-ellip">—</b></div>
+                            <div>Coma moy <b id="aberr-coma">—</b></div>
+                            <div>Tilt <b id="aberr-tilt-mag">—</b></div>
+                        </div>
+                        <div style="font-size:0.55rem; color:#666; margin-bottom:3px;">Header FITS: <span id="aberr-header-detail" style="color:#aaa;"></span></div>
+                        <div style="max-height:160px; overflow-y:auto; font-size:0.58rem;">
+                            <table style="width:100%; border-collapse:collapse;">
+                                <thead><tr style="color:#666; font-size:0.52rem;"><th>#</th><th>x,y</th><th>HFR</th><th>FWHM</th><th>Ellip</th><th>Coma</th><th>SNR</th></tr></thead>
+                                <tbody id="aberr-star-tbody"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Sous-onglet Tilt -->
+                <div id="aberr-pane-tilt" style="display:none;">
+                    <div style="padding:6px; background:rgba(255,170,0,0.06); border:1px solid rgba(255,170,0,0.2); border-radius:6px; margin-bottom:6px;">
+                        <canvas id="aberr-tilt-canvas" width="600" height="340" style="width:100%; height:340px; background:#05080f; border-radius:4px; display:block;"></canvas>
+                        <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem; margin-top:4px;">
+                            <div>Tilt dx <b id="aberr-tilt-dx">—</b></div>
+                            <div>Tilt dy <b id="aberr-tilt-dy">—</b></div>
+                            <div>Mag <b id="aberr-tilt-mag">—</b></div>
+                        </div>
+                        <div style="font-size:0.52rem; color:#666; margin-top:3px;">Flèche = gradient HFR (tilt capteur) · points colorés = HFR par étoile (vert bon, orange moyen, rouge mauvais) · utilise le même calcul <code>focus_metrics HFR</code> que l'autofocus.</div>
+                    </div>
+                    <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:6px; font-size:0.58rem; align-items:center;">
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-grid" checked> Grille déformée (tilt)</label>
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-arrows" checked> Flèches coma/tilt</label>
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;"><input type="checkbox" id="aberr-opt-ellip" checked> Ellipses</label>
+                        <span style="margin-left:auto; color:#666; font-size:0.52rem;">Overlay sur l'aperçu (viewer)</span>
+                    </div>
+                    <canvas id="aberr-viewer-overlay" width="600" height="340" style="display:none;"></canvas>
+                </div>
+            </div>
+        </div>
         </div> <!-- /mobile-stack -->
     </div><!-- /applets-layer -->
 
@@ -1677,6 +1892,8 @@
         <button class="bnav-btn" data-mode="capture" title="Capture"><span class="bnav-icon">📷</span><span class="bnav-label">Capture</span></button>
         <button class="bnav-btn" data-mode="sequencer" title="Séquence"><span class="bnav-icon">📋</span><span class="bnav-label">Séquence</span></button>
         <button class="bnav-btn" data-mode="astrometry" title="Astro"><span class="bnav-icon">⭐</span><span class="bnav-label">Astro</span></button>
+        <button class="bnav-btn" data-mode="collimation" title="Collimation"><span class="bnav-icon">◎</span><span class="bnav-label">Collim</span></button>
+        <button class="bnav-btn" data-mode="aberration" title="Aberration & Tilt"><span class="bnav-icon">◉</span><span class="bnav-label">Aberr</span></button>
     </nav>
     <div id="mobile-dock" aria-label="Panneaux"></div>
 
