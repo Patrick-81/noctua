@@ -45,23 +45,21 @@ function switchMode(mode) {
             }
         }
     }
-    // Desktop dense (>4 panneaux) : repli par défaut pour éviter l'encombrement — garde 2 premiers ouverts
+    // Desktop dense (>4 panneaux) : tout replié par défaut, ne garde que tableau de bord / légende / log
     if (window.innerWidth >= 1100) {
         const ids = MODES[mode].applets;
-        if (ids.length > 4 && !currentModeConfig().collapsed) {
-            // Pas d'état sauvegardé → replie tout sauf les 2 premiers
-            ids.slice(2).forEach(id => {
+        if (ids.length > 4) {
+            // Toujours masquer tous les panneaux de l'atelier à l'entrée (dock permet de les rouvrir)
+            ids.forEach(id => {
                 const el = document.getElementById(id);
-                if (el && !el.classList.contains('collapsed')) {
+                if (el) {
                     el.classList.add('collapsed');
                     const btn = el.querySelector('.applet-minimize');
                     if (btn) btn.classList.add('collapsed-label');
                 }
             });
-            // Persiste l'état initial
             currentModeConfig().collapsed = {};
-            ids.slice(2).forEach(id => { currentModeConfig().collapsed[id] = true; });
-            ids.slice(0,2).forEach(id => { currentModeConfig().collapsed[id] = false; });
+            ids.forEach(id => { currentModeConfig().collapsed[id] = true; });
             saveUiConfig();
         }
     }
