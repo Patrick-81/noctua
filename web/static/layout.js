@@ -95,15 +95,17 @@ function updateMobileDock() {
         ids.unshift('applet-status');
     }
     dock.innerHTML = '';
+    const isDenseDesktop = isDesktop && appletCount > 4;
     ids.forEach(id => {
         const panel = document.getElementById(id);
         if (!panel) return;
-        if (panel.style.display === 'none' && panel.classList.contains('mode-specific')) return;
+        // En dense desktop les panneaux sont escamotés (display:none) mais doivent rester dans le dock
+        if (!isDenseDesktop && panel.style.display === 'none' && panel.classList.contains('mode-specific')) return;
         // Ne pas dupliquer les panneaux masqués par le mode (display none)
         if (getComputedStyle(panel).display === 'none' && !ids.includes(id)) return;
         const isVisible = !panel.classList.contains('collapsed') && getComputedStyle(panel).display !== 'none' && panel.offsetParent !== null;
         // Sur mobile, offsetParent null si display none, mais on veut quand même une icône pour les cachés
-        const isHidden = panel.classList.contains('collapsed') || panel.style.display === 'none';
+        const isHidden = isDenseDesktop ? (panel.style.display === 'none') : (panel.classList.contains('collapsed') || panel.style.display === 'none');
         const btn = document.createElement('button');
         btn.className = 'dock-btn' + (!isHidden ? ' active' : '');
         btn.dataset.panel = id;
@@ -115,33 +117,57 @@ function updateMobileDock() {
         btn.addEventListener('click', () => {
             const p = document.getElementById(id);
             if (!p) return;
-            const willShow = p.classList.contains('collapsed') || getComputedStyle(p).display === 'none';
+            const willShow = isDenseDesktop ? (p.style.display === 'none') : (p.classList.contains('collapsed') || getComputedStyle(p).display === 'none');
             if (willShow) {
-                p.classList.remove('collapsed');
-                p.style.display = '';
-                // Retire l'état collapsed persisté
+                if (isDenseDesktop) {
+                    p.style.display = '';
+                    p.classList.remove('collapsed');
+                    const minBtn = p.querySelector('.applet-minimize');
+                    if (minBtn) minBtn.classList.remove('collapsed-label');
+                } else {
+                    p.classList.remove('collapsed');
+                    p.style.display = '';
+                    const minBtn = p.querySelector('.applet-minimize');
+                    if (minBtn) minBtn.classList.remove('collapsed-label');
+                }
+                // Retire l'état escamoté/collapsed persisté
                 if (['applet-log','applet-legend'].includes(id)) {
                     if (uiConfig.fixedCollapsed) uiConfig.fixedCollapsed[id] = false;
                 } else {
                     if (currentModeConfig().collapsed) currentModeConfig().collapsed[id] = false;
+                    if (currentModeConfig().hidden) currentModeConfig().hidden[id] = false;
                 }
-                const minBtn = p.querySelector('.applet-minimize');
-                if (minBtn) minBtn.classList.remove('collapsed-label');
                 // Scroll doux vers le panneau sans déplacer la carte (stack scroll)
                 requestAnimationFrame(() => {
                     const stack = document.getElementById('mobile-stack');
                     if (stack && p.closest('#mobile-stack')) p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    // Desktop dense: s'assurer que le panneau est dans le viewport
+                    if (isDenseDesktop) {
+                        const r = p.getBoundingClientRect();
+                        if (r.top < 80 || r.bottom > window.innerHeight - 20) {
+                            p.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                        }
+                    }
                 });
             } else {
-                p.classList.add('collapsed');
-                const minBtn = p.querySelector('.applet-minimize');
-                if (minBtn) minBtn.classList.add('collapsed-label');
+                if (isDenseDesktop) {
+                    p.style.display = 'none';
+                    p.classList.remove('collapsed');
+                } else {
+                    p.classList.add('collapsed');
+                    const minBtn = p.querySelector('.applet-minimize');
+                    if (minBtn) minBtn.classList.add('collapsed-label');
+                }
                 if (['applet-log','applet-legend'].includes(id)) {
                     uiConfig.fixedCollapsed = uiConfig.fixedCollapsed || {};
                     uiConfig.fixedCollapsed[id] = true;
                 } else {
                     currentModeConfig().collapsed = currentModeConfig().collapsed || {};
                     currentModeConfig().collapsed[id] = true;
+                    if (isDenseDesktop) {
+                        currentModeConfig().hidden = currentModeConfig().hidden || {};
+                        currentModeConfig().hidden[id] = true;
+                    }
                 }
             }
             saveUiConfig();

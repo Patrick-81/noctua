@@ -45,21 +45,25 @@ function switchMode(mode) {
             }
         }
     }
-    // Desktop dense (>4 panneaux) : tout replié par défaut, ne garde que tableau de bord / légende / log
+    // Desktop dense (>4 panneaux) : tout escamoté par défaut (display:none), ne garde que tableau de bord / légende / log
     if (window.innerWidth >= 1100) {
         const ids = MODES[mode].applets;
         if (ids.length > 4) {
-            // Toujours masquer tous les panneaux de l'atelier à l'entrée (dock permet de les rouvrir)
             ids.forEach(id => {
                 const el = document.getElementById(id);
                 if (el) {
-                    el.classList.add('collapsed');
+                    el.style.display = 'none';
+                    el.classList.remove('collapsed');
                     const btn = el.querySelector('.applet-minimize');
-                    if (btn) btn.classList.add('collapsed-label');
+                    if (btn) btn.classList.remove('collapsed-label');
                 }
             });
+            // Persiste l'état escamoté (tout masqué)
             currentModeConfig().collapsed = {};
             ids.forEach(id => { currentModeConfig().collapsed[id] = true; });
+            // Marqueur escamoté (display:none) vs replié (collapsed)
+            currentModeConfig().hidden = {};
+            ids.forEach(id => { currentModeConfig().hidden[id] = true; });
             saveUiConfig();
         }
     }
