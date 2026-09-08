@@ -45,6 +45,19 @@
     <script src="/visibility.js"></script>
     <script src="/collimation.js"></script>
     <script src="/aberration.js"></script>
+    <!-- Plugins (P2.2) — chargés dynamiquement via /api/plugins/status, fallback flatpanel -->
+    <script src="/plugins/flatpanel/frontend.js" onerror="console.debug('flatpanel plugin not loaded')"></script>
+    <script>
+      // loader générique : injecte chaque plugin frontend.js découvert
+      fetch('/api/plugins/status').then(r=>r.json()).then(s=>{
+        (s.discovered||[]).forEach(p=>{
+          const name = p._name || p.name;
+          if(name==='flatpanel') return; // déjà chargé
+          const src = `/plugins/${name}/frontend.js`;
+          const el=document.createElement('script'); el.src=src; el.onerror=()=>console.debug('plugin',name,'no frontend'); document.head.appendChild(el);
+        });
+      }).catch(()=>{});
+    </script>
 </head>
 <body>
 

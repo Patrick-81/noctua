@@ -133,6 +133,15 @@ class WebServer:
         from indigo.devices.pointing import PointingModel
         self._pointing = PointingModel()
 
+        # Plugin manager (P2.2) — scan + load backends before wiring
+        from indigo.plugins import PluginManager
+        self.plugins = PluginManager()
+        try:
+            self.plugins.scan()
+            self.plugins.load_all(self)
+        except Exception as e:  # noqa: BLE001
+            log.warning("plugins init failed: %s", e)
+
         # Wire up state broadcasting
         registry.on_state_update = self._broadcast_state
 
@@ -249,6 +258,21 @@ class WebServer:
                        sequence, stacking, masters, mosaic, pointing, polar,
                        triggers, visibility, ws_test, collimation, aberration):
             router.register(app, self)
+
+        # Plugins API (P2.2)
+        @app.get("/api/plugins/status")
+        async def plugins_status():
+            return self.plugins.status()
+
+        # Serve plugin frontends as static (/plugins/{name}/...)
+        try:
+            pdir = self.plugins.plugins_dir
+            if pdir.exists():
+                for sub in pdir.iterdir():
+                    if sub.is_dir() and (sub / "frontend.js").exists():
+                        app.mount(f"/plugins/{sub.name}", StaticFiles(directory=str(sub)), name=f"plugins-{sub.name}")
+        except Exception as e:  # noqa: BLE001
+            log.warning("plugin frontend mount failed: %s", e)
 
         # ── Static files (HTML/CSS/JS) ──────────────────────────
 

@@ -151,6 +151,12 @@ class DeviceRegistry:
                     return dev
         return None
 
+    def register_device_class(self, cls) -> None:
+        """Enregistre une classe de device fournie par un plugin (P2.2)."""
+        if cls not in DEVICE_CLASSES:
+            DEVICE_CLASSES.append(cls)
+            log.info("Device class registered by plugin: %s", cls.__name__)
+
     def all_devices(self) -> dict[str, BaseDevice]:
         return dict(self._devices)
 

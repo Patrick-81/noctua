@@ -1,0 +1,6 @@
+name: flatpanel
+version: 0.1.0
+description: Panneau à flats motorisé — pilote brightness + light on/off (premier plugin de référence P2.2)
+backend: backend.py
+frontend: frontend.js
+hooks: [device, api, ui]
