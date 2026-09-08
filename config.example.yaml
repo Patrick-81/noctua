@@ -70,11 +70,24 @@ sequence:
       filter: ""
       count: 1
       delay: 1.0
-  # ── Trigger Manager (Lot A2) ─────────────────────────────────
+    # Exemples P1.1 — conditions/boucles (NINA-like) :
+    # - duration: 120
+    #   filter: Ha
+    #   count: 5
+    #   loop: 3              # répète ce bloc 3× (→ 15 poses Ha)
+    # - duration: 30
+    #   filter: L
+    #   count: 10
+    #   when:                # pose conditionnelle (évaluée avant exécution)
+    #     filter__in: [L, R, G, B]
+    #     done__lt: 20
+  # ── Trigger Manager (Lot A2 + P1.1) ──────────────────────────
   # Événements : sequence_start, frame_start, frame_done, dither_done,
   #              error, series_done, stop
   # Actions :    log (message, level), script (command, timeout),
   #              mount_goto (ra [h], dec [°] — "now" = position actuelle)
+  # Conditions : égalité par défaut + opérateurs __eq/__ne/__gt/__gte/__lt/__lte/__in/__nin
+  #   ex. done__gte: 10, hfr__gt: 3.5, filter__in: [Ha, OIII]
   # Ceci est un exemple — commentez ou retirez ce qui ne s'applique pas.
   triggers:
     - name: alerte-fin-de-serie
@@ -97,3 +110,12 @@ sequence:
         - type: log
           level: error
           message: "Erreur de séquence : {error}"
+    # Exemple P1.1 — trigger conditionnel opérateur :
+    # - name: refocus-si-HFR-élevé
+    #   event: frame_done
+    #   conditions:
+    #     hfr__gt: 3.5
+    #   actions:
+    #     - type: log
+    #       level: warning
+    #       message: "HFR élevé {hfr} → refocus conseillé"

@@ -19,9 +19,42 @@ import re
 from datetime import datetime
 from typing import Any, Awaitable, Callable
 
+try:
+    from indigo.devices.conditions import evaluate as _eval_conditions
+except ImportError:
+    def _eval_conditions(c, ctx):  # fallback
+        if not c:
+            return True
+        for k, v in c.items():
+            if str(ctx.get(k)) != str(v):
+                return False
+        return True
+
 DEFAULT_FRAMES = [
     {"duration": 60.0, "frame_type": "LIGHT", "filter": "", "count": 1, "delay": 1.0},
 ]
+
+
+def expand_loops(frames: list[dict]) -> list[dict]:
+    """Déplie les champs ``loop``/``repeat`` (P1.1).
+
+    ``{"duration":10, "filter":"Ha", "count":1, "loop":3}`` → 3 copies
+    consécutives. Le champ ``loop`` est retiré des copies.
+    """
+    out: list[dict] = []
+    for f in frames or []:
+        n = f.get("loop", f.get("repeat", 1))
+        try:
+            n = int(n)
+        except (TypeError, ValueError):
+            n = 1
+        n = max(1, min(100, n))
+        base = dict(f)
+        base.pop("loop", None)
+        base.pop("repeat", None)
+        for _ in range(n):
+            out.append(dict(base))
+    return out
 
 # Callbacks injected by the WebServer so this module stays device-agnostic.
 FrameCallback = dict[str, Callable[..., Awaitable[Any]]]
@@ -60,6 +93,10 @@ class SequenceRunner:
             raise RuntimeError("Sequence is already running")
         if not frames:
             raise ValueError("Sequence plan is empty")
+        # P1.1 : déplie les loops avant comptage
+        frames = expand_loops(frames)
+        if not frames:
+            raise ValueError("Sequence plan is empty")
         self._frames = [dict(f) for f in frames]
         self._reset_state()
         self._resume_from = max(0, int(resume_from or 0))
@@ -85,11 +122,27 @@ class SequenceRunner:
         """
         h = hooks or {}
         self._running = True
+        # contexte partagé pour les conditions ``when`` (P1.1)
+        seq_ctx: dict[str, Any] = {"done": self._done, "total": self._total}
         try:
             pose = 0  # numéro global de pose dans le plan (reprise : on saute les ≤ resume_from)
             for fi, frame in enumerate(self._frames):
                 if self._stop_requested:
                     break
+                # P1.1 : condition ``when`` — skip silencieux si non vérifiée
+                when = frame.get("when")
+                if when is not None:
+                    seq_ctx.update({
+                        "frame_type": frame.get("frame_type", "LIGHT"),
+                        "filter": frame.get("filter", ""),
+                        "duration": frame.get("duration", 0),
+                        "done": self._done, "total": self._total,
+                        "frame_index": fi,
+                    })
+                    if not _eval_conditions(when, seq_ctx):
+                        # on avance le compteur de poses sans exécuter
+                        pose += int(frame.get("count", 1))
+                        continue
                 self._current = frame
                 self._frame_index = fi
                 for k in range(int(frame.get("count", 1))):
@@ -114,6 +167,9 @@ class SequenceRunner:
                             break
                         raise
                     self._done += 1
+                    seq_ctx["done"] = self._done
+                    seq_ctx["last_filter"] = frame.get("filter", "")
+                    seq_ctx["last_frame_type"] = frame.get("frame_type", "LIGHT")
                     op = h.get("on_progress")
                     if op:
                         await op()
@@ -259,6 +315,15 @@ def validate_frames(frames: list[dict]) -> str | None:
         c = int(f.get("count", 1))
         if c < 1:
             return f"frame {i}: count invalide"
+        if "loop" in f or "repeat" in f:
+            try:
+                n = int(f.get("loop", f.get("repeat", 1)))
+            except (TypeError, ValueError):
+                return f"frame {i}: loop invalide"
+            if n < 1 or n > 100:
+                return f"frame {i}: loop hors bornes 1..100"
+        if "when" in f and f["when"] is not None and not isinstance(f["when"], dict):
+            return f"frame {i}: when doit être un dict"
     return None
 
 
