@@ -5,6 +5,8 @@
 
 let _frameLastSolveRotation = null;
 let _frameTarget = null;
+let _frameMosaicPlan = null;
+let _frameMosaicDebounce = null;
 
 function _frameSetText(id, v) {
     const el = document.getElementById(id);
@@ -67,11 +69,12 @@ function _frameFitCheck() {
     if (!fitEl) return;
     if (!t || !t.size_arcmin || !fov) {
         fitEl.style.display = 'none';
+        _frameClearMosaicSuggest();
         return;
     }
     const maj = Number(t.size_arcmin[0]);
     const min = Number(t.size_arcmin[1] ?? t.size_arcmin[0]);
-    if (!maj || maj <= 0) { fitEl.style.display = 'none'; return; }
+    if (!maj || maj <= 0) { fitEl.style.display = 'none'; _frameClearMosaicSuggest(); return; }
 
     const rotEl = document.getElementById('frame-rot');
     const rotDeg = (parseFloat(rotEl?.value) || 0);
@@ -89,7 +92,111 @@ function _frameFitCheck() {
         `${t.name || t.id || 'Cible'} ${maj}′×${min}′ → ` +
         (fits
             ? `✓ tient dans le champ (${ratio}% largeur)`
-            : `✗ déborde du champ (${ratio}% largeur) — agrandir le FOV ou augmenter la rotation`));
+            : `✗ déborde du champ (${ratio}% largeur) — mosaïque conseillée`));
+
+    // Suggestion mosaïque auto quand ça déborde (débouncée 300ms)
+    if (!fits) {
+        clearTimeout(_frameMosaicDebounce);
+        _frameMosaicDebounce = setTimeout(() => _frameSuggestMosaic(w, h), 300);
+    } else {
+        _frameClearMosaicSuggest();
+    }
+}
+
+function _frameClearMosaicSuggest() {
+    clearTimeout(_frameMosaicDebounce);
+    _frameMosaicPlan = null;
+    const el = document.getElementById('frame-mosaic-suggest');
+    if (el) el.style.display = 'none';
+    // ne pas effacer les tuiles si elles viennent du séquenceur
+    if (skyEngine && skyEngine.mosaicTiles && skyEngine.mosaicTiles._fromFraming) {
+        skyEngine.setMosaicTiles(null);
+    }
+}
+
+async function _frameSuggestMosaic(bboxWArcmin, bboxHArcmin) {
+    const t = _frameTarget;
+    const fov = _frameReadFov();
+    const suggestEl = document.getElementById('frame-mosaic-suggest');
+    const textEl = document.getElementById('frame-mosaic-text');
+    if (!t || !fov || !suggestEl || !textEl) return;
+    // marge 15% pour couvrir l'objet + recouvrement
+    const w = Math.ceil(bboxWArcmin * 1.15);
+    const h = Math.ceil(bboxHArcmin * 1.15);
+    try {
+        const plan = await fetch('/api/mosaic/plan', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                target_coords: { ra_hours: t.ra / 15, dec_deg: t.dec },
+                size_arcmin: { w, h },
+                overlap_frac: 0.15,
+                fov_x_deg: fov.x,
+                fov_y_deg: fov.y,
+            }),
+        }).then(r => r.json());
+        if (!plan || !plan.ok) {
+            suggestEl.style.display = 'none';
+            return;
+        }
+        _frameMosaicPlan = plan;
+        const n = plan.tiles.length;
+        const grid = `${plan.rows}×${plan.cols}`;
+        textEl.textContent = `${t.name || t.id || 'Cible'} ${w}′×${h}′ → ${grid} = ${n} tuile${n>1?'s':''} (recouv. 15%) — voir orange sur la carte`;
+        suggestEl.style.display = '';
+        // Dessine en orange sur la sky map (marqué _fromFraming pour clear)
+        if (skyEngine) {
+            const overlay = { tiles: plan.tiles, fov: plan.fov, current: null, _fromFraming: true };
+            skyEngine.setMosaicTiles(overlay);
+        }
+        addLog('info', 'framing', `Mosaïque suggérée : ${grid} = ${n} tuiles pour ${t.name || t.id} (${w}′×${h}′)`);
+    } catch (e) {
+        suggestEl.style.display = 'none';
+    }
+}
+
+function _frameApplyMosaicToSequencer() {
+    if (!_frameMosaicPlan || !_frameTarget) {
+        addLog('warning', 'framing', 'Aucune mosaïque suggérée à appliquer');
+        return;
+    }
+    // Alimente le séquenceur si le panneau est chargé (sequence.js)
+    try {
+        // Trouve ou crée une cible dans le séquenceur
+        const t = _frameTarget;
+        // Hub request si disponible, sinon localStorage fallback
+        if (typeof seqData !== 'undefined' && seqData && Array.isArray(seqData.targets)) {
+            let target = seqData.targets.find(x => x.enabled) || seqData.targets[0];
+            if (!target) {
+                // crée une cible via l'API du séquenceur (addTarget)
+                if (typeof seqAddTarget === 'function') seqAddTarget();
+                target = seqData.targets[seqData.targets.length - 1];
+            }
+            if (target) {
+                target.name = t.name || t.id || target.name;
+                target.ra = (t.ra / 15).toFixed(4);
+                target.dec = t.dec.toFixed(4);
+                target.mosaicOn = true;
+                target.mosaicW = _frameMosaicPlan.size_arcmin.w;
+                target.mosaicH = _frameMosaicPlan.size_arcmin.h;
+                target.mosaicOverlap = Math.round(_frameMosaicPlan.overlap_frac * 100);
+                target.mosaicPlan = _frameMosaicPlan;
+                if (typeof seqRender === 'function') seqRender();
+                if (typeof seqPlanMosaic === 'function') seqPlanMosaic(target);
+                addLog('info', 'framing', `Mosaïque ${target.name} appliquée au Séquenceur (${_frameMosaicPlan.rows}×${_frameMosaicPlan.cols})`);
+                // Bascule visuelle vers le mode Séquenceur
+                if (typeof setMode === 'function') setMode('sequencer');
+                return;
+            }
+        }
+        // Fallback : copie dans le presse-papier le JSON du plan
+        const txt = JSON.stringify(_frameMosaicPlan, null, 2);
+        navigator.clipboard.writeText(txt).then(() => {
+            addLog('info', 'framing', 'Plan mosaïque copié dans le presse-papier (Séquenceur non chargé)');
+        });
+    } catch (e) {
+        addLog('error', 'framing', `Apply mosaïque échoué: ${e.message}`);
+    }
 }
 
 async function _frameLoadTarget(raDeg, decDeg, name) {
@@ -170,6 +277,7 @@ function frameClear() {
     _frameSetText('frame-dec', '');
     const fitEl = document.getElementById('frame-fit');
     if (fitEl) fitEl.style.display = 'none';
+    _frameClearMosaicSuggest();
     if (skyEngine) skyEngine.setCameraTarget(null);
 }
 
@@ -201,6 +309,8 @@ function initFramingPanel() {
     document.getElementById('frame-set')?.addEventListener('click', frameSet);
     document.getElementById('frame-goto')?.addEventListener('click', frameGoto);
     document.getElementById('frame-clear')?.addEventListener('click', frameClear);
+    document.getElementById('frame-mosaic-apply')?.addEventListener('click', _frameApplyMosaicToSequencer);
+    document.getElementById('frame-mosaic-clear')?.addEventListener('click', _frameClearMosaicSuggest);
 
     Hub.subscribe('solver:result', 'framing', (env) => {
         const res = env?.payload?.result;

@@ -1425,6 +1425,17 @@
                     <span id="frame-fit-text" class="solver-param-value" style="flex:1; white-space:normal; font-size:0.6rem;">—</span>
                 </div>
             </div>
+            <!-- Mosaic suggestion (auto when object overflows FOV) -->
+            <div id="frame-mosaic-suggest" class="solver-section" style="display:none;">
+                <div class="solver-label">Mosaïque suggérée</div>
+                <div class="solver-row">
+                    <span id="frame-mosaic-text" class="solver-param-value" style="flex:1; white-space:normal; font-size:0.6rem; color:#ffaa00;">—</span>
+                </div>
+                <div class="solver-row" style="gap:4px; margin-top:4px;">
+                    <button id="frame-mosaic-apply" class="btn-glass success solver-action-btn" style="flex:1; font-size:0.6rem;">↗ Appliquer au Séquenceur</button>
+                    <button id="frame-mosaic-clear" class="btn-glass solver-action-btn" style="flex:0; font-size:0.6rem;">✕</button>
+                </div>
+            </div>
         </div>
 
         <div id="applet-session" class="glass-panel applet mode-specific" data-modes="capture guiding" style="display:none; top:470px; right:16px; width:300px;">
