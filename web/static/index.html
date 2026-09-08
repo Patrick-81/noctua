@@ -45,6 +45,19 @@
     <script src="/visibility.js"></script>
     <script src="/collimation.js"></script>
     <script src="/aberration.js"></script>
+    <!-- Plugins (P2.2) — chargés dynamiquement via /api/plugins/status, fallback flatpanel -->
+    <script src="/plugins/flatpanel/frontend.js" onerror="console.debug('flatpanel plugin not loaded')"></script>
+    <script>
+      // loader générique : injecte chaque plugin frontend.js découvert
+      fetch('/api/plugins/status').then(r=>r.json()).then(s=>{
+        (s.discovered||[]).forEach(p=>{
+          const name = p._name || p.name;
+          if(name==='flatpanel') return; // déjà chargé
+          const src = `/plugins/${name}/frontend.js`;
+          const el=document.createElement('script'); el.src=src; el.onerror=()=>console.debug('plugin',name,'no frontend'); document.head.appendChild(el);
+        });
+      }).catch(()=>{});
+    </script>
 </head>
 <body>
 
@@ -1423,6 +1436,17 @@
                 <div class="solver-label">Ajustement</div>
                 <div class="solver-row">
                     <span id="frame-fit-text" class="solver-param-value" style="flex:1; white-space:normal; font-size:0.6rem;">—</span>
+                </div>
+            </div>
+            <!-- Mosaic suggestion (auto when object overflows FOV) -->
+            <div id="frame-mosaic-suggest" class="solver-section" style="display:none;">
+                <div class="solver-label">Mosaïque suggérée</div>
+                <div class="solver-row">
+                    <span id="frame-mosaic-text" class="solver-param-value" style="flex:1; white-space:normal; font-size:0.6rem; color:#ffaa00;">—</span>
+                </div>
+                <div class="solver-row" style="gap:4px; margin-top:4px;">
+                    <button id="frame-mosaic-apply" class="btn-glass success solver-action-btn" style="flex:1; font-size:0.6rem;">↗ Appliquer au Séquenceur</button>
+                    <button id="frame-mosaic-clear" class="btn-glass solver-action-btn" style="flex:0; font-size:0.6rem;">✕</button>
                 </div>
             </div>
         </div>

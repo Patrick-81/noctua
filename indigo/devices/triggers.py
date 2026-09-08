@@ -64,18 +64,25 @@ def _fmt(text: str, mapping: dict) -> str:
 
 
 def _match_conditions(conditions: dict | None, ctx: dict) -> bool:
-    if not conditions:
-        return True
-    for key, expected in conditions.items():
-        actual = ctx.get(key)
-        if actual is None:
-            return False
-        if isinstance(expected, list):
-            if actual not in expected:
+    # P1.1 : délégation au module conditions (opérateurs __gt/__lt/__in...)
+    # avec fallback local si le module n'est pas importable (tests isolés).
+    try:
+        from indigo.devices.conditions import evaluate
+
+        return evaluate(conditions, ctx)
+    except ImportError:
+        if not conditions:
+            return True
+        for key, expected in conditions.items():
+            actual = ctx.get(key)
+            if actual is None:
                 return False
-        elif str(actual) != str(expected):
-            return False
-    return True
+            if isinstance(expected, list):
+                if actual not in expected:
+                    return False
+            elif str(actual) != str(expected):
+                return False
+        return True
 
 
 class TriggerManager:
