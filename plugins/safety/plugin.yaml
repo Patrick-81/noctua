@@ -1,0 +1,14 @@
+name: safety
+version: 0.1.0
+description: Safety monitor — automate temporel Stop → Park → [Close] → Alert (du minimal allsky au complet station+dome)
+backend: backend.py
+frontend: frontend.js
+hooks: [safety, sequence, mount, dome]
+config:
+  poll_interval_s: 30
+  debounce_count: 2
+  hystere_s: 300
+  stop_timeout_s: 30
+  park_timeout_s: 120
+  park_retry_s: 60
+  close_timeout_s: 60

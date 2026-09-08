@@ -47,6 +47,7 @@
     <script src="/aberration.js"></script>
     <!-- Plugins (P2.2) — chargés dynamiquement via /api/plugins/status, fallback flatpanel -->
     <script src="/plugins/flatpanel/frontend.js" onerror="console.debug('flatpanel plugin not loaded')"></script>
+    <script src="/plugins/safety/frontend.js" onerror="console.debug('safety plugin not loaded')"></script>
     <script>
       // loader générique : injecte chaque plugin frontend.js découvert
       fetch('/api/plugins/status').then(r=>r.json()).then(s=>{
