@@ -1,0 +1,21 @@
+[Unit]
+Description=Noctua — interface web INDIGO (FastAPI)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=noctua
+Group=noctua
+WorkingDirectory=/opt/noctua
+ExecStart=/usr/bin/noctua
+Restart=on-failure
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+# Surcharge config: /etc/noctua/config.yaml est lu par le wrapper
+# Logs vers journald
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

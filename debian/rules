@@ -1,0 +1,42 @@
+#!/usr/bin/make -f
+# debhelper 13, pas de compilation — on installe les sources sous /opt/noctua
+# et on laisse postinst créer le venv (offline si wheels présents, sinon pip).
+
+%:
+	dh $@
+
+override_dh_auto_build:
+	# pas de build Python à ce stade (pyproject utilisé à l'install)
+	:
+
+override_dh_auto_install:
+	# installe l'arbo sous debian/noctua/opt/noctua
+	install -d debian/noctua/opt/noctua
+	# copie sélective (pas .git, .venv, node_modules, data/catalogs, __pycache__)
+	tar --exclude='.git' --exclude='.github' --exclude='.claude' --exclude='.venv' --exclude='venv' --exclude='venv_*' \
+		--exclude='node_modules' --exclude='__pycache__' --exclude='*.pyc' \
+		--exclude='.pytest_cache' --exclude='test-results' --exclude='backups' \
+		--exclude='data/catalogs' --exclude='fake_fits' --exclude='debian' \
+		--exclude='.gitignore' --exclude='.opencode' --exclude='.code-review-graph' \
+		--exclude='config.yaml' --exclude='ui.yaml' --exclude='profiles.yaml' \
+		--exclude='sequence_templates.yaml' \
+		-cf - . | tar -xf - -C debian/noctua/opt/noctua
+	# wrapper /usr/bin/noctua
+	install -d debian/noctua/usr/bin
+	install -m 0755 debian/noctua-wrapper debian/noctua/usr/bin/noctua
+	# systemd
+	install -d debian/noctua/lib/systemd/system
+	install -m 0644 debian/noctua.service debian/noctua/lib/systemd/system/noctua.service
+	# config par défaut sous /etc/noctua (postinst copie si absent)
+	install -d debian/noctua/etc/noctua
+	install -m 0644 config.example.yaml debian/noctua/etc/noctua/config.yaml.example
+	# docs
+	install -d debian/noctua/usr/share/doc/noctua
+	install -m 0644 README.md debian/noctua/usr/share/doc/noctua/README.md
+	install -m 0644 LICENSE debian/noctua/usr/share/doc/noctua/copyright
+
+override_dh_auto_test:
+	:
+
+override_dh_auto_clean:
+	dh_auto_clean

@@ -1,0 +1,21 @@
+Source: noctua
+Section: science
+Priority: optional
+Maintainer: Noctua contributors <noctua@example.com>
+Build-Depends: debhelper-compat (= 13), python3, python3-setuptools, python3-pip
+Standards-Version: 4.6.2
+Homepage: https://github.com/anomalyco/opencode
+Rules-Requires-Root: no
+
+Package: noctua
+Architecture: all
+Depends: python3 (>= 3.10), python3-venv, python3-pip, ${misc:Depends}
+Recommends: indigo-server
+Description: Interface web pour piloter des équipements astronomiques via INDIGO
+ Noctua (indigo_devices) est une interface web FastAPI + Vanilla JS
+ pour contrôler monture, caméras, focuser, roue à filtres, autoguidage,
+ séquences, stacking live et astrométrie via un serveur INDIGO (port 7624).
+ .
+ Ce paquet installe l'application sous /opt/noctua, crée un venv
+ isolé et expose la commande /usr/bin/noctua ainsi qu'un service
+ systemd noctua.service.

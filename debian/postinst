@@ -1,0 +1,57 @@
+#!/bin/sh
+set -e
+# postinst pour noctua — crée user, venv, config, systemd
+
+case "$1" in
+  configure)
+    # 1. user système noctua (sans login)
+    if ! id -u noctua >/dev/null 2>&1; then
+      adduser --system --group --home /opt/noctua --no-create-home \
+        --gecos "Noctua service" noctua || true
+    fi
+    # home/data pour captures si besoin
+    mkdir -p /opt/noctua /etc/noctua /var/log/noctua
+    chown -R noctua:noctua /opt/noctua /var/log/noctua 2>/dev/null || true
+    # /etc/noctua/config.yaml depuis l'exemple si absent
+    if [ ! -f /etc/noctua/config.yaml ] && [ -f /etc/noctua/config.yaml.example ]; then
+      cp /etc/noctua/config.yaml.example /etc/noctua/config.yaml
+      chown noctua:noctua /etc/noctua/config.yaml 2>/dev/null || true
+      chmod 640 /etc/noctua/config.yaml 2>/dev/null || true
+    fi
+    # 2. venv isolé sous /opt/noctua/.venv (idempotent, comme install.sh)
+    if [ ! -d /opt/noctua/.venv ]; then
+      echo "noctua: création du venv /opt/noctua/.venv..." >&2
+      python3 -m venv /opt/noctua/.venv || {
+        echo "noctua: venv échoué — python3-venv manquant ?" >&2
+      }
+    fi
+    if [ -x /opt/noctua/.venv/bin/pip ]; then
+      echo "noctua: installation des dépendances (pip)..." >&2
+      /opt/noctua/.venv/bin/pip install --upgrade pip --quiet || true
+      # si /opt/noctua/requirements.txt présent, pip install (online)
+      if [ -f /opt/noctua/requirements.txt ]; then
+        /opt/noctua/.venv/bin/pip install -r /opt/noctua/requirements.txt || {
+          echo "noctua: pip install échoué — installation offline ? Vérifiez requirements.txt / wheels" >&2
+        }
+      fi
+      # expose aussi le package lui-même (console_scripts noctua)
+      if [ -f /opt/noctua/pyproject.toml ]; then
+        /opt/noctua/.venv/bin/pip install --no-deps -e /opt/noctua 2>/dev/null || true
+      fi
+      chown -R noctua:noctua /opt/noctua/.venv 2>/dev/null || true
+    fi
+    # 3. systemd
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl daemon-reload || true
+      # ne pas auto-enable au premier install sans config valide — on propose
+      echo "noctua: paquet installé. Activez le service avec :" >&2
+      echo "  sudo systemctl enable --now noctua" >&2
+      echo "  sudo systemctl status noctua" >&2
+      echo "  config: /etc/noctua/config.yaml (exemple: /etc/noctua/config.yaml.example)" >&2
+    fi
+    ;;
+esac
+
+#DEBHELPER#
+
+exit 0

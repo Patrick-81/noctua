@@ -1,0 +1,80 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "noctua"
+version = "1.0.0"
+description = "Interface web FastAPI + Vanilla JS pour piloter des équipements astronomiques via serveur INDIGO"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+authors = [{ name = "Noctua contributors" }]
+keywords = ["astronomy", "indigo", "indi", "astrophotography"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Framework :: FastAPI",
+  "Topic :: Scientific/Engineering :: Astronomy",
+]
+
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "websockets>=12.0",
+  "pyyaml>=6.0",
+  "Pillow>=10.0",
+  "seiza>=0.12.0",
+  "numpy>=1.24.0",
+  "scipy>=1.10.0",
+  "python-multipart>=0.0.9",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0",
+  "httpx>=0.24",
+  "playwright>=1.40",
+]
+# collimation: torch CPU — installer à la main :
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+collimation = ["torch"]
+
+[project.scripts]
+noctua = "run:main"
+
+[project.urls]
+Homepage = "https://github.com/anomalyco/opencode"
+Documentation = "https://github.com/anomalyco/opencode/blob/master/docs/ARCHITECTURE.md"
+
+[tool.setuptools]
+py-modules = ["run"]
+
+[tool.setuptools.packages.find]
+include = ["indigo*", "web*"]
+
+[tool.setuptools.package-data]
+"*" = ["py.typed"]
+"web" = ["static/*", "static/**/*"]
+"indigo" = ["collimation/models/*", "collimation/config.json"]
+
+[tool.setuptools.exclude-package-data]
+"*" = ["__pycache__", "*.pyc"]
+
+# Inclure hors-packages : public/, plugins/, config.example.yaml, docs
+[tool.setuptools.data-files]
+"share/noctua" = [
+  "config.example.yaml",
+  "ui.yaml",
+]
+"share/noctua/public" = ["public/**/*"]
+"share/noctua/plugins" = ["plugins/**/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

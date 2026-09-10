@@ -1,0 +1,67 @@
+name: Release .deb
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag à publier (ex. v1.0.0)"
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  deb:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: ver
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [ "${{ inputs.tag }}" != "" ]; then TAG="${{ inputs.tag }}"; fi
+          VER="${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "ver=$VER" >> "$GITHUB_OUTPUT"
+          echo "→ tag $TAG → ver $VER"
+
+      - name: Patch version from tag
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          echo "Patching version → $VER"
+          sed -i "s/^Version: .*/Version: ${VER}-1/" debian/control
+          sed -i "s/^version = \".*\"/version = \"${VER}\"/" pyproject.toml
+          sed -i "1s/.*/noctua (${VER}-1) unstable; urgency=medium/" debian/changelog
+          grep -E "^Version:|version =" debian/control pyproject.toml | head -n 5
+          head -n 1 debian/changelog
+
+      - name: Build .deb
+        run: |
+          set -e
+          VER="${{ steps.ver.outputs.ver }}"
+          OUT="noctua_${VER}-1_all.deb"
+          echo "→ build $OUT"
+          ./debian/build-deb.sh "$OUT"
+          ls -lh "$OUT"
+          dpkg-deb --info "$OUT" | head -n 20
+
+      - name: Smoke test .deb contents
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          DEB="noctua_${VER}-1_all.deb"
+          dpkg-deb --contents "$DEB" | head -n 30
+          test -f "$DEB"
+
+      - name: Create GitHub Release + attach .deb
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: Noctua ${{ steps.ver.outputs.tag }}
+          generate_release_notes: true
+          files: noctua_*_all.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

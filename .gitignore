@@ -37,3 +37,4 @@ package-lock.json
 .mcp.json
 analyse-code.md
 _skyshot.js
+noctua.egg-info/

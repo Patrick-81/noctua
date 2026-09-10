@@ -1,0 +1,6 @@
+noctua (1.0.0-1) unstable; urgency=medium
+
+  * Initial Debian packaging: /opt/noctua + venv + systemd + /usr/bin/noctua
+  * Bundled plugins flatpanel/safety, pyproject.toml PEP 517
+
+ -- Noctua contributors <noctua@example.com>  Tue, 09 Sep 2026 12:00:00 +0200

@@ -1,0 +1,25 @@
+#!/bin/sh
+set -e
+case "$1" in
+  purge)
+    # on ne supprime pas /etc/noctua/config.yaml en purge simple remove,
+    # seulement en purge
+    rm -rf /opt/noctua/.venv 2>/dev/null || true
+    # ne pas supprimer /etc/noctua/config.yaml si l'user veut garder sa conf :
+    # l'utilisateur fait `apt purge noctua` pour tout nettoyer
+    if [ "$1" = "purge" ]; then
+      rm -rf /etc/noctua 2>/dev/null || true
+      # user noctua conservé (pas de deluser auto) — éviter casse si data dans /opt
+    fi
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl daemon-reload 2>/dev/null || true
+    fi
+    ;;
+  remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+    if command -v systemctl >/dev/null 2>&1; then
+      systemctl daemon-reload 2>/dev/null || true
+    fi
+    ;;
+esac
+#DEBHELPER#
+exit 0

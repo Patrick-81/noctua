@@ -1,0 +1,28 @@
+#!/bin/sh
+# /usr/bin/noctua — wrapper qui préfère /opt/noctua/.venv puis système
+set -e
+APPDIR="/opt/noctua"
+VENV="$APPDIR/.venv"
+ETC_CFG="/etc/noctua/config.yaml"
+# config : /etc/noctua/config.yaml prioritaire, sinon /opt/noctua/config.yaml
+CFG=""
+if [ -f "$ETC_CFG" ]; then
+  CFG="$ETC_CFG"
+elif [ -f "$APPDIR/config.yaml" ]; then
+  CFG="$APPDIR/config.yaml"
+fi
+
+PYTHON=""
+if [ -x "$VENV/bin/python3" ]; then
+  PYTHON="$VENV/bin/python3"
+elif [ -x "$VENV/bin/python" ]; then
+  PYTHON="$VENV/bin/python"
+else
+  PYTHON="python3"
+fi
+
+if [ -n "$CFG" ]; then
+  exec "$PYTHON" "$APPDIR/run.py" --config "$CFG" "$@"
+else
+  exec "$PYTHON" "$APPDIR/run.py" "$@"
+fi

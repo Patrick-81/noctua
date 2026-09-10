@@ -37,13 +37,19 @@
 - [x] Workflow : Aperçu → Capture → Sélection étoile → Calibration → Guidage
 - [x] Temps de pose idéal : bouton « Mesurer le ciel » → pose test, mesure du fond en ADU/s (BZERO/BSCALE gérés), extrapolation vers `exposure.target_bg`, garde anti-saturation (SNR projeté, bornes min/max) — `indigo/devices/exposure.py`, `/api/camera/exposure/{estimate,recommend}`, badge dans le panneau Capture — **`test_exposure.py` ✓, pytest 134/134 ✓, Playwright 48 specs ✓**
 - [x] Mode multi-prises « Mesurer le ciel » : sélecteur 1/3 prises dans le panneau Capture, backend `estimate_exposure_multi` (fit linéaire ADU(t)=bias+m·t par moindres carrés, bias-indépendant, détection de knee de saturation avec cap empirique, R², fallback 1 prise), frames réutilisées par `/recommend` (`_last_exposure_frames`), mock INDIGO avec fond de ciel ∝ durée de pose, affichage reco mode-aware (pente ADU/s, linéarité R², warning non-linéaire) — **`test_exposure.py` 45/45 ✓, pytest 134/134 ✓, Playwright 48 specs ✓**
-- [x] Fluidité de la skymap + catalogues enrichis : suppression du throttle 80 ms (`sky-engine.js` → rendu coalescé rAF, drag/zoom ~60 FPS), projection rapi**de** des étoiles (`web/static/sky-projection.js` : vecteurs unitaires + produits scalaires, sans d3 par étoile ; `fillRect` fast-path ; plafonnement à 7000 étoiles dessinées les plus brillantes d'abord), cache de positions des DSO (clé rotation+mag+échelle+catalogues), chargement de `stars.8.json` (41 411 étoiles, slider mag 6→8 enfin effectif), recherche d'objets enrichie (dsos.6.json complet 3 311 DSO + noms multilingues depuis `dsonames.json`, recherche en français) — parité vérifiée contre `d3.geo.orthographic` par `tests/sky-projection.spec.js` (3 tests) — **pytest 134/134 ✓, polar JS 53/53 ✓, Playwright 48 specs ✓**
+- [x] Fluidité de la skymap + catalogues enrichis : suppression du throttle 80 ms (`sky-engine.js` → rendu coalescé rAF, drag/zoom ~60 FPS), projection rapide des étoiles (`web/static/sky-projection.js` : vecteurs unitaires + produits scalaires, sans d3 par étoile ; `fillRect` fast-path ; plafonnement à 7000 étoiles dessinées les plus brillantes d'abord), cache de positions des DSO (clé rotation+mag+échelle+catalogues), chargement de `stars.8.json` (41 411 étoiles, slider mag 6→8 enfin effectif), recherche d'objets enrichie (dsos.6.json complet 3 311 DSO + noms multilingues depuis `dsonames.json`, recherche en français) — parité vérifiée contre `d3.geo.orthographic` par `tests/sky-projection.spec.js` (3 tests) — **pytest 134/134 ✓, polar JS 53/53 ✓, Playwright 48 specs ✓**
 
 - [x] Skymap — planètes alignées avec l'écliptique (vérifié 2026-09-06, déjà fixé par `7b3df8a`/`c51cd1d`) : `_getEcliptic()` paramétrée par λ (`α = atan2(cosε·sinλ, cosλ)`, `δ = asin(sinε·sinλ)` dans `packages/skymap/src/sky-engine.js:402`), planètes géocentriques (soustraction Terre, `_renderPlanets:901`), écliptique/planètes/constellations/grille/équateur tous via `projectPoint` (même orthographique que `projectStars`) ; test parité `tests/sky-projection.spec.js` compensé du miroir ciel (`2*tx - x_d3`)
 - [x] Skymap — étoiles/constellations alignées (miroir partiel résolu, vérifié 2026-09-06) : constellations tracées en manuel via `projectPoint` (`sky-engine.js:571-602`, même projection que les étoiles), cohérence `projectPoint` vs `projectStars` vérifiée node (228 pts, 0 mismatch)
+- [x] **UI ateliers denses + dashboard** (2026-09-07, `a6ac3fc`→`cf2e569`) : dock latéral desktop pour >4 panneaux (`#mobile-dock` 44×44, droite fixe), masquage complet `display:none` des panneaux hors dashboard/legend/log en mode dense, bandeau `Connexion` centré pleine largeur `calc(100vw-16px)`, scrollbars corrigées ; séquenceur/collimation/aberration restaurés (`0256a8a`), colonne astro `max-height` (`fdf5a7b`) — **pytest 292 ✓**
+- [x] **Séquence P1.1 — conditions/boucles** (`indigo/devices/conditions.py`, `indigo/devices/sequence.py`, `indigo/devices/triggers.py`, `config.example.yaml`, commit `15b10c0`, mergé `16dffaf`) : `conditions.evaluate` 8 opérateurs `__eq/__ne/__gt/__gte/__lt/__lte/__in/__nin` (compat `{"filter":"Ha"}` + `{"filter__in":[…]}`), `triggers.py` délègue à `conditions`, `sequence.expand_loops()` déplie `loop/repeat 1..100` + validation, `when` évalué avant chaque frame (skip silencieux, ctx `done/total/filter/frame_type`) — **32/32 pytest, 98/98 flow, 292/292 global ✓**
+- [x] **Polar P1.2 — TPPA backend** (`indigo/devices/polar.py`, `web/routers/polar.py`, `web/server.py`, commit `18713fa`) : port `polar_math.js` en Python pur — `fitPole/polarCompute/computeTargets/lst`, endpoint `POST /api/polar/compute` (3 solves → `errAlt/errAz/errTotal`) + `GET /api/polar/targets` (3 cibles `centre ± angle`, `ha_offset = angle/4`, `dec = 90−lat+20`) — **+7 tests, pytest 292/292 ✓, polar JS 53/53 ✓**
+- [x] **Framing — suggestion mosaïque auto** (`web/static/framing.js`, commit `2c7ecd1`) : `_frameFitCheck` calcule bbox tournée (`w=maj·cosA+min·sinA`), si overflow → `_frameSuggestMosaic` `POST /api/mosaic/plan` avec `bbox*1.15 + FOV caméra`, affiche `R×C` tuiles orange sur sky map (`setMosaicTiles _fromFraming`), UI `#frame-mosaic-suggest` + bouton « Appliquer au Séquenceur » (alimente `seqData.targets + mosaicPlan`, bascule `mode:sequenceur`) — **pytest 292 ✓**
+- [x] **Plugins P2.2 — framework léger + Flat Panel pilote** (`indigo/plugins/__init__.py`, `indigo/registry.py`, `web/server.py`, `plugins/flatpanel/*`, commit `0ced9be`) : `PluginManager` scan `plugins/*/plugin.yaml` + import `backend.py:register(server)` isolé `try/except`, `registry.register_device_class()`, `GET /api/plugins/status` + mount statique `/plugins/<name>/frontend.js`, plugin `flatpanel` référence (`FlatPanel` `BaseDevice` `FLAT_LIGHT/BRIGHTNESS`, routes `/api/flatpanel/*`, applet capture `Hub ws:state`) — **pytest 292 ✓, flatpanel MANUEL ok (brightness/light)**
+- [x] **Safety P2 — automate temporel ordonnancé** (`docs/automata-safety.md` `6fd7b43`, `plugins/safety/*` `94ddcd0` + merge `fb821a6`) : spec `docs/automata-safety.md` (8 états `Monitoring→UnsafeDetect(debounce x2)→StoppingSequence(30s)→ParkingMount(120s retry 60s)→[ClosingRoof(60s) garde parked]→Alerting→WaitingSafe(hystérésis 5m)`, invariant *close jamais sans parked*, agrégation `AND` sources `allsky/aux_station/openweather`, fail-safe `Unsafe` si source muette) ; `plugins/safety/automaton.py` `SafetyAutomaton` (`State` enum, `_wait` poll 0.5s isolé), `plugins/safety/backend.py` wiring `SequenceRunner/Mount/Dome` + `safety_loop` poll 30s + routes `GET /api/safety/status` / `POST /api/safety/test` (dry) + alerte via `TriggerManager`, `plugins/safety/frontend.js` applet + `Hub ws:state` ; `plugins/safety/plugin.yaml` timeouts configurables — **tests pur debounce/garde close/chaîne avec dome, pytest 292 ✓**
 
 ## En cours
-- (vide — repris 2026-09-06)
+- (vide — repris 2026-09-08, lots P1.1/P1.2/P2.2/Safety mergés sur `master`)
 
 ## À tester
 - [x] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct → `test_live_stack_flow.py::test_continuous_session_manual_stop`
@@ -58,9 +64,9 @@
 - [x] Zoom/Pan : molette, clic-glisser, double-clic reset, 1:1 / ◻ — **fix** : double-clic en mode guidage cliquait `#cap-zoom-enlarge` (panneau capture) au lieu de reset le zoom (`Viewer.initZoomPan`, app.js)
 - [x] **BUG** Aperçu GUIDAGE : `WS image: ... match=true` mais pas d'image affichée dans le panneau. Le `handleGuideImage` est appelé, la caméra envoie `.fits`. Vérifier si le rendu canvas fonctionne (observer console.log + status bar après refresh). → **non reproductible** : `tests/repro_guide_preview.js` (canvas 640×480, détection 50 étoiles, status «✨ 50 étoiles»). Cosmétique : `console.log` ligne 968 affiche les `%s` non substitués (sans impact).
 
-## En chantier — Internationalisation FR/EN + mobile/tablette (session interrompue le 2026-08-12)
+## En chantier — Internationalisation FR/EN + mobile/tablette (terminé 2026-08-12, archivé)
 
-État du travail non commité (`git status` : app.js, index.html, style.css, start.sh modifiés + fichiers non suivis).
+État du travail antérieurement non commité (`git status` : app.js, index.html, style.css, start.sh modifiés + fichiers non suivis) — désormais mergé sur `master`.
 
 ### Internationalisation (FR/EN) — fait
 - [x] `web/static/i18n.js` (nouveau, ~950 l) : dictionnaires fr/en complets, détection langue navigateur, persistance JSON localStorage, API `I18N.t()` / `I18N.tfmt()` / `apply()` / `setLang()`
@@ -90,7 +96,7 @@
 - [x] **Découpage `app.js` (terminé)** : `state.js` (état/config), `viewer.js` (classe Viewer), `layout.js` (layout + `ChecklistPanel`), `utils.js` (i18n + helpers purs + `sleep`), `api.js` (API/log/toasts), `mount.js` (panneau + commandes monture), `controls.js` (D-pad/boutons/joystick), `ws.js`, `objects.js`, `hardware.js`, `capture.js`, `sequence.js`, `stacking.js`, `preview.js`, `testharness.js`, `solver.js`, `target.js`, `polar.js`, `focuser.js`, `guide.js`, `calibration.js` — **app.js 7720 → 457 lignes**, scripts classiques globals chargés avant app.js, tous modules ≤ 1000 lignes, Playwright **48 specs ✓**
 - [x] Supprimer `web/static/app.js.refactored` (brouillon de la refonte totale, obsolète) + ignorer `backups/`
 
-## Planifié (décision 2026-08-04, cf. COMPARISON_NINA.md)
+## Planifié (décision 2026-08-04, cf. COMPARISON_NINA.md) — MAJ 2026-09-08 : P1.1/P1.2/P2.2/Safety faits
 
 ### P0 — Meridian flip
 - [x] Détection de proximité du méridien (position monture + heure sidérale) en amont du flip — commit `aca49d7`
@@ -108,12 +114,36 @@
 - [x] Panneau matériel indépendant : état des devices (connecté/erreur), connexion **élément par élément** ou **tout d'un coup** — commit `5fec1b1`
 - [x] Binding profil ↔ connexion : appliquer un profil = connecter son set de devices — commit `5fec1b1` (`/api/profiles/apply`)
 
+### P1.1 — Séquence : conditions / boucles (NINA-like)
+- [x] `when` conditionnel par pose + `loop/repeat` multi-plis — `indigo/devices/conditions.py` `evaluate` (`__eq/__ne/__gt/__gte/__lt/__lte/__in/__nin`, compat liste), `sequence.expand_loops()` (1..100, validation), `SequenceRunner` `when` avant chaque frame (skip silencieux) — commit `15b10c0` / mergé `16dffaf` — **config.example.yaml exemples `loop:3` + `when: {filter__in, done__lt}`, triggers opérateurs étendus**
+- [x] Triggers conditionnels opérateurs — `indigo/devices/triggers.py` délègue à `conditions.evaluate` (`frame_done done__gte`, `hfr__gt` …) — même commit
+
+### P1.2 — TPPA (Three-Point Polar Alignment)
+- [x] Backend TPPA — `indigo/devices/polar.py` port `polar_math.js` (`fitPole/polarCompute/computeTargets/lst`), `web/routers/polar.py` `GET /api/polar/targets` + `POST /api/polar/compute` (3 solves → `errAlt/errAz/errTotal`) — commit `18713fa` / mergé `16dffaf` — **7 tests, pytest 292 ✓**
+- [x] Frontend TPPA — à câbler dans `web/static/polar.js` (panneau existant 3-point garde son UI, appels `compute/targets` prêts) — *reste un polissage UI si besoin*
+
+### D1 / Framing — mosaïque + FOV
+- [x] Mosaïque D1 pur `indigo/devices/mosaic.py` (`camera_fov/plan_mosaic/expand_frames`) — fait antérieur
+- [x] Framing rotatif + bounding box cible + fit-check — fait antérieur (`framing.js` + `sky-engine.js`)
+- [x] Suggestion mosaïque auto quand objet déborde FOV — `web/static/framing.js` `_frameSuggestMosaic` (`bbox*1.15`, `R×C` orange, bouton « Appliquer au Séquenceur ») — commit `2c7ecd1` / mergé `16dffaf`
+
+### P2.2 — Framework plugins + Flat Panel
+- [x] Framework léger — `indigo/plugins/__init__.py` `PluginManager` (scan `plugins/*/plugin.yaml` + import `backend.py:register(server)` isolé), `indigo/registry.py:register_device_class()`, `web/server.py` init avant wiring + `GET /api/plugins/status` + mount `/plugins/<name>` — commit `0ced9be` / mergé `16dffaf`
+- [x] Flat Panel pilote — `plugins/flatpanel/` (`FlatPanel` `FLAT_LIGHT/BRIGHTNESS`, `backend.py` routes `/api/flatpanel/*`, `frontend.js` applet capture) — même commit — **plugin de référence P2.2, pytest 292 ✓**
+- [ ] Dome plugin (à venir, même pattern `flatpanel`) — consommateur pour Safety `ClosingRoof`
+
+### P2 — Safety : automate temporel météo
+- [x] Spec ordonnancée — `docs/automata-safety.md` (8 états, gardes, timeouts `30s/120s/60s`, hystérésis `5m`, invariant *close jamais sans parked*, agrégation `AND` + fail-safe) — commit `6fd7b43`
+- [x] Automate + wiring — `plugins/safety/automaton.py` `SafetyAutomaton` + `plugins/safety/backend.py` (`is_safe` AND sources, `safety_loop` 30s, `GET /api/safety/status` + `POST /api/safety/test` dry, alerte via `TriggerManager`) + `plugins/safety/frontend.js` + `plugin.yaml` timeouts configurables — commit `94ddcd0` / mergé `fb821a6` — **pytest 292 ✓, pur + flow debounce/garde/chaîne**
+- [ ] Sources concrètes `allsky` / `aux_station` / `openweather` (poll + `Safe/Unsafe+age`) — *prochaine étape avant E2E terrain*
+- [ ] Doc `UTILISATION.md` § Safety + `journal safety.json` post-mortem — *à compléter*
+
 ## Notes techniques
 - Le serveur Python doit être redémarré manuellement par l'utilisateur
 - Les JS sont servis en statique, un simple refresh suffit après modification
 - Flow tests : exécuter via `python tests/test_X_flow.py` (pas pytest)
 - Tests : `python tests/test_autofocus.py && python tests/test_autofocus_flow.py && python tests/test_guide_flow.py`
-- Suite : `python -m pytest tests/ -q && node tests/test_polar_math.js && python tests/test_exposure.py`
+- Suite : `python -m pytest tests/ -q && node tests/test_polar_math.js && python tests/test_exposure.py` — **292 passed (09/2026), 79s**
 
 ## Démarrage
 ```bash
