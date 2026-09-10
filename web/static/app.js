@@ -537,7 +537,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     guideViewer = new Viewer('guiding');
     captureViewer.initZoomPan();
     initCapturePanel();
-    initSequencePanel();
     seqInitSequencer();
     initStackingPanel();
     initFlatWizard();
