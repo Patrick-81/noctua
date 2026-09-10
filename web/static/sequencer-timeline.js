@@ -173,9 +173,52 @@
             return res;
         };
 
+        // ── Démo auto si plan vide (aide à comprendre) ──────────────
+        function seedDemoIfEmpty() {
+            if (typeof seqData === 'undefined' || !seqData.targets) return;
+            const isEmpty = seqData.targets.length === 0 ||
+                (seqData.targets.length === 1 && seqData.targets[0].steps.length === 1 &&
+                 seqData.targets[0].steps[0].duration === 60 && !(seqData.targets[0].steps[0].filter) &&
+                 (seqData.targets[0].name === 'Cible 1' || seqData.targets[0].name.startsWith('Cible ')));
+            if (!isEmpty) return;
+            // Remplace par 2 cibles de démo colorées
+            const mkStep = (frame_type, duration, filter, count) => ({
+                id: Date.now() + Math.random(), type: 'exposure', frame_type, duration, filter, count, gain: -1, offset: -1, binning: 1, delay: 1,
+            });
+            const t1 = typeof seqNewTarget === 'function' ? seqNewTarget() : { id: Date.now(), name: 'Cible', steps: [], enabled: true, mosaicOn: false, mosaicW: 60, mosaicH: 40, mosaicOverlap: 15, mosaicPlan: null };
+            t1.name = 'M31 Andromeda';
+            t1.ra = '00:42:44'; t1.dec = '+41:16:09'; t1.rotation = 0;
+            t1.steps = [
+                mkStep('LIGHT', 60, 'L', 10),
+                mkStep('LIGHT', 30, 'R', 5),
+                mkStep('LIGHT', 30, 'G', 5),
+                mkStep('LIGHT', 30, 'B', 5),
+            ];
+            const t2 = typeof seqNewTarget === 'function' ? seqNewTarget() : { id: Date.now() + 1, name: 'Cible', steps: [], enabled: true, mosaicOn: false };
+            t2.name = 'M42 Orion — Ha/OIII';
+            t2.ra = '05:35:17'; t2.dec = '-05:23:28'; t2.rotation = 0;
+            t2.steps = [
+                mkStep('LIGHT', 120, 'Ha', 8),
+                mkStep('LIGHT', 120, 'OIII', 8),
+                mkStep('LIGHT', 20, 'L', 20),
+            ];
+            seqData.targets = [t1, t2];
+            if (typeof seqTargetIdCounter !== 'undefined') seqTargetIdCounter = Math.max(t1.id, t2.id);
+            if (typeof seqSelectedTargetId !== 'undefined') seqSelectedTargetId = t1.id;
+            if (typeof seqRenderTargetList === 'function') seqRenderTargetList();
+            window.seqRenderTargetDetail();
+            console.info('[timeline] démo seedée : 2 cibles (M31 LRGB + M42 Ha/OIII/L)');
+        }
+
         // Si un détail est déjà affiché, re-render pour appliquer le patch
         if (typeof seqSelectedTargetId !== 'undefined' && seqSelectedTargetId != null) {
             try { window.seqRenderTargetDetail(); } catch (e) { console.debug('timeline initial re-render', e); }
+        }
+        // Attendre le chargement serveur (seqLoadFromServer) puis seeder
+        setTimeout(seedDemoIfEmpty, 600);
+        // Aussi après le prochain sequence:update si toujours vide
+        if (typeof Hub !== 'undefined') {
+            Hub.subscribe('sequence:update', 'timeline-demo', () => setTimeout(seedDemoIfEmpty, 200));
         }
         console.info('[timeline] POC actif (?timeline=1) — blocs, drag, drawer.');
     }
