@@ -675,33 +675,9 @@ class WebServer:
         self._camera_images[device_name] = data
         if not self._ws_clients:
             return
-        # >5 Mo FITS → JPEG vignette en thread (évite blocage WS)
-            if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
-                try:
-                    thumb = await asyncio.to_thread(self._jpeg_thumb, data)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("thumb thread failed: %s", e)
-                    thumb = None
-                if thumb:
-                    b64 = base64.b64encode(thumb).decode("ascii")
-                    payload = json.dumps({
-                        "type": "image",
-                        "device": device_name,
-                        "format": "jpg",
-                        "data": b64,
-                    })
-                    loop = asyncio.get_running_loop()
-                    async def _safe_send(ws):
-                        try:
-                            await ws.send_text(payload)
-                        except Exception:
-                            self._safe_remove_client(ws)
-                    for ws in self._ws_clients[:]:
-                        loop.create_task(_safe_send(ws))
-                    log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
-                    return
-                else:
-                    log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
+            # Preview plein format pour l'instant (thumb désactivé pour debug)
+            # Le thumb JPEG causait le rectangle vert en bas à droite (mauvais stretch)
+            pass
             b64 = base64.b64encode(data).decode("ascii")
             payload = json.dumps({
                 "type": "image",
