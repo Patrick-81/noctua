@@ -660,25 +660,49 @@ class WebServer:
             log.warning("thumb failed (fallback full): %s", e)
             return None
 
-    async     def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
+    async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
         if url:
             log.info("Camera image URL from %s: %s (fmt=%s)", device_name, url, fmt)
             asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
-            return
-        if not data:
+        else:
+            if not data:
                 log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
                 return
-            log.info("Camera image INLINE from %s: %d bytes fmt=%s", device_name, len(data), fmt)
             # Store full FITS pour sauvegarde
             self._last_image_data = data
             self._camera_images[device_name] = data
+            log.info("Camera image INLINE from %s: %d bytes fmt=%s", device_name, len(data), fmt)
             if not self._ws_clients:
-            return
-            # Preview plein format pour l'instant (thumb désactivé pour debug)
-            # Le thumb JPEG causait le rectangle vert en bas à droite (mauvais stretch)
-            pass
+                return
+            # >5 Mo FITS → JPEG vignette en thread (évite blocage WS)
+            if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
+                try:
+                    thumb = await asyncio.to_thread(self._jpeg_thumb, data)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("thumb thread failed: %s", e)
+                    thumb = None
+                if thumb:
+                    b64 = base64.b64encode(thumb).decode("ascii")
+                    payload = json.dumps({
+                        "type": "image",
+                        "device": device_name,
+                        "format": "jpg",
+                        "data": b64,
+                    })
+                    loop = asyncio.get_running_loop()
+                    async def _safe_send(ws):
+                        try:
+                            await ws.send_text(payload)
+                        except Exception:
+                            self._safe_remove_client(ws)
+                    for ws in self._ws_clients[:]:
+                        loop.create_task(_safe_send(ws))
+                    log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
+                    return
+                else:
+                    log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
             b64 = base64.b64encode(data).decode("ascii")
             payload = json.dumps({
                 "type": "image",
