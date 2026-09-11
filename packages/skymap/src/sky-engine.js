@@ -558,14 +558,37 @@ export class SkyEngine {
             ctx.setLineDash([]);
         }
 
-        // 6. Méridien local (magenta) — toujours vertical écran (comme l'horizon reste horizontal)
+        // 6. Méridien local (magenta) — grand cercle RA=LST, courbé par projection orthographique
         if (this.layers.meridian) {
+            const lstDeg = this._lstDegrees(this._getObsDate(), this.siteLng);
+            const cRAm = -this._currentRotation[0], cDecm = -this._currentRotation[1];
+            const sCm = this._scale, txCm = w / 2, tyCm = h / 2;
             ctx.strokeStyle = "rgba(255, 0, 255, 0.85)";
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.moveTo(cx, cy - rsky);
-            ctx.lineTo(cx, cy + rsky);
+            let firstM = true;
+            for (let dec = -90; dec <= 90; dec++) {
+                const pt = projectPoint(lstDeg, dec, cRAm, cDecm, sCm, txCm, tyCm);
+                if (!pt) { firstM = true; continue; }
+                if (firstM) { ctx.moveTo(pt[0], pt[1]); firstM = false; }
+                else ctx.lineTo(pt[0], pt[1]);
+            }
             ctx.stroke();
+            // Méridien opposé (RA = LST+180) en pointillés pour la face cachée si visible
+            ctx.setLineDash([4, 4]);
+            ctx.globalAlpha = 0.35;
+            ctx.beginPath();
+            let firstMo = true;
+            const lstOpp = (lstDeg + 180) % 360;
+            for (let dec = -90; dec <= 90; dec++) {
+                const pt = projectPoint(lstOpp, dec, cRAm, cDecm, sCm, txCm, tyCm);
+                if (!pt) { firstMo = true; continue; }
+                if (firstMo) { ctx.moveTo(pt[0], pt[1]); firstMo = false; }
+                else ctx.lineTo(pt[0], pt[1]);
+            }
+            ctx.stroke();
+            ctx.setLineDash([]);
+            ctx.globalAlpha = 1;
         }
 
         // 7. Constellations — tracé manuel via projectPoint (même projection que les étoiles)
