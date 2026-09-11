@@ -170,7 +170,7 @@ export class SkyEngine {
         this._rawPathGenerator = d3.geo.path().projection(this._rawProjection).context(this._ctx);
 
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
-        this._graticule = d3.geo.graticule().step([15, 10]);
+        this._graticule = d3.geo.graticule().step([15, 10]).precision(0.7);
 
         // Géométries fixes en coordonnées RA/Dec : calculées une seule fois,
         // la rotation LST est appliquée par la projection à chaque rendu.
