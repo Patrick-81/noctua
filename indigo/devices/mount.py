@@ -158,7 +158,7 @@ class Mount(BaseDevice):
             log.debug("[%s] tracking=%s", self.name, self.tracking)
         elif name in ("MOUNT_PARK", "TELESCOPE_PARK"):
             self._parse_park(pv)
-            log.info("[%s] park=%s state=%s", self.name, self.parked, self.park_state)
+            log.debug("[%s] park=%s state=%s", self.name, self.parked, self.park_state)
         elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
             self._parse_horizontal(pv)
         elif name in ("MOUNT_HOME", "TELESCOPE_HOME"):
