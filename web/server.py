@@ -191,18 +191,30 @@ class WebServer:
                         device=name, prop_name="CCD_IMAGE")
 
                 # Step 2a: Send property-level <enableBLOB> if we know the blob prop name
+                # URL = indigo v2 (léger, pas de base64) — mieux pour 6224×4168
                 if dev.blob_prop_name and name not in blob_enabled:
                     blob_enabled.add(name)
                     await self.registry.client.send_enable_blob(
-                        device=name, prop_name=dev.blob_prop_name, mode="Also")
+                        device=name, prop_name=dev.blob_prop_name, mode="URL")
 
                 # Step 2b: Send device-level <enableBLOB> as fallback
                 if name not in blob_enabled_dev:
                     blob_enabled_dev.add(name)
                     await self.registry.client.send_enable_blob(
-                        device=name, mode="Also")
+                        device=name, mode="URL")
 
-                # Step 3: Set CCD_IMAGE_FORMAT to FITS
+                # Step 2c: Activer l'aperçu JPEG léger si dispo (RisingCam: CCD_PREVIEW)
+                preview_pv = dev.get_prop("CCD_PREVIEW")
+                if preview_pv and any(it.name == "ENABLED" and it.value for it in preview_pv.items) is False:
+                    # Met ENABLED On, les autres Off
+                    try:
+                        items = [{"name": it.name, "value": it.name == "ENABLED"} for it in preview_pv.items]
+                        await dev.send_switch("CCD_PREVIEW", items)
+                        log.info("Enabled CCD_PREVIEW for %s (JPEG léger)", name)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                # Step 3: Set CCD_IMAGE_FORMAT to FITS (full pour sauvegarde)
                 if name not in format_set:
                     fmt_pv = dev.get_prop("CCD_IMAGE_FORMAT")
                     if fmt_pv:
@@ -568,6 +580,50 @@ class WebServer:
             self._on_camera_image(device_name, data, fmt, url)
         return _cb
 
+    def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
+        """FITS 6224×4168 → JPEG léger pour preview (sans astropy)."""
+        try:
+            import io as _io
+            import numpy as _np
+            from PIL import Image as _PIL
+            # Header FITS 2880
+            if len(data) < 2880 or not data[:6].startswith(b"SIMPLE"):
+                return None
+            hdr = data[:2880].decode("ascii", errors="ignore")
+            def _get(k):
+                import re as _re
+                m = _re.search(rf"{k}\s*=\s*(\d+)", hdr)
+                return int(m.group(1)) if m else 0
+            w = _get("NAXIS1"); h = _get("NAXIS2")
+            if not w or not h:
+                return None
+            # Data après header, big-endian int16
+            arr = _np.frombuffer(data[2880:2880 + w * h * 2], dtype=">i2")
+            if arr.size < w * h:
+                return None
+            arr = arr[: w * h].reshape((h, w)).astype(_np.float32)
+            # Stretch rapide (median + asinh) pour aperçu
+            med = float(_np.median(arr))
+            arr = _np.clip(arr - med, 0, None)
+            # Normalise 2-98%
+            lo, hi = _np.percentile(arr, [2, 99.5])
+            if hi > lo:
+                arr = (arr - lo) / (hi - lo)
+            else:
+                arr = arr / max(1, hi)
+            arr = _np.clip(arr, 0, 1)
+            # Asinh léger
+            arr = _np.arcsinh(arr * 10) / _np.arcsinh(10)
+            arr = (arr * 255).astype(_np.uint8)
+            img = _PIL.fromarray(arr, mode="L")
+            img.thumbnail((max_side, max_side), _PIL.BILINEAR)
+            out = _io.BytesIO()
+            img.save(out, format="JPEG", quality=85, optimize=True)
+            return out.getvalue()
+        except Exception as e:  # noqa: BLE001
+            log.debug("thumb failed: %s", e)
+            return None
+
     def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
@@ -578,11 +634,32 @@ class WebServer:
             if not data:
                 log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
                 return
-            # Store last image for save endpoint
+            # Store full FITS pour sauvegarde
             self._last_image_data = data
             self._camera_images[device_name] = data
             if not self._ws_clients:
                 return
+            # >5 Mo FITS → on broadcast un JPEG vignette (20× plus léger)
+            if fmt.lower().endswith("fits") and len(data) > 5 * 1024 * 1024:
+                thumb = self._jpeg_thumb(data)
+                if thumb:
+                    b64 = base64.b64encode(thumb).decode("ascii")
+                    payload = json.dumps({
+                        "type": "image",
+                        "device": device_name,
+                        "format": "jpg",
+                        "data": b64,
+                    })
+                    loop = asyncio.get_running_loop()
+                    async def _safe_send(ws):
+                        try:
+                            await ws.send_text(payload)
+                        except Exception:
+                            self._safe_remove_client(ws)
+                    for ws in self._ws_clients[:]:
+                        loop.create_task(_safe_send(ws))
+                    log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
+                    return
             b64 = base64.b64encode(data).decode("ascii")
             payload = json.dumps({
                 "type": "image",
