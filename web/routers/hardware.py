@@ -1,6 +1,5 @@
 """Hardware panel, profiles, filter wheel, generic property routes."""
 
-import time
 from typing import TYPE_CHECKING
 
 from .common import SanitizedJSONResponse, log
@@ -23,9 +22,9 @@ def register(app, server: "WebServer") -> None:
             connect_item = conn_prop.get_item("CONNECT") or conn_prop.get_item("CONNECTED")
             if connect_item:
                 item_name = connect_item.name
-        # Reset retry state and send CONNECT
+        # Simple : on (re)lance une tentative unique ; l'Alert éventuel
+        # remonte via ws:state (pv.message) pour demander le port à l'utilisateur.
         server.registry._auto_connecting.discard(device_name)
-        server.registry._connect_retries.pop(device_name, None)
         log.info("Manual connect: %s (item=%s)", device_name, item_name)
         server.registry._schedule_connect(device_name, item_name)
         return {"ok": True, "device": device_name}
@@ -42,11 +41,11 @@ def register(app, server: "WebServer") -> None:
             connect_item = conn_prop.get_item("CONNECT") or conn_prop.get_item("CONNECTED")
             if connect_item:
                 item_name = connect_item.name
-        # Suppress auto-connect (60s cooldown) so the device stays off
         server.registry._auto_connecting.discard(device_name)
-        server.registry._connect_gave_up[device_name] = time.time()
         await server.registry.client.send_new_switch(
             device_name, "CONNECTION", [{"name": item_name, "value": False}])
+        # Marque comme déjà tenté pour éviter un re-connect auto sur le prochain def
+        server.registry._auto_connecting.add(device_name)
         log.info("Manual disconnect: %s (item=%s)", device_name, item_name)
         return {"ok": True, "device": device_name}
 
@@ -161,12 +160,73 @@ def register(app, server: "WebServer") -> None:
         act = server.profiles.set_active(name)
         if act.get("error"):
             return act
+        # Si le profil précise un port monture, le pousser avant le CONNECT
+        # pour que l'Alert éventuel remonte le bon diagnostic.
+        prof = server.profiles.get(name)
+        if prof and prof.get("mount") and prof.get("mount_endpoint"):
+            mdev = server.registry.get(prof["mount"])
+            if mdev:
+                endpoint = prof["mount_endpoint"]
+                for prop_name in ("DEVICE_PORT", "DEVICE_PORTS", "CONNECTION_PORT"):
+                    pv = mdev.get_prop(prop_name)
+                    if pv and pv.items:
+                        item_name = pv.items[0].name
+                        for it in pv.items:
+                            if it.name.upper() == "PORT":
+                                item_name = it.name
+                                break
+                        try:
+                            await mdev.send_text(prop_name, [{"name": item_name, "value": endpoint}])
+                            log.info("Applied mount port %s -> %s.%s", endpoint, prof["mount"], prop_name)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("Failed to set mount port: %s", e)
+                        break
         results = []
+        # Auto-attach des drivers manquants : si un device du profil n'est
+        # pas encore découvert mais qu'un driver de même catégorie existe
+        # côté INDIGO (déclaré non chargé), on demande son chargement.
+        # L'appareil apparaîtra au prochain def et l'auto-connect le prendra.
+        role_for_dev = {}
+        if prof:
+            for role in ("mount", "camera", "guide_camera", "focuser", "filter_wheel"):
+                v = prof.get(role)
+                if v:
+                    role_for_dev[v] = role
         for dev_name in server.profiles.devices_for(name):
             if dev_name in server.registry.all_devices():
                 results.append(await _connect_device(dev_name))
             else:
-                results.append({"ok": False, "device": dev_name, "error": "device not found"})
+                # Tentative d'attach driver de même catégorie
+                role = role_for_dev.get(dev_name, "")
+                cat_map = {"mount": "mount", "camera": "camera", "guide_camera": "guide_camera",
+                           "focuser": "focuser", "filter_wheel": "filter_wheel"}
+                wanted = cat_map.get(role, "")
+                attached = False
+                if wanted and server.registry.client.connected:
+                    for d in server.registry.drivers_list():
+                        if not d.get("loaded") and d.get("category") == wanted:
+                            try:
+                                await server.registry.client.send_attach_driver(d["name"])
+                                log.info("Auto-attach driver %s for missing device %s (role %s)", d["name"], dev_name, role)
+                                attached = True
+                            except Exception as e:  # noqa: BLE001
+                                log.warning("Auto-attach failed %s: %s", d["name"], e)
+                            break
+                    # Fallback guide_camera → camera
+                    if not attached and wanted == "guide_camera":
+                        for d in server.registry.drivers_list():
+                            if not d.get("loaded") and d.get("category") == "camera":
+                                try:
+                                    await server.registry.client.send_attach_driver(d["name"])
+                                    log.info("Auto-attach driver %s for missing guide_camera %s", d["name"], dev_name)
+                                    attached = True
+                                except Exception:  # noqa: BLE001
+                                    pass
+                                break
+                if attached:
+                    results.append({"ok": False, "device": dev_name, "error": "device not found — driver attach requested, retry connect after it appears"})
+                else:
+                    results.append({"ok": False, "device": dev_name, "error": "device not found"})
         return {"ok": True, "active": name, "results": results}
 
     # ── Filter Wheel ─────────────────────────────────────────

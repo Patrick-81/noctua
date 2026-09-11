@@ -115,9 +115,9 @@ class ProfileStore:
         return {"ok": True, "active": name}
 
     def devices_for(self, name: str) -> list[str]:
-        """All non-null device names referenced by a profile (optics excluded)."""
+        """All non-null device names referenced by a profile (optics/interface excluded)."""
         p = self.get(name)
         if not p:
             return []
-        device_fields = [f for f in PROFILE_FIELDS if f != "optics"]
+        device_fields = ["mount", "camera", "guide_camera", "focuser", "filter_wheel"]
         return [p[f] for f in device_fields if p.get(f)]

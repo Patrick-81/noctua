@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from typing import TYPE_CHECKING, Callable
 
 from .protocol import PropertyVector
@@ -99,9 +98,7 @@ class DeviceRegistry:
         self._devices: dict[str, GenericDevice] = {}  # name → device
         self._drivers: list[dict] = []  # DRIVERS switch items
         self._auto_connecting: set[str] = set()  # devices we sent CONNECT to
-        self._connect_retries: dict[str, int] = {}  # device → retry count
         self._connect_item_names: dict[str, str] = {}  # device → item name for CONNECT
-        self._connect_gave_up: dict[str, float] = {}  # device → time.time() when we gave up
 
         # Register callbacks on the client
         client.on_property_def = self._on_def
@@ -201,15 +198,12 @@ class DeviceRegistry:
             self._devices.clear()
             self._drivers.clear()
             self._auto_connecting.clear()
-            self._connect_retries.clear()
             self._connect_item_names.clear()
             log.debug("All devices cleared (disconnected)")
             self._emit_state()
         else:
-            # Reset retry state on fresh connection — auto-connect will re-fire from defConnection
             self._drivers.clear()
             self._auto_connecting.clear()
-            self._connect_retries.clear()
             self._connect_item_names.clear()
 
     def _on_def(self, tag: str, pv: PropertyVector) -> None:
@@ -237,29 +231,18 @@ class DeviceRegistry:
 
                 connect_item = pv.get_item("CONNECT") or pv.get_item("CONNECTED")
                 if connect_item:
-                    # A def vector is a schema, not a state update: its switch
-                    # value is often stale (e.g. "Off" while the device is
-                    # connected). Never clobber the tracked state here — only
-                    # set CONNECTION vectors (server confirmations) do that.
-                    # Remember the item name for retries
                     self._connect_item_names[device_name] = connect_item.name
-
-                    # Auto-connect: if device is not connected, send CONNECT=On
-                    # Skip if we recently gave up on this device (60s cooldown)
-                    if not dev.connected and device_name not in self._auto_connecting:
-                        gave_up_at = self._connect_gave_up.get(device_name, 0)
-                        if gave_up_at and time.time() - gave_up_at < 60:
-                            log.info("Skipping auto-connect: %s (cooldown, gave up %.0fs ago)",
-                                     device_name, time.time() - gave_up_at)
-                        else:
-                            self._auto_connecting.add(device_name)
-                            # Preserve existing retry count if device has prior history
-                            if device_name not in self._connect_retries:
-                                self._connect_retries[device_name] = 0
-                            log.info("Auto-connecting device: %s (item=%s, retries=%d)",
-                                     device_name, connect_item.name,
-                                     self._connect_retries[device_name])
-                            self._schedule_connect(device_name, connect_item.name)
+                    # def ne doit pas écraser un état déjà connecté (valeur stale Off),
+                    # mais si le serveur déclare déjà On, on le prend en compte.
+                    is_on = str(connect_item.value).lower() in ("on", "true", "1")
+                    if is_on and not dev.connected:
+                        dev.on_connection_status(True)
+                        log.info("[%s] Connected (via def)", device_name)
+                    elif not is_on and not dev.connected and device_name not in self._auto_connecting:
+                        self._auto_connecting.add(device_name)
+                        log.info("Auto-connecting device: %s (item=%s)",
+                                 device_name, connect_item.name)
+                        self._schedule_connect(device_name, connect_item.name)
 
                 self._emit_state()
             return
@@ -308,44 +291,17 @@ class DeviceRegistry:
                     else:
                         connected = str(connect_item.value).lower() in ("on", "true", "1")
                     dev.on_connection_status(connected)
-
-                    # Update stored property
                     dev._properties[pv.name] = pv
-
+                    # Pas de retry auto : on remonte l'erreur (port, etc.) et
+                    # on laisse l'utilisateur corriger puis relancer manuellement.
+                    # _auto_connecting reste posé pour éviter les storms de def.
                     if pv.state == "Alert":
-                        # Connection failed — schedule retry (max 3)
-                        # If we already gave up, ignore further Alerts
-                        if device_name in self._connect_gave_up:
-                            dev.on_connection_status(False)
-                            dev._properties[pv.name] = pv
-                            dev.on_set(tag, pv)
-                            self._emit_state()
-                            return
-                        retries = self._connect_retries.get(device_name, 0)
-                        if retries < 3:
-                            self._connect_retries[device_name] = retries + 1
-                            item_name = self._connect_item_names.get(device_name, "CONNECT")
-                            log.warning("[%s] Connection failed, retry %d/3 in 5s",
-                                        device_name, retries + 1)
-                            if self.client._loop:
-                                self.client._loop.call_later(
-                                    5.0, lambda: self._schedule_connect(device_name, item_name))
-                        else:
-                            log.warning("[%s] Connection failed after 3 retries, giving up",
-                                        device_name)
-                            self._auto_connecting.discard(device_name)
-                            self._connect_gave_up[device_name] = time.time()
+                        msg = pv.message or ""
+                        log.warning("[%s] Connection failed: %s", device_name, msg or "Alert")
                     elif connected:
-                        # Connection Ok — schedule delayed confirmation
-                        # (INDIGO may send Ok then Alert for devices that briefly accept)
-                        def _confirm_connection(dname=device_name):
-                            dev2 = self.get(dname)
-                            if dev2 and dev2.connected:
-                                self._auto_connecting.discard(dname)
-                                self._connect_gave_up.pop(dname, None)
-                                log.debug("[%s] Connection confirmed", dname)
-                        if self.client._loop:
-                            self.client._loop.call_later(3.0, _confirm_connection)
+                        log.info("[%s] Connected", device_name)
+                    else:
+                        log.info("[%s] Disconnected", device_name)
 
             dev.on_set(tag, pv)
             self._emit_state()

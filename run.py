@@ -120,12 +120,14 @@ def main():
         # Start the INDIGO client in a background task
         indigo_task = asyncio.create_task(client.connect())
 
-        # Start the web server
+        # Start the web server — access_log désactivé pour ne pas
+        # flooder le terminal à chaque poll /api/cameras|connection
         config = uvicorn.Config(
             web.app,
             host=web_host,
             port=web_port,
-            log_level="info",
+            log_level="warning",
+            access_log=False,
         )
         server = uvicorn.Server(config)
         await server.serve()

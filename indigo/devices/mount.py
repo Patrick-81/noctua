@@ -134,6 +134,18 @@ class Mount(BaseDevice):
 
     def _apply_def(self, pv: PropertyVector) -> None:
         log.debug("[%s] def %s", self.name, pv.name)
+        # Le simu envoie l'état park dès le def (PARKED true) — il faut
+        # l'initialiser sinon le flag reste false et le joystick croit
+        # pouvoir bouger alors que la monture est parquée côté serveur.
+        name = pv.name.upper()
+        if name in ("MOUNT_PARK", "TELESCOPE_PARK"):
+            self._parse_park(pv)
+        elif name in ("MOUNT_TRACKING", "TELESCOPE_TRACK_STATE"):
+            self._parse_tracking(pv)
+        elif name in ("MOUNT_EQUATORIAL_COORDINATES", "EQUATORIAL_EOD_COORD"):
+            self._parse_coordinates(pv)
+        elif name in ("MOUNT_HORIZONTAL_COORDINATES", "HORIZONTAL_COORD"):
+            self._parse_horizontal(pv)
 
     def _apply_set(self, pv: PropertyVector) -> None:
         name = pv.name.upper()
@@ -248,17 +260,24 @@ class Mount(BaseDevice):
 
     async def park(self) -> None:
         park_prop = self._resolve_prop_name("MOUNT_PARK")
-        item = self._resolve_item_name(park_prop, "PARKED", {
-            "PARKED": "PARK",
-        })
-        await self.send_switch(park_prop, [{"name": item, "value": True}])
+        pv = self._properties.get(park_prop)
+        if pv and len(pv.items) >= 2:
+            # OneOfMany : il faut envoyer les deux items explicitement
+            items = [{"name": it.name, "value": it.name == "PARKED" or it.name == "PARK"} for it in pv.items]
+            await self.send_switch(park_prop, items)
+        else:
+            item = self._resolve_item_name(park_prop, "PARKED", {"PARKED": "PARK"})
+            await self.send_switch(park_prop, [{"name": item, "value": True}])
 
     async def unpark(self) -> None:
         park_prop = self._resolve_prop_name("MOUNT_PARK")
-        item = self._resolve_item_name(park_prop, "UNPARKED", {
-            "UNPARKED": "UNPARK",
-        })
-        await self.send_switch(park_prop, [{"name": item, "value": True}])
+        pv = self._properties.get(park_prop)
+        if pv and len(pv.items) >= 2:
+            items = [{"name": it.name, "value": it.name == "UNPARKED" or it.name == "UNPARK"} for it in pv.items]
+            await self.send_switch(park_prop, items)
+        else:
+            item = self._resolve_item_name(park_prop, "UNPARKED", {"UNPARKED": "UNPARK"})
+            await self.send_switch(park_prop, [{"name": item, "value": True}])
 
     async def home(self) -> None:
         """Send HOME command to the mount.
@@ -355,21 +374,31 @@ class Mount(BaseDevice):
         d = _DIR_MAP.get(direction.upper(), direction.upper())
         if d in ("N", "S"):
             motion_prop = self._resolve_prop_name("MOUNT_MOTION_DEC")
-            # Map: INDIGO NORTH/SOUTH → INDI MOTION_NORTH/MOTION_SOUTH
             pv = self._properties.get(motion_prop)
             if pv and pv.get_item("MOTION_NORTH"):
-                item = "MOTION_NORTH" if d == "N" else "MOTION_SOUTH"
+                on = "MOTION_NORTH" if d == "N" else "MOTION_SOUTH"
+                off = "MOTION_SOUTH" if d == "N" else "MOTION_NORTH"
             else:
-                item = "NORTH" if d == "N" else "SOUTH"
-            await self.send_switch(motion_prop, [{"name": item, "value": True}])
+                on = "NORTH" if d == "N" else "SOUTH"
+                off = "SOUTH" if d == "N" else "NORTH"
+            # AtMostOne : envoyer les deux items explicitement
+            if pv and len(pv.items) >= 2:
+                await self.send_switch(motion_prop, [{"name": on, "value": True}, {"name": off, "value": False}])
+            else:
+                await self.send_switch(motion_prop, [{"name": on, "value": True}])
         elif d in ("E", "W"):
             motion_prop = self._resolve_prop_name("MOUNT_MOTION_RA")
             pv = self._properties.get(motion_prop)
             if pv and pv.get_item("MOTION_EAST"):
-                item = "MOTION_EAST" if d == "E" else "MOTION_WEST"
+                on = "MOTION_EAST" if d == "E" else "MOTION_WEST"
+                off = "MOTION_WEST" if d == "E" else "MOTION_EAST"
             else:
-                item = "EAST" if d == "E" else "WEST"
-            await self.send_switch(motion_prop, [{"name": item, "value": True}])
+                on = "EAST" if d == "E" else "WEST"
+                off = "WEST" if d == "E" else "EAST"
+            if pv and len(pv.items) >= 2:
+                await self.send_switch(motion_prop, [{"name": on, "value": True}, {"name": off, "value": False}])
+            else:
+                await self.send_switch(motion_prop, [{"name": on, "value": True}])
         # Poll coordinates during the move
         self._start_move_poll()
 
@@ -427,12 +456,21 @@ class Mount(BaseDevice):
                         log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
                         self._stop_move_poll()
                         return
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             pass
 
     async def halt_move(self) -> None:
         self._stop_move_poll()
+        # Stop manual motion : mettre les deux axes à Off
+        for prop_key in ("MOUNT_MOTION_DEC", "MOUNT_MOTION_RA"):
+            prop = self._resolve_prop_name(prop_key)
+            pv = self._properties.get(prop)
+            if pv and len(pv.items) >= 2:
+                try:
+                    await self.send_switch(prop, [{"name": it.name, "value": False} for it in pv.items])
+                except Exception:  # noqa: BLE001
+                    pass
         await self.abort()
 
     async def _poll_coords(self) -> None:
