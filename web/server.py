@@ -710,6 +710,8 @@ class WebServer:
                     for ws in self._ws_clients[:]:
                         loop.create_task(_safe_send(ws))
                     log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
+                    self._last_thumb = thumb
+                    self._last_thumb_device = device_name
                     return
                 else:
                     log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)

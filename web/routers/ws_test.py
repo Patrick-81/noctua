@@ -22,7 +22,7 @@ def register(app, server: "WebServer") -> None:
         await ws.accept()
         server._ws_clients.append(ws)
         weblog_handler.add_client(ws)
-        log.debug("WS client connected (%d total)", len(server._ws_clients))
+        log.info("WS client connected (%d total)", len(server._ws_clients))
         try:
             # Send current state immediately
             state = {
@@ -30,6 +30,29 @@ def register(app, server: "WebServer") -> None:
                 for name, dev in server.registry.all_devices().items()
             }
             await ws.send_json(_sanitize({"type": "state", "devices": state}))
+            # Si une image vient d'être capturée alors que ws=0, pousse-la au nouveau client (thumb si dispo)
+            thumb = getattr(server, "_last_thumb", None)
+            tdev = getattr(server, "_last_thumb_device", None)
+            if thumb and tdev:
+                import base64 as _b64b
+                try:
+                    b64 = _b64b.b64encode(thumb).decode("ascii")
+                    await ws.send_json(_sanitize({"type": "image", "device": tdev, "format": "jpg", "data": b64}))
+                    log.info("Pushed last thumb to new WS client (%d KB)", len(thumb)//1024)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("push last thumb failed: %s", e)
+            elif getattr(server, "_last_image_data", None):
+                import base64 as _b64b
+                try:
+                    # Si >5M, ne pousse pas le full (trop gros) — le prochain WS recevra le prochain thumb
+                    if len(server._last_image_data) > 5 * 1024 * 1024:
+                        log.info("Last image too large (%d KB) — not pushing to new WS, wait next capture", len(server._last_image_data)//1024)
+                    else:
+                        b64 = _b64b.b64encode(server._last_image_data).decode("ascii")
+                        await ws.send_json(_sanitize({"type": "image", "device": getattr(server, "_last_image_device", "unknown"), "format": "fits", "data": b64}))
+                        log.info("Pushed last image to new WS client (%d KB)", len(server._last_image_data)//1024)
+                except Exception as e:  # noqa: BLE001
+                    log.debug("push last image failed: %s", e)
 
             # Keep connection alive, listen for client messages
             while True:
@@ -41,7 +64,7 @@ def register(app, server: "WebServer") -> None:
             if ws in server._ws_clients:
                 server._ws_clients.remove(ws)
             weblog_handler.remove_client(ws)
-            log.debug("WS client disconnected (%d remaining)", len(server._ws_clients))
+            log.info("WS client disconnected (%d remaining)", len(server._ws_clients))
 
     # ── Test endpoints (dev only) ─────────────────────────────
 
