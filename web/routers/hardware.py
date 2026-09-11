@@ -15,6 +15,29 @@ def register(app, server: "WebServer") -> None:
         dev = server.registry.get(device_name)
         if not dev:
             return {"error": f"device '{device_name}' not found"}
+        # Si c'est la monture du profil actif et qu'un port y est renseigné,
+        # on le pousse (DEVICE_PORT) avant le CONNECT — indispensable pour LX200.
+        try:
+            active = server.profiles.list_profiles().get("active")
+            prof = server.profiles.get(active) if active else None
+            if prof and prof.get("mount") == device_name and prof.get("mount_endpoint"):
+                endpoint = prof["mount_endpoint"]
+                for prop_name in ("DEVICE_PORT", "DEVICE_PORTS", "CONNECTION_PORT"):
+                    pv = dev.get_prop(prop_name)
+                    if pv and pv.items:
+                        item_name_port = pv.items[0].name
+                        for it in pv.items:
+                            if it.name.upper() == "PORT":
+                                item_name_port = it.name
+                                break
+                        try:
+                            await dev.send_text(prop_name, [{"name": item_name_port, "value": endpoint}])
+                            log.info("Applied mount port %s -> %s.%s (single connect)", endpoint, device_name, prop_name)
+                        except Exception as e:  # noqa: BLE001
+                            log.warning("Failed to set mount port for %s: %s", device_name, e)
+                        break
+        except Exception:  # noqa: BLE001
+            pass
         # Determine the correct item name for CONNECT
         item_name = server.registry._connect_item_names.get(device_name, "CONNECT")
         conn_prop = dev.get_prop("CONNECTION")

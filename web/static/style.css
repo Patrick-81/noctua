@@ -273,7 +273,8 @@ body {
 #applet-hardware-mode {
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    overflow-y: auto;
+    overflow-x: hidden;
 }
 #applet-hardware-mode > * { flex: none; }
 #applet-hardware-mode > .hw-mode-props {
