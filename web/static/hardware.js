@@ -350,14 +350,17 @@ function renderHardwarePanel() {
         }
     }
 
-    // Server connection status
-    fetch('/api/connection').then(r => r.json()).then(data => {
-        const el = document.getElementById('hw-conn-status');
-        if (el) {
-            el.textContent = data.connected ? i18n('hw.server_connected') : i18n('hw.offline');
-            el.className = data.connected ? 'status-online' : 'status-offline';
-        }
-    }).catch(() => {});
+    // Server connection status — throttlé 5s (évite storm ws:state)
+    if (!renderHardwarePanel._lastConnFetch || Date.now() - renderHardwarePanel._lastConnFetch > 5000) {
+        renderHardwarePanel._lastConnFetch = Date.now();
+        fetch('/api/connection').then(r => r.json()).then(data => {
+            const el = document.getElementById('hw-conn-status');
+            if (el) {
+                el.textContent = data.connected ? i18n('hw.server_connected') : i18n('hw.offline');
+                el.className = data.connected ? 'status-online' : 'status-offline';
+            }
+        }).catch(() => {});
+    }
 
     renderHwDrivers();
     renderHardwareRoles();

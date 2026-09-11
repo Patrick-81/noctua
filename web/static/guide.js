@@ -113,6 +113,8 @@ function initGuidePanel() {
 }
 
 function _refreshGuideCameraList() {
+    if (_refreshGuideCameraList._last && Date.now() - _refreshGuideCameraList._last < 5000) return;
+    _refreshGuideCameraList._last = Date.now();
     fetch('/api/cameras').then(r => r.json()).then(cameras => {
         if (!_guideCameraSelect) return;
         const prev = _guideCameraSelect.value;

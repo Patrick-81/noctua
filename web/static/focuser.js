@@ -220,6 +220,8 @@ function _focDrawHfrChart() {
 // ── Camera selector for focuser ─────────────────────────────
 
 function _refreshCameraList() {
+    if (_refreshCameraList._last && Date.now() - _refreshCameraList._last < 5000) return;
+    _refreshCameraList._last = Date.now();
     fetch('/api/cameras').then(r => r.json()).then(cameras => {
         if (!_focCameraSelect) return;
         const prev = _focCameraSelect.value;

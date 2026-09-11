@@ -204,9 +204,8 @@ class Mount(BaseDevice):
                 val = str(item.value).lower()
                 new_parked = val in ("on", "true", "1", "enabled")
                 break
-        # Log uniquement sur changement (évite spam 1/s du LX200)
-        if new_parked != self.parked or new_state != self.park_state:
-            log.info("[%s] park=%s state=%s", self.name, new_parked, new_state)
+        # Debug uniquement, évite spam Log
+        log.debug("[%s] park=%s state=%s", self.name, new_parked, new_state)
         self.park_state = new_state
         self.parked = new_parked
 
