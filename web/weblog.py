@@ -39,6 +39,9 @@ class WebLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
+            # Filtre bruit indigo_server : Bad file descriptor en rafale
+            if "Bad file descriptor" in msg:
+                return
             payload = json.dumps({
                 "type": "log",
                 "level": record.levelname.lower(),

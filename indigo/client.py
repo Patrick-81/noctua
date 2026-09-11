@@ -235,7 +235,12 @@ class IndigoClient:
                 continue
             except Exception as e:
                 if self._connected:
-                    log.warning("Receive error: %s", e)
+                    msg = str(e)
+                    # Bad file descriptor lors d'un close/reconnect volontaire → debug
+                    if "Bad file descriptor" in msg or "9" in msg:
+                        log.debug("Receive error (expected on close): %s", e)
+                    else:
+                        log.warning("Receive error: %s", e)
                 self._connected = False
                 break
 
