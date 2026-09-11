@@ -660,20 +660,21 @@ class WebServer:
             log.warning("thumb failed (fallback full): %s", e)
             return None
 
-    async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
+    async     def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
         if url:
-            log.debug("Camera image URL from %s: %s", device_name, url)
+            log.info("Camera image URL from %s: %s (fmt=%s)", device_name, url, fmt)
             asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
             return
         if not data:
-            log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
-            return
-        # Store full FITS pour sauvegarde
-        self._last_image_data = data
-        self._camera_images[device_name] = data
-        if not self._ws_clients:
+                log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
+                return
+            log.info("Camera image INLINE from %s: %d bytes fmt=%s", device_name, len(data), fmt)
+            # Store full FITS pour sauvegarde
+            self._last_image_data = data
+            self._camera_images[device_name] = data
+            if not self._ws_clients:
             return
             # Preview plein format pour l'instant (thumb désactivé pour debug)
             # Le thumb JPEG causait le rectangle vert en bas à droite (mauvais stretch)
@@ -719,14 +720,14 @@ class WebServer:
                 return
             fetch_url = f"http://{allowed_host}:{allowed_port}{path}"
 
-            log.debug("Fetching BLOB from: %s", fetch_url)
+            log.info("Fetching BLOB from: %s", fetch_url)
             async with aiohttp.ClientSession() as session:
                 async with session.get(fetch_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
                     if resp.status != 200:
                         log.error("BLOB fetch failed: HTTP %d from %s", resp.status, fetch_url)
                         return
                     data = await resp.read()
-                    log.debug("BLOB fetched: %d bytes from %s", len(data), fetch_url)
+                    log.info("BLOB fetched: %d bytes from %s", len(data), fetch_url)
                     await self._on_camera_image(device_name, data, fmt)
         except Exception as e:
             log.error("Failed to fetch BLOB from %s: %s", url, e)
