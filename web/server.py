@@ -578,7 +578,7 @@ class WebServer:
     def _make_image_callback(self, device_name: str):
         """Create an image callback that captures the device name."""
         def _cb(data: bytes, fmt: str, url: str = "") -> None:
-            self._on_camera_image(device_name, data, fmt, url)
+            asyncio.ensure_future(self._on_camera_image(device_name, data, fmt, url))
         return _cb
 
     def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
