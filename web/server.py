@@ -578,7 +578,7 @@ class WebServer:
     def _make_image_callback(self, device_name: str):
         """Create an image callback that captures the device name."""
         def _cb(data: bytes, fmt: str, url: str = "") -> None:
-            asyncio.ensure_future(self._on_camera_image(device_name, data, fmt, url))
+            self._on_camera_image(device_name, data, fmt, url)
         return _cb
 
     def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
@@ -663,6 +663,11 @@ class WebServer:
     async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
+        if not fmt and url:
+            if url.lower().endswith(".jpeg") or url.lower().endswith(".jpg"):
+                fmt = "jpg"
+            elif url.lower().endswith(".fits") or url.lower().endswith(".fit"):
+                fmt = "fits"
         if url:
             log.info("Camera image URL from %s: %s (fmt=%s)", device_name, url, fmt)
             asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
@@ -673,6 +678,11 @@ class WebServer:
             # Store full FITS pour sauvegarde
             self._last_image_data = data
             self._camera_images[device_name] = data
+            if not fmt:
+                if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
+                    fmt = "jpg"
+                elif len(data) >= 6 and data[:6].startswith(b"SIMPLE"):
+                    fmt = "fits"
             log.info("Camera image INLINE from %s: %d bytes fmt=%s", device_name, len(data), fmt)
             if not self._ws_clients:
                 return
@@ -723,7 +733,10 @@ class WebServer:
 
     async def _fetch_and_broadcast(self, device_name: str, url: str, fmt: str) -> None:
         """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""
+        import aiohttp
         try:
+            # The INDIGO server runs on the same host as the INDIGO TCP connection.
+            # Only accept BLOB paths from the INDIGO server itself to avoid SSRF.
             allowed_host = self.registry.client._host
             allowed_port = 7624
             if url.startswith("/"):
@@ -735,30 +748,21 @@ class WebServer:
             else:
                 log.error("Refusing BLOB fetch for disallowed URL: %s", url)
                 return
+
             if ".." in path.split("/"):
                 log.error("Refusing BLOB fetch with path traversal: %s", path)
                 return
             fetch_url = f"http://{allowed_host}:{allowed_port}{path}"
+
             log.info("Fetching BLOB from: %s", fetch_url)
-            # aiohttp si dispo, sinon urllib (évite ModuleNotFoundError sur install minimale)
-            try:
-                import aiohttp
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(fetch_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
-                        if resp.status != 200:
-                            log.error("BLOB fetch failed: HTTP %d from %s", resp.status, fetch_url)
-                            return
-                        data = await resp.read()
-            except ImportError:
-                import urllib.request as _urllib
-                def _fetch():
-                    with _urllib.urlopen(fetch_url, timeout=30) as r:
-                        if r.status != 200:
-                            raise RuntimeError(f"HTTP {r.status}")
-                        return r.read()
-                data = await asyncio.to_thread(_fetch)
-            log.info("BLOB fetched: %d bytes from %s", len(data), fetch_url)
-            await self._on_camera_image(device_name, data, fmt)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(fetch_url, timeout=aiohttp.ClientTimeout(total=30)) as resp:
+                    if resp.status != 200:
+                        log.error("BLOB fetch failed: HTTP %d from %s", resp.status, fetch_url)
+                        return
+                    data = await resp.read()
+                    log.info("BLOB fetched: %d bytes from %s", len(data), fetch_url)
+                    await self._on_camera_image(device_name, data, fmt)
         except Exception as e:
             log.error("Failed to fetch BLOB from %s: %s", url, e)
 
