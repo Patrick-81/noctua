@@ -486,34 +486,12 @@ export class SkyEngine {
             ctx.fill();
         }
 
-        // 3. Grille gratiulaire — tracé manuel via projectPoint pour
-        // cohérence avec étoiles/planètes/écliptique.
+        // 3. Grille graticulaire — via D3 (orthographique) pour courbure correcte
         if (this.layers.grid) {
             ctx.strokeStyle = "rgba(255, 255, 255, 0.12)";
             ctx.lineWidth = 1;
             ctx.beginPath();
-            const gCenterRA = -this._currentRotation[0], gCenterDec = -this._currentRotation[1];
-            const gScale = this._scale, gTx = w / 2, gTy = h / 2;
-            const g = this._cachedGraticule;
-            let lines = [];
-            if (g.type === 'MultiLineString' && Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.type === 'Feature' && g.geometry?.coordinates) {
-                lines = g.geometry.type === 'MultiLineString' ? g.geometry.coordinates : [g.geometry.coordinates];
-            } else if (Array.isArray(g.coordinates)) lines = g.coordinates;
-            else if (g.geometry?.coordinates) lines = g.geometry.coordinates;
-            if (lines.length && Array.isArray(lines[0]) && Array.isArray(lines[0][0])) {
-                for (const line of lines) {
-                    let firstG = true;
-                    for (const c of line) {
-                        const pt = projectPoint(c[0], c[1], gCenterRA, gCenterDec, gScale, gTx, gTy);
-                        if (!pt) { firstG = true; continue; }
-                        if (firstG) { ctx.moveTo(pt[0], pt[1]); firstG = false; }
-                        else ctx.lineTo(pt[0], pt[1]);
-                    }
-                }
-            } else {
-                this._pathGenerator(this._cachedGraticule);
-            }
+            this._pathGenerator(this._cachedGraticule);
             ctx.stroke();
         }
 
