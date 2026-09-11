@@ -581,48 +581,37 @@ class WebServer:
         return _cb
 
     def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
-        """FITS/RGB → JPEG léger pour preview (sans astropy)."""
+        """FITS/RGB → JPEG léger (échantillonné, sans pic mémoire)."""
         try:
             import io as _io
             import numpy as _np
             from PIL import Image as _PIL
-            # Si déjà JPEG, vignette directe
             if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
                 img = _PIL.open(_io.BytesIO(data))
                 img.thumbnail((max_side, max_side), _PIL.BILINEAR)
                 out = _io.BytesIO()
-                img.convert("RGB").save(out, format="JPEG", quality=85, optimize=True)
+                img.convert("RGB").save(out, format="JPEG", quality=80, optimize=True)
                 return out.getvalue()
             if len(data) < 2880 or not data[:6].startswith(b"SIMPLE"):
                 return None
             hdr = data[:2880].decode("ascii", errors="ignore")
-            def _get(k):
+            def _geti(k):
                 import re as _re
                 m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", hdr)
-                return m.group(1) if m else ""
-            def _geti(k):
-                v = _get(k)
                 try:
-                    return int(float(v))
+                    return int(float(m.group(1))) if m else 0
                 except Exception:
                     return 0
             w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS"); bitpix = _geti("BITPIX")
-            if not w or not h:
+            if not w or not h or w * h > 100_000_000:
                 return None
-            # Détermine type et taille
-            # BITPIX 16 → 2 bytes, 8 → 1 byte, -32 → 4 bytes float
             bpp = 2 if bitpix == 16 else 1 if bitpix == 8 else 4 if bitpix == -32 else 2
-            # NAXIS 3 → cube (ex. RGB), NAXIS 2 → image mono
-            # Pour RisingCam RGB 6224×4168×3, NAXIS=3, NAXIS3=3
             naxis3 = _geti("NAXIS3")
             planes = naxis3 if naxis == 3 and naxis3 else 1
-            # Offset après header (2880 * nblocks, header peut faire >2880 si >36 cartes)
-            # Cherche END
             hdr_end = data.find(b"END" + b" " * 77)
             off = ((hdr_end // 2880) + 1) * 2880 if hdr_end != -1 else 2880
             need = w * h * planes * bpp
-            if len(data) < off + need:
-                # Tronqué
+            if len(data) < off + need or need > 200_000_000:
                 return None
             raw = data[off:off + need]
             if bitpix == 8:
@@ -631,39 +620,43 @@ class WebServer:
                 arr = _np.frombuffer(raw, dtype=">f4")
             else:
                 arr = _np.frombuffer(raw, dtype=">i2")
-            # Reconstitue
             if planes == 3:
-                arr = arr.reshape((planes, h, w)) if arr.size == planes * h * w else arr.reshape((h, w, planes)) if arr.size == h * w * planes else None
-                if arr is None:
+                try:
+                    arr = arr.reshape((planes, h, w)) if arr.size == planes * h * w else arr.reshape((h, w, planes))
+                    arr = arr.mean(axis=0) if arr.shape[0] == 3 else arr.mean(axis=2) if arr.shape[2] == 3 else arr[0]
+                except Exception:
                     return None
-                # RGB → luminance pour thumb (moyenne)
-                if arr.ndim == 3 and arr.shape[0] == 3:
-                    arr = arr.mean(axis=0)
-                elif arr.ndim == 3 and arr.shape[2] == 3:
-                    arr = arr.mean(axis=2)
-                else:
-                    arr = arr[0] if arr.ndim == 3 else arr
             else:
-                arr = arr.reshape((h, w))
-            arr = arr.astype(_np.float32)
-            # Stretch rapide
-            med = float(_np.median(arr))
-            arr = _np.clip(arr - med, 0, None)
-            lo, hi = _np.percentile(arr, [2, 99.5])
+                try:
+                    arr = arr.reshape((h, w))
+                except Exception:
+                    return None
+            # Échantillon 200k px pour median/percentile (évite OOM)
+            flat = arr.ravel()
+            step = max(1, flat.size // 200_000)
+            sample = flat[::step].astype(_np.float32)
+            med = float(_np.median(sample))
+            arr_f = _np.clip(arr.astype(_np.float32) - med, 0, None)
+            # Percentile sur échantillon
+            lo, hi = _np.percentile(sample - med, [2, 99.5])
+            lo = max(0, lo); hi = max(1, hi)
             if hi > lo:
-                arr = (arr - lo) / (hi - lo)
-            else:
-                arr = arr / max(1, hi) if hi else arr
-            arr = _np.clip(arr, 0, 1)
-            arr = _np.arcsinh(arr * 10) / _np.arcsinh(10)
-            arr = (arr * 255).astype(_np.uint8)
-            img = _PIL.fromarray(arr, mode="L")
+                arr_f = (arr_f - lo) / (hi - lo)
+            arr_f = _np.clip(arr_f, 0, 1)
+            arr_f = _np.arcsinh(arr_f * 10) / _np.arcsinh(10)
+            # Réduction directe sans former l'image pleine taille : on sous-échantillonne
+            # en prenant 1 px sur N pour tenir dans max_side avant Pillow
+            scale = max(1, int(max(w, h) / max_side))
+            if scale > 1:
+                arr_f = arr_f[::scale, ::scale]
+            arr_u8 = (arr_f * 255).astype(_np.uint8)
+            img = _PIL.fromarray(arr_u8, mode="L")
             img.thumbnail((max_side, max_side), _PIL.BILINEAR)
             out = _io.BytesIO()
-            img.save(out, format="JPEG", quality=85, optimize=True)
+            img.save(out, format="JPEG", quality=80, optimize=True)
             return out.getvalue()
         except Exception as e:  # noqa: BLE001
-            log.debug("thumb failed: %s", e)
+            log.warning("thumb failed (fallback full): %s", e)
             return None
 
     def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
