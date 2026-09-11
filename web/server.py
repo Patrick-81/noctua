@@ -685,8 +685,7 @@ class WebServer:
                     fmt = "fits"
             log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
             if not self._ws_clients:
-                log.warning("No WS clients for %s — image dropped", device_name)
-                return
+                log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
             # >5 Mo FITS → JPEG vignette en thread (évite blocage WS)
             if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
                 try:
