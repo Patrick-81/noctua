@@ -581,38 +581,80 @@ class WebServer:
         return _cb
 
     def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
-        """FITS 6224×4168 → JPEG léger pour preview (sans astropy)."""
+        """FITS/RGB → JPEG léger pour preview (sans astropy)."""
         try:
             import io as _io
             import numpy as _np
             from PIL import Image as _PIL
-            # Header FITS 2880
+            # Si déjà JPEG, vignette directe
+            if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
+                img = _PIL.open(_io.BytesIO(data))
+                img.thumbnail((max_side, max_side), _PIL.BILINEAR)
+                out = _io.BytesIO()
+                img.convert("RGB").save(out, format="JPEG", quality=85, optimize=True)
+                return out.getvalue()
             if len(data) < 2880 or not data[:6].startswith(b"SIMPLE"):
                 return None
             hdr = data[:2880].decode("ascii", errors="ignore")
             def _get(k):
                 import re as _re
-                m = _re.search(rf"{k}\s*=\s*(\d+)", hdr)
-                return int(m.group(1)) if m else 0
-            w = _get("NAXIS1"); h = _get("NAXIS2")
+                m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", hdr)
+                return m.group(1) if m else ""
+            def _geti(k):
+                v = _get(k)
+                try:
+                    return int(float(v))
+                except Exception:
+                    return 0
+            w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS"); bitpix = _geti("BITPIX")
             if not w or not h:
                 return None
-            # Data après header, big-endian int16
-            arr = _np.frombuffer(data[2880:2880 + w * h * 2], dtype=">i2")
-            if arr.size < w * h:
+            # Détermine type et taille
+            # BITPIX 16 → 2 bytes, 8 → 1 byte, -32 → 4 bytes float
+            bpp = 2 if bitpix == 16 else 1 if bitpix == 8 else 4 if bitpix == -32 else 2
+            # NAXIS 3 → cube (ex. RGB), NAXIS 2 → image mono
+            # Pour RisingCam RGB 6224×4168×3, NAXIS=3, NAXIS3=3
+            naxis3 = _geti("NAXIS3")
+            planes = naxis3 if naxis == 3 and naxis3 else 1
+            # Offset après header (2880 * nblocks, header peut faire >2880 si >36 cartes)
+            # Cherche END
+            hdr_end = data.find(b"END" + b" " * 77)
+            off = ((hdr_end // 2880) + 1) * 2880 if hdr_end != -1 else 2880
+            need = w * h * planes * bpp
+            if len(data) < off + need:
+                # Tronqué
                 return None
-            arr = arr[: w * h].reshape((h, w)).astype(_np.float32)
-            # Stretch rapide (median + asinh) pour aperçu
+            raw = data[off:off + need]
+            if bitpix == 8:
+                arr = _np.frombuffer(raw, dtype=_np.uint8)
+            elif bitpix == -32:
+                arr = _np.frombuffer(raw, dtype=">f4")
+            else:
+                arr = _np.frombuffer(raw, dtype=">i2")
+            # Reconstitue
+            if planes == 3:
+                arr = arr.reshape((planes, h, w)) if arr.size == planes * h * w else arr.reshape((h, w, planes)) if arr.size == h * w * planes else None
+                if arr is None:
+                    return None
+                # RGB → luminance pour thumb (moyenne)
+                if arr.ndim == 3 and arr.shape[0] == 3:
+                    arr = arr.mean(axis=0)
+                elif arr.ndim == 3 and arr.shape[2] == 3:
+                    arr = arr.mean(axis=2)
+                else:
+                    arr = arr[0] if arr.ndim == 3 else arr
+            else:
+                arr = arr.reshape((h, w))
+            arr = arr.astype(_np.float32)
+            # Stretch rapide
             med = float(_np.median(arr))
             arr = _np.clip(arr - med, 0, None)
-            # Normalise 2-98%
             lo, hi = _np.percentile(arr, [2, 99.5])
             if hi > lo:
                 arr = (arr - lo) / (hi - lo)
             else:
-                arr = arr / max(1, hi)
+                arr = arr / max(1, hi) if hi else arr
             arr = _np.clip(arr, 0, 1)
-            # Asinh léger
             arr = _np.arcsinh(arr * 10) / _np.arcsinh(10)
             arr = (arr * 255).astype(_np.uint8)
             img = _PIL.fromarray(arr, mode="L")
