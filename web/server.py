@@ -660,24 +660,28 @@ class WebServer:
             log.warning("thumb failed (fallback full): %s", e)
             return None
 
-    def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
+    async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
         if url:
             log.debug("Camera image URL from %s: %s", device_name, url)
             asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
-        else:
-            if not data:
-                log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
-                return
-            # Store full FITS pour sauvegarde
-            self._last_image_data = data
-            self._camera_images[device_name] = data
-            if not self._ws_clients:
-                return
-            # >5 Mo FITS → JPEG vignette, sinon full
+            return
+        if not data:
+            log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
+            return
+        # Store full FITS pour sauvegarde
+        self._last_image_data = data
+        self._camera_images[device_name] = data
+        if not self._ws_clients:
+            return
+        # >5 Mo FITS → JPEG vignette en thread (évite blocage WS)
             if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
-                thumb = self._jpeg_thumb(data)
+                try:
+                    thumb = await asyncio.to_thread(self._jpeg_thumb, data)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("thumb thread failed: %s", e)
+                    thumb = None
                 if thumb:
                     b64 = base64.b64encode(thumb).decode("ascii")
                     payload = json.dumps({
@@ -747,7 +751,7 @@ class WebServer:
                         return
                     data = await resp.read()
                     log.debug("BLOB fetched: %d bytes from %s", len(data), fetch_url)
-                    self._on_camera_image(device_name, data, fmt)
+                    await self._on_camera_image(device_name, data, fmt)
         except Exception as e:
             log.error("Failed to fetch BLOB from %s: %s", url, e)
 
