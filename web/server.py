@@ -674,8 +674,8 @@ class WebServer:
             self._camera_images[device_name] = data
             if not self._ws_clients:
                 return
-            # >5 Mo FITS → on broadcast un JPEG vignette (20× plus léger)
-            if fmt.lower().endswith("fits") and len(data) > 5 * 1024 * 1024:
+            # >5 Mo FITS → JPEG vignette, sinon full
+            if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
                 thumb = self._jpeg_thumb(data)
                 if thumb:
                     b64 = base64.b64encode(thumb).decode("ascii")
@@ -695,6 +695,8 @@ class WebServer:
                         loop.create_task(_safe_send(ws))
                     log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
                     return
+                else:
+                    log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
             b64 = base64.b64encode(data).decode("ascii")
             payload = json.dumps({
                 "type": "image",
