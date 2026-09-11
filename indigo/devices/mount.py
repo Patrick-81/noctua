@@ -196,14 +196,19 @@ class Mount(BaseDevice):
                 return
 
     def _parse_park(self, pv: PropertyVector) -> None:
-        self.park_state = pv.state or "Ok"
-        # INDI legacy: "PARK" switch, INDIGO v2.0: "PARKED"
+        new_state = pv.state or "Ok"
+        new_parked = self.parked
         for name in ("PARKED", "PARK"):
             item = pv.get_item(name)
             if item is not None:
                 val = str(item.value).lower()
-                self.parked = val in ("on", "true", "1", "enabled")
-                return
+                new_parked = val in ("on", "true", "1", "enabled")
+                break
+        # Log uniquement sur changement (évite spam 1/s du LX200)
+        if new_parked != self.parked or new_state != self.park_state:
+            log.info("[%s] park=%s state=%s", self.name, new_parked, new_state)
+        self.park_state = new_state
+        self.parked = new_parked
 
     def _parse_horizontal(self, pv: PropertyVector) -> None:
         az_item = pv.get_item("AZ")

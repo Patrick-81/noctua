@@ -187,9 +187,34 @@ class Camera(BaseDevice):
     async def set_binning(self, x: int, y: int) -> None:
         self.binning_x = x
         self.binning_y = y
-        await self.send_number("CCD_BINNING", [
-            {"name": "HOR_BIN", "value": x},
-            {"name": "VER_BIN", "value": y},
+        # Certains drivers (RisingCam) exposent CCD_BIN, d'autres CCD_BINNING
+        for prop_name in ("CCD_BIN", "CCD_BINNING"):
+            pv = self.get_prop(prop_name)
+            if not pv:
+                continue
+            names = {it.name for it in pv.items}
+            if "HORIZONTAL" in names:
+                await self.send_number(prop_name, [
+                    {"name": "HORIZONTAL", "value": x},
+                    {"name": "VERTICAL", "value": y},
+                ])
+                return
+            if "HOR_BIN" in names:
+                await self.send_number(prop_name, [
+                    {"name": "HOR_BIN", "value": x},
+                    {"name": "VER_BIN", "value": y},
+                ])
+                return
+            # Fallback : envoie les deux variantes
+            await self.send_number(prop_name, [
+                {"name": "HORIZONTAL", "value": x},
+                {"name": "VERTICAL", "value": y},
+            ])
+            return
+        # Dernier recours
+        await self.send_number("CCD_BIN", [
+            {"name": "HORIZONTAL", "value": x},
+            {"name": "VERTICAL", "value": y},
         ])
 
     async def set_gain(self, gain: int) -> None:
