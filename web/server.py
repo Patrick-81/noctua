@@ -240,7 +240,8 @@ class WebServer:
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
-        if request.url.path.startswith(("/", "/app.js", "/skymap/")):
+        # App + skymap code : no-cache, mais pas les données (stars/mw/dsos)
+        if request.url.path in ("/", "/app.js") or request.url.path.startswith("/skymap/sky-engine"):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
