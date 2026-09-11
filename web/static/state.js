@@ -35,7 +35,7 @@ const MODES = {
         driverType: 'ccd'
     },
     capture: {
-        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-sequence', 'applet-session'],
+        applets: ['applet-capture-settings', 'applet-capture-preview', 'applet-session'],
         driverType: 'ccd'
     },
     sequencer: {

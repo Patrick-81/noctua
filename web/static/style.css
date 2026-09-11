@@ -1755,8 +1755,11 @@ body {
 /* ── Séquenceur Nina-like ─────────────────────────────────────── */
 
 .seq-target-list {
-    max-height: 260px;
+    max-height: 168px; /* 3 cibles ~3×56px → scroll dès la 4e */
     overflow-y: auto;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
     border: 1px solid var(--border-subtle);
     border-radius: 6px;
     background: var(--bg-input);

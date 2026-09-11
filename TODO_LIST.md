@@ -49,7 +49,12 @@
 - [x] **Safety P2 — automate temporel ordonnancé** (`docs/automata-safety.md` `6fd7b43`, `plugins/safety/*` `94ddcd0` + merge `fb821a6`) : spec `docs/automata-safety.md` (8 états `Monitoring→UnsafeDetect(debounce x2)→StoppingSequence(30s)→ParkingMount(120s retry 60s)→[ClosingRoof(60s) garde parked]→Alerting→WaitingSafe(hystérésis 5m)`, invariant *close jamais sans parked*, agrégation `AND` sources `allsky/aux_station/openweather`, fail-safe `Unsafe` si source muette) ; `plugins/safety/automaton.py` `SafetyAutomaton` (`State` enum, `_wait` poll 0.5s isolé), `plugins/safety/backend.py` wiring `SequenceRunner/Mount/Dome` + `safety_loop` poll 30s + routes `GET /api/safety/status` / `POST /api/safety/test` (dry) + alerte via `TriggerManager`, `plugins/safety/frontend.js` applet + `Hub ws:state` ; `plugins/safety/plugin.yaml` timeouts configurables — **tests pur debounce/garde close/chaîne avec dome, pytest 292 ✓**
 
 ## En cours
-- (vide — repris 2026-09-08, lots P1.1/P1.2/P2.2/Safety mergés sur `master`)
+- [x] **Séquenceur — ménage + POC timeline** (branche `feat/sequencer-timeline`, 2026-09-10) :
+  - purge legacy `sequence.js` : suppression de `initSequencePanel` / `_seqFrames` / `renderSequenceTable` / `seqStart` / double `seqApplyStatus` (~377L) — garde uniquement le séquenceur Nina-like `seqData/targets` + templates adaptés - `web/static/sequence.js`, `app.js`, `state.js`, `index.html` (`applet-sequence` doublon d'IDs `seq-*` supprimé) — **pytest 292 ✓, JS syntax OK**
+  - POC `web/static/sequencer-timeline.js` derrière `?timeline=1` (monkey-patch `seqRenderStep`/`seqRenderTargetDetail`, 0 impact sans flag) : blocs couleur par filtre, drag handle `⋮⋮` natif, drawer édition, résumé `poses·temps·répartition filtre`, bandeau `TIMELINE POC`, seed démo `M31 LRGB + M42 Ha/OIII/L` si plan vide
+  - ergonomie cibles : `style.css` `.seq-target-list` `max-height 260→168px` (3 cibles → scroll dès la 4e, `scrollbar-gutter: stable`)
+  - branche poussée `feat/sequencer-timeline` — à tester avant passage par défaut
+- (lots P1.1/P1.2/P2.2/Safety mergés sur `master` le 2026-09-08)
 
 ## À tester
 - [x] Live stacking réel : session continue (max_frames=0) STOP manuel, aperçu empilé mis à jour en direct → `test_live_stack_flow.py::test_continuous_session_manual_stop`

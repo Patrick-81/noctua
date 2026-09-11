@@ -26,14 +26,6 @@ function apiPost(url, body) {
     }).catch(e => addLog('error', 'api', i18nFmt('log.ws.error', { err: e.message })));
 }
 
-// ── Hub subscription ─────────────────────────────────────────
-
-Hub.subscribe('ws:image', 'api', (env) => {
-    const { device, format, data } = env.payload;
-    const viewer = getViewer(device);
-    if (viewer) viewer.displayImage(data, format);
-});
-
 // ── Utilities ─────────────────────────────────────────────────
 
 function escapeAttr(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
