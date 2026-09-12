@@ -264,19 +264,58 @@ def register(app, server: "WebServer") -> None:
                 ax = int(x)
                 if ax <0 or ax>=w or ay<0 or ay>=h: return {"adu": None, "w":w,"h":h}
                 naxis = _geti("NAXIS"); naxis3 = _geti("NAXIS3"); planes = naxis3 if naxis==3 and naxis3 else 1
-                need = w*h*planes*bpp
-                raw = img[off:off+need]
-                if bitpix==8: arr = _np.frombuffer(raw, dtype=_np.uint8)
-                elif bitpix==-32: arr = _np.frombuffer(raw, dtype=">f4")
-                else: arr = _np.frombuffer(raw, dtype=">i2")
-                if planes==3:
-                    try:
-                        arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
-                        arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
-                    except: return None
+                # Lecture directe d'un seul pixel sans charger tout le tableau 77 Mo
+                if planes == 1:
+                    need_one = bpp
+                    pix_off = off + (ay * w + ax) * bpp
+                    if pix_off + bpp > len(img): return None
+                    raw1 = img[pix_off:pix_off+bpp]
+                    if bitpix == 8: adu = float(raw1[0])
+                    elif bitpix == -32: adu = float(_np.frombuffer(raw1, dtype=">f4")[0])
+                    else: adu = float(_np.frombuffer(raw1, dtype=">i2")[0])
                 else:
-                    arr = arr.reshape((h,w))
-                adu = float(arr[ay, ax])
+                    # 3 plans : essaie (planes,h,w) puis (h,w,planes)
+                    # Cas (3,h,w) : plan * w*h + ay*w+ax
+                    # Cas (h,w,3) : (ay*w+ax)*3 + c
+                    # On lit 3 octets/valeurs et on moyenne
+                    if bitpix == 8:
+                        # taille totale = w*h*3
+                        # test rapide : si on est en (3,h,w), les 3 plans sont contigus
+                        # on lit les 3 bytes et on moyenne
+                        # pour (h,w,3), les 3 bytes sont contigus à pix_off
+                        # On distingue par la taille du header ? On tente les deux et on prend la moyenne la plus plausible
+                        # Plus simple : on lit les deux interprétations et on moyenne les 3 valeurs lues
+                        # Pour (3,h,w) : offsets séparés
+                        off0 = off + 0 * w * h + ay * w + ax
+                        off1 = off + 1 * w * h + ay * w + ax
+                        off2 = off + 2 * w * h + ay * w + ax
+                        if off2 < len(img):
+                            v0 = img[off0]; v1 = img[off1]; v2 = img[off2]
+                            adu_planar = (int(v0) + int(v1) + int(v2)) / 3.0
+                        else:
+                            adu_planar = None
+                        # Pour (h,w,3) : interleaved
+                        pix_off_inter = off + (ay * w + ax) * 3
+                        if pix_off_inter + 2 < len(img):
+                            vi0 = img[pix_off_inter]; vi1 = img[pix_off_inter+1]; vi2 = img[pix_off_inter+2]
+                            adu_inter = (int(vi0) + int(vi1) + int(vi2)) / 3.0
+                        else:
+                            adu_inter = None
+                        # Si les deux sont valides, elles devraient être proches pour une vraie image
+                        # On préfère la version planar (classique FITS 3 planes)
+                        adu = adu_planar if adu_planar is not None else adu_inter
+                        if adu is None: return None
+                    else:
+                        # 16-bit ou float 3 plans : on retombe sur le décodage complet (rare)
+                        need = w*h*planes*bpp
+                        raw = img[off:off+need]
+                        if bitpix == -32: arr = _np.frombuffer(raw, dtype=">f4")
+                        else: arr = _np.frombuffer(raw, dtype=">i2")
+                        try:
+                            arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
+                            arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
+                        except: return None
+                        adu = float(arr[ay, ax])
                 return {"adu": adu, "w":w,"h":h, "x":ax, "y":int(y)}
             except Exception as e:
                 return {"error": str(e)}
