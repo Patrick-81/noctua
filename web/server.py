@@ -209,14 +209,16 @@ class WebServer:
                     await self.registry.client.send_enable_blob(
                         device=name, mode="URL")
 
-                # Step 2c: Activer l'aperçu JPEG léger si dispo (RisingCam: CCD_PREVIEW)
+                # Step 2c: Désactiver CCD_PREVIEW (vignette 1024) — on veut JPEG pleine résolution via FITS
                 preview_pv = dev.get_prop("CCD_PREVIEW")
-                if preview_pv and any(it.name == "ENABLED" and it.value for it in preview_pv.items) is False:
-                    # Met ENABLED On, les autres Off
+                if preview_pv:
                     try:
-                        items = [{"name": it.name, "value": it.name == "ENABLED"} for it in preview_pv.items]
-                        await dev.send_switch("CCD_PREVIEW", items)
-                        log.info("Enabled CCD_PREVIEW for %s (JPEG léger)", name)
+                        # Si ENABLED est On, on le coupe (on passe en DISABLED)
+                        enabled_on = any(it.name == "ENABLED" and it.value for it in preview_pv.items)
+                        if enabled_on:
+                            items = [{"name": it.name, "value": it.name == "DISABLED"} for it in preview_pv.items]
+                            await dev.send_switch("CCD_PREVIEW", items)
+                            log.info("Disabled CCD_PREVIEW for %s (pleine résolution via FITS)", name)
                     except Exception:  # noqa: BLE001
                         pass
 
@@ -246,8 +248,9 @@ class WebServer:
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
-        # App + skymap code : no-cache, mais pas les données (stars/mw/dsos)
-        if request.url.path in ("/", "/app.js") or request.url.path.startswith("/skymap/sky-engine"):
+        # App + skymap code + viewer/preview : no-cache, mais pas les données (stars/mw/dsos)
+        if (request.url.path in ("/", "/app.js", "/preview.js", "/viewer.js", "/capture.js")
+                or request.url.path.startswith("/skymap/sky-engine")):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
@@ -695,10 +698,11 @@ class WebServer:
         log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
         if not self._ws_clients:
             log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
-        # >2 Mo FITS → JPEG vignette en thread (évite blocage WS + limite mémoire)
+        # >2 Mo FITS → JPEG pleine résolution en thread (évite 77 Mo FITS sur WS)
         if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
             try:
-                thumb = await asyncio.to_thread(self._jpeg_thumb, data)
+                # pleine résolution : max_side >= capteur (6224) → pas de downscale avant stretch
+                thumb = await asyncio.to_thread(self._jpeg_thumb, data, 8192)
             except Exception as e:  # noqa: BLE001
                 log.warning("thumb thread failed: %s", e)
                 thumb = None
@@ -718,7 +722,7 @@ class WebServer:
                         self._safe_remove_client(ws)
                 for ws in self._ws_clients[:]:
                     loop.create_task(_safe_send(ws))
-                log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
+                log.info("Broadcast JPEG pleine résolution %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
                 self._last_thumb = thumb
                 self._last_thumb_device = device_name
                 return

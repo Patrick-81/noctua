@@ -133,6 +133,112 @@ def register(app, server: "WebServer") -> None:
             "thumb": False,
         })
 
+    @app.get("/api/camera/last_image/stats")
+    async def camera_last_image_stats(device: str = "", bins: int = 256):
+        """Histogramme + stats du dernier FITS (calculé côté serveur sur le vrai FITS).
+        Utilisé par l'aperçu JPEG pleine résolution pour afficher l'histo/ADU
+        sans télécharger le FITS complet."""
+        import asyncio as _aio
+        import re as _re
+        import numpy as _np
+        img = server._camera_images.get(device) if device else None
+        if not img:
+            img = getattr(server, "_last_image_data", b"")
+        if not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE"):
+            return {"ok": False, "error": "no FITS captured yet"}
+        def _compute():
+            try:
+                hdr = img[:2880].decode("ascii", errors="ignore")
+                def _geti(k):
+                    m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", hdr)
+                    try: return int(float(m.group(1))) if m else 0
+                    except: return 0
+                w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS"); bitpix = _geti("BITPIX")
+                if not w or not h: return None
+                bpp = 2 if bitpix==16 else 1 if bitpix==8 else 4 if bitpix==-32 else 2
+                naxis3 = _geti("NAXIS3"); planes = naxis3 if naxis==3 and naxis3 else 1
+                hdr_end = img.find(b"END" + b" " * 77)
+                off = ((hdr_end // 2880) + 1) * 2880 if hdr_end!=-1 else 2880
+                need = w*h*planes*bpp
+                if len(img) < off+need: return None
+                raw = img[off:off+need]
+                if bitpix==8: arr = _np.frombuffer(raw, dtype=_np.uint8)
+                elif bitpix==-32: arr = _np.frombuffer(raw, dtype=">f4")
+                else: arr = _np.frombuffer(raw, dtype=">i2")
+                if planes==3:
+                    try:
+                        arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
+                        arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
+                    except: return None
+                else:
+                    try: arr = arr.reshape((h,w))
+                    except: return None
+                flat = arr.ravel().astype(_np.float32)
+                step = max(1, flat.size // 200000)
+                sample = flat[::step]
+                vmin = float(_np.min(sample)); vmax = float(_np.max(sample))
+                median = float(_np.median(sample))
+                hist, edges = _np.histogram(sample, bins=256, range=(vmin, vmax))
+                return {
+                    "w": w, "h": h, "bitpix": bitpix,
+                    "min": vmin, "max": vmax, "median": median,
+                    "hist": hist.tolist(), "bins": 256,
+                }
+            except Exception as e:
+                return {"error": str(e)}
+        res = await _aio.to_thread(_compute)
+        if not res or "error" in res:
+            return {"ok": False, "error": res.get("error","failed") if res else "failed"}
+        return SanitizedJSONResponse({"ok": True, **res})
+
+    @app.get("/api/camera/last_image/adu")
+    async def camera_last_image_adu(device: str = "", x: int = 0, y: int = 0):
+        """ADU du vrai FITS à la coordonnée x,y (origine coin haut-gauche comme l'affichage)."""
+        import asyncio as _aio
+        import re as _re
+        import numpy as _np
+        img = server._camera_images.get(device) if device else None
+        if not img:
+            img = getattr(server, "_last_image_data", b"")
+        if not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE"):
+            return {"ok": False, "error": "no FITS"}
+        def _get():
+            try:
+                hdr = img[:2880].decode("ascii", errors="ignore")
+                def _geti(k):
+                    m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", hdr)
+                    try: return int(float(m.group(1))) if m else 0
+                    except: return 0
+                w = _geti("NAXIS1"); h = _geti("NAXIS2"); bitpix = _geti("BITPIX")
+                if not w or not h: return None
+                bpp = 2 if bitpix==16 else 1 if bitpix==8 else 4 if bitpix==-32 else 2
+                hdr_end = img.find(b"END" + b" " * 77)
+                off = ((hdr_end // 2880) + 1) * 2880 if hdr_end!=-1 else 2880
+                ay = h - 1 - int(y)
+                ax = int(x)
+                if ax <0 or ax>=w or ay<0 or ay>=h: return {"adu": None, "w":w,"h":h}
+                naxis = _geti("NAXIS"); naxis3 = _geti("NAXIS3"); planes = naxis3 if naxis==3 and naxis3 else 1
+                need = w*h*planes*bpp
+                raw = img[off:off+need]
+                if bitpix==8: arr = _np.frombuffer(raw, dtype=_np.uint8)
+                elif bitpix==-32: arr = _np.frombuffer(raw, dtype=">f4")
+                else: arr = _np.frombuffer(raw, dtype=">i2")
+                if planes==3:
+                    try:
+                        arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
+                        arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
+                    except: return None
+                else:
+                    arr = arr.reshape((h,w))
+                adu = float(arr[ay, ax])
+                return {"adu": adu, "w":w,"h":h, "x":ax, "y":int(y)}
+            except Exception as e:
+                return {"error": str(e)}
+        res = await _aio.to_thread(_get)
+        if not res or "error" in res:
+            return {"ok": False, "error": res.get("error","failed") if res else "failed"}
+        return SanitizedJSONResponse({"ok": True, **res})
+
     @app.post("/api/camera/temperature")
     async def camera_temperature(body: dict):
         c = server.registry.get_camera(body.get("device"))

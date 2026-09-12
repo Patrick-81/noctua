@@ -276,6 +276,11 @@ class Viewer {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
+            this.imgW = img.width;
+            this.imgH = img.height;
+            this.pixels = null;
+            // legacy globals for overlay/save compatibility
+            _histWidth = img.width; _histHeight = img.height;
             const canvas = document.getElementById(this.canvasId);
             if (canvas) { canvas.width = img.width; canvas.height = img.height; canvas.getContext('2d').drawImage(img, 0, 0); }
             for (const id of this.overlayIds || []) {
@@ -283,6 +288,10 @@ class Viewer {
                 if (ov) { ov.width = img.width; ov.height = img.height; ov.style.width = img.width + 'px'; ov.style.height = img.height + 'px'; }
             }
             this._showWrap();
+            // sync stretch globals for overlays
+            if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry' || this.mode === 'aberration') {
+                this.fitZoom();
+            }
             if (this.mode === 'capture') this.setInfo(`${img.width}×${img.height} — ${fmt}`);
             else this.setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
             URL.revokeObjectURL(url);
@@ -555,9 +564,45 @@ class Viewer {
         this.fitZoom();
     }
 
+    // ── Histogram (depuis stats serveur) ────────────────────────
+    renderHistogramFromStats(stats) {
+        const canvas = document.getElementById('cap-histo-canvas');
+        if (!canvas || !stats || !stats.hist) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width = canvas.offsetWidth * 2;
+        const H = canvas.height = canvas.offsetHeight * 2;
+        const hist = stats.hist;
+        let maxBin = 1;
+        for (let i=0;i<hist.length;i++) if (hist[i] > maxBin) maxBin = hist[i];
+        ctx.clearRect(0,0,W,H);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(0,0,W,H);
+        const blackFrac = this.histAuto ? 0 : this.histBlackPct/100;
+        const blX = blackFrac * W;
+        ctx.fillStyle = 'rgba(0,255,204,0.08)';
+        ctx.fillRect(blX,0,W-blX,H);
+        for (let i=0;i<hist.length;i++) {
+            const bh = Math.max(1, (hist[i]/maxBin)*H);
+            ctx.fillStyle = 'rgba(0,255,204,0.5)';
+            ctx.fillRect(i*W/hist.length, H-bh, W/hist.length+1, bh);
+        }
+        ctx.strokeStyle = '#ff5577'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(blX,0); ctx.lineTo(blX,H); ctx.stroke();
+        const minEl = document.getElementById('cap-histo-min');
+        const maxEl = document.getElementById('cap-histo-max');
+        if (minEl) minEl.textContent = Math.round(stats.min);
+        if (maxEl) maxEl.textContent = Math.round(stats.max);
+        const slider = document.getElementById('cap-histo-slider');
+        if (slider) slider.value = this.histAuto ? 0 : this.histBlackPct;
+        const val = document.getElementById('cap-histo-val');
+        if (val) val.textContent = this.histAuto ? 'AUTO' : Math.round(this.histBlackPct)+'%';
+        this._statsHist = stats;
+    }
+
     // ── Histogram ──
 
     renderHistogram() {
+        if (this._statsHist) return this.renderHistogramFromStats(this._statsHist);
         const canvas = document.getElementById('cap-histo-canvas');
         if (!canvas || !this.histPixels) return;
         const ctx = canvas.getContext('2d');

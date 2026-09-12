@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Noctua — preview.js (module classique, bindings lexicaux globaux)
+console.log('preview.js v3 pleine 8192 — vignette filtrée <3000px, histo+ADU');
 // ═══════════════════════════════════════════════════════════════
 
 // ── FITS image handling ──────────────────────────────────────
@@ -225,13 +226,73 @@ let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
 function handleCameraImage(b64Data, fmt) {
-    _lastWsImageAt = Date.now();
-    clearOffsetOverlay();
-    clearFocusOverlay();
-    const raw = atob(b64Data);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    if (captureViewer) captureViewer.render(bytes, fmt);
+    const norm = String(fmt||'').toLowerCase();
+    const isFits = norm.includes('fits');
+    function _renderAndFetch(b64, f) {
+        clearOffsetOverlay();
+        clearFocusOverlay();
+        const raw = atob(b64);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        _lastWsImageAt = Date.now();
+        console.log(`handleCameraImage: affichée ${f} ${Math.round(b64.length*0.75/1024)}Ko`);
+        if (captureViewer) captureViewer.render(bytes, f);
+        // histo après onload (wrap visible + imgW posé)
+        setTimeout(()=> fetchStatsWithRetry(3), 700);
+    }
+    function fetchStatsWithRetry(retry) {
+        function fetchStats(rem) {
+            fetch(`/api/camera/last_image/stats`).then(r=>r.json()).then(s=>{
+                if (s && s.ok && captureViewer) {
+                    console.log(`stats: ${s.w}x${s.h} min=${Math.round(s.min)} max=${Math.round(s.max)} median=${Math.round(s.median)} hist=${s.hist ? s.hist.length : 0}`);
+                    captureViewer._statsHist = s;
+                    const c = document.getElementById('cap-histo-canvas');
+                    if (c && c.offsetWidth === 0 && rem > 0) {
+                        console.log('histo canvas pas visible, retry', rem);
+                        setTimeout(()=> fetchStats(rem-1), 500);
+                        return;
+                    }
+                    captureViewer.renderHistogramFromStats(s);
+                    console.log('histo rendu');
+                } else if (s && !s.ok) {
+                    console.warn('stats error', s.error);
+                }
+            }).catch(e=> console.warn('stats fetch fail', e));
+        }
+        fetchStats(retry);
+    }
+    if (isFits) {
+        console.log(`handleCameraImage: FITS ${Math.round(b64Data.length*0.75/1024)}Ko`);
+        _renderAndFetch(b64Data, fmt);
+        return;
+    }
+    // JPEG : vérifie dimensions avant d'afficher — vignette 1024 <2000 → ignorée
+    try {
+        const rawTmp = atob(b64Data);
+        const bytesTmp = new Uint8Array(rawTmp.length);
+        for (let i = 0; i < rawTmp.length; i++) bytesTmp[i] = rawTmp.charCodeAt(i);
+        const blob = new Blob([bytesTmp], {type:'image/jpeg'});
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            console.log(`handleCameraImage: JPEG candidat ${img.width}x${img.height} ${Math.round(b64Data.length*0.75/1024)}Ko`);
+            if (img.width < 1500) {
+                console.log(`handleCameraImage: vignette ${img.width}x${img.height} ignorée — attente pleine`);
+                return; // ne pose pas _lastWsImageAt, laisse le fallback pleine arriver
+            }
+            _renderAndFetch(b64Data, fmt);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            console.log('handleCameraImage: JPEG decode error, affichage forcé');
+            _renderAndFetch(b64Data, fmt);
+        };
+        img.src = url;
+    } catch(e) {
+        console.warn('handleCameraImage check fail', e);
+        _renderAndFetch(b64Data, fmt);
+    }
 }
 
 
@@ -294,6 +355,61 @@ function _applyPreviewTransform() { captureViewer?._applyTransform(); }
 function _resetPreviewZoom() { captureViewer?.resetZoom(); }
 function _fitPreviewZoom() { captureViewer?.fitZoom(); }
 function initPreviewZoomPan() { captureViewer?.initZoomPan(); }
+
+// ── ADU cursor ───────────────────────────────────────────────────
+let _aduFetchTimer = 0;
+let _aduLastReq = '';
+function initAduCursor() {
+    const viewport = document.getElementById('cap-preview-viewport');
+    const info = document.getElementById('cap-adu-cursor');
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!viewport || !info || !canvas) return;
+    function update(e) {
+        const cv = captureViewer;
+        if (!cv || !cv.imgW || !cv.imgH) { info.textContent = ' '; return; }
+        const cRect = canvas.getBoundingClientRect();
+        if (cRect.width === 0 || cRect.height === 0) { info.textContent = ' '; return; }
+        // canvas CSS size vs image size (transform pan/zoom already accounted via getBoundingClientRect)
+        // On calcule la position image brute via rect du canvas (qui inclut transform scale)
+        // Plus simple: mappe clientX -> pixel via比例 canvas rect / imgW
+        const scaleX = cRect.width / cv.imgW;
+        const scaleY = cRect.height / cv.imgH;
+        const xImg = (e.clientX - cRect.left) / scaleX;
+        const yImg = (e.clientY - cRect.top) / scaleY;
+        const ix = Math.floor(xImg);
+        const iy = Math.floor(yImg);
+        if (ix < 0 || ix >= cv.imgW || iy < 0 || iy >= cv.imgH) { info.textContent = ' '; return; }
+        // Si FITS en mémoire, lecture directe (rare : JPEG pleine résolution a pixels=null)
+        if (cv.pixels && cv.imgW && cv.imgH) {
+            const arrayY = cv.imgH - 1 - iy;
+            const adu = cv.pixels[arrayY * cv.imgW + ix];
+            if (adu !== undefined && !isNaN(adu)) {
+                info.textContent = `x:${ix} y:${iy} ADU:${Math.round(adu)}`;
+                return;
+            }
+        }
+        // JPEG pleine résolution → ADU du vrai FITS côté serveur
+        const key = `${ix},${iy}`;
+        if (_aduLastReq === key) return;
+        _aduLastReq = key;
+        info.textContent = `x:${ix} y:${iy} ADU:…`;
+        clearTimeout(_aduFetchTimer);
+        _aduFetchTimer = setTimeout(()=>{
+            fetch(`/api/camera/last_image/adu?x=${ix}&y=${iy}`).then(r=>r.json()).then(j=>{
+                if (j && j.ok && j.adu !== null && j.adu !== undefined) {
+                    info.textContent = `x:${ix} y:${iy} ADU:${Math.round(j.adu)}`;
+                } else {
+                    info.textContent = `x:${ix} y:${iy} —`;
+                }
+            }).catch(()=>{ info.textContent = `x:${ix} y:${iy} —`; });
+        }, 80);
+    }
+    viewport.addEventListener('mousemove', update);
+    viewport.addEventListener('mouseleave', () => { info.textContent = ' '; });
+    viewport.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches[0]) update(e.touches[0]);
+    }, {passive:true});
+}
 
 // ── Save image ─────────────────────────────────────────────────
 
