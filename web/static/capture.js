@@ -138,7 +138,7 @@ function initCapturePanel() {
         });
     }
 
-    // Preview format (global) : vignette (1024) vs pleine résolution (6224)
+    // Preview format (global) : vignette (1024) vs pleine résolution (6224) — pleine par défaut
     const fmtSel = document.getElementById('cap-preview-format');
     if (fmtSel) {
         // migration anciens noms auto/jpeg/fits -> vignette/full
@@ -147,8 +147,10 @@ function initCapturePanel() {
             if (saved === 'auto' || saved === 'jpeg') _capturePreviewFormat = 'vignette';
             else if (saved === 'fits') _capturePreviewFormat = 'full';
             else _capturePreviewFormat = saved;
-            fmtSel.value = _capturePreviewFormat;
         }
+        // si pas de config sauvée, on force pleine résolution
+        fmtSel.value = _capturePreviewFormat;
+        currentModeConfig().preview_format = _capturePreviewFormat;
         fmtSel.addEventListener('change', () => {
             _capturePreviewFormat = fmtSel.value;
             currentModeConfig().preview_format = _capturePreviewFormat;
@@ -367,6 +369,7 @@ async function startSequence(count, delay) {
     const filterSeqInput = document.getElementById('cap-filter-seq');
     if (filterSeqInput) _captureFilterSeq = parseFilterSeq(filterSeqInput.value);
 
+    try {
     for (let i = 0; i < count; i++) {
         if (!_captureRunning) break;
         const exposure = parseFloat(document.getElementById('cap-exposure')?.value || '1');
@@ -416,14 +419,16 @@ async function startSequence(count, delay) {
             await sleep(delay * 1000);
         }
     }
-    // Flush sauvegardes en fin de séquence
-    if (_capturePendingSaves.length) {
-        await _processPendingSaves();
+    } finally {
+        // Flush sauvegardes en fin de séquence même si erreur/timeout
+        if (_capturePendingSaves.length) {
+            try { await _processPendingSaves(); } catch {}
+        }
+        _captureRunning = false;
+        _captureQueue = 0;
+        updateCaptureProgress();
+        addLog('info', 'capture', i18n('log.capture.seq_done'));
     }
-    _captureRunning = false;
-    _captureQueue = 0;
-    updateCaptureProgress();
-    addLog('info', 'capture', i18n('log.capture.seq_done'));
 }
 
 function parseFilterSeq(text) {
