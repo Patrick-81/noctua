@@ -475,7 +475,10 @@ async function _fetchLastImageIfNeeded(camName) {
         if (age < 2000) return;
         // Laisse le thumb se générer côté serveur (3s pour 77Mo)
         await sleep(800);
-        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(camName)}&thumb=1`);
+        const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
+        const thumbParam = wantVignette ? 1 : 0;
+        // vignette -> thumb 1024, pleine -> JPEG 6224 (le FITS 51Mo ne sert qu'au histo/ADU)
+        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(camName)}&thumb=${thumbParam}`);
         const j = await r.json();
         if (j && j.ok && j.data) {
             // Évite le doublon si WS est arrivé entre-temps

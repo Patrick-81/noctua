@@ -683,15 +683,30 @@ class WebServer:
         if not data:
             log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
             return
-        # Store full FITS pour sauvegarde (même sans WS, pour /api/camera/save + solver)
-        self._last_image_data = data
-        self._last_image_device = device_name
-        self._camera_images[device_name] = data
         if not fmt:
             if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
                 fmt = "jpg"
             elif len(data) >= 6 and data[:6].startswith(b"SIMPLE"):
                 fmt = "fits"
+        # Stockage séparé : FITS natif pour sauvegarde/solver/histo/ADU, JPEG preview pour l'aperçu pleine résolution
+        is_jpeg = fmt.lower().endswith("jpg") or fmt.lower().endswith("jpeg")
+        if is_jpeg:
+            self._last_preview_jpeg = data
+            self._last_preview_device = device_name
+            # garde aussi le dernier FITS si on n'a pas encore de FITS (premier jpeg)
+            if not getattr(self, "_last_image_data", None):
+                self._last_image_data = data
+                self._last_image_device = device_name
+        else:
+            # Store full FITS pour sauvegarde (même sans WS, pour /api/camera/save + solver)
+            self._last_image_data = data
+            self._last_image_device = device_name
+        self._camera_images[device_name] = data
+        # aussi un dict séparé pour les previews JPEG par device
+        if not hasattr(self, "_preview_jpegs"):
+            self._preview_jpegs = {}
+        if is_jpeg:
+            self._preview_jpegs[device_name] = data
         log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
         if not self._ws_clients:
             log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
