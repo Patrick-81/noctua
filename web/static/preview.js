@@ -261,13 +261,17 @@ function handleCameraImage(b64Data, fmt) {
     // bouton télécharger visible dès qu'on a une image
     const dl = document.getElementById('cap-download-btn');
     if (dl) dl.style.display = '';
-    // histogramme/ADU du vrai FITS côté serveur (même quand l'aperçu est JPEG)
+    // histogramme/ADU du vrai FITS côté serveur (même quand l'aperçu est JPEG) — avec sablier sur l'aperçu
+    const previewPanel = document.getElementById('applet-capture-preview');
+    if (previewPanel) previewPanel.classList.add('cap-preview-loading');
     fetch(`/api/camera/last_image/stats`).then(r=>r.json()).then(s=>{
         if (s && s.ok && captureViewer) {
             captureViewer._statsHist = s;
             captureViewer.renderHistogramFromStats(s);
         }
-    }).catch(()=>{});
+    }).catch(()=>{}).finally(()=>{
+        if (previewPanel) previewPanel.classList.remove('cap-preview-loading');
+    });
 }
 
 

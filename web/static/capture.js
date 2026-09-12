@@ -395,12 +395,15 @@ async function startSequence(count, delay) {
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
-        // sablier en haut du panneau tant que l'image n'est pas rapatriée
+        // sablier en haut des panneaux tant que l'image n'est pas rapatriée (capture + aperçu)
         const capPanel = document.getElementById('applet-capture-settings');
+        const previewPanel = document.getElementById('applet-capture-preview');
         if (capPanel) capPanel.classList.add('cap-loading');
+        if (previewPanel) previewPanel.classList.add('cap-preview-loading');
         await waitExposureDone(cam.name, exposure * 1000 + 8000);
         stopCountdown();
         if (capPanel) capPanel.classList.remove('cap-loading');
+        if (previewPanel) previewPanel.classList.remove('cap-preview-loading');
         // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
         await _fetchLastImageIfNeeded(cam.name);
         // Sauvegarde selon options globales
