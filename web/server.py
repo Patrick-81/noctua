@@ -686,45 +686,86 @@ class WebServer:
         if not data:
             log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
             return
-        # Store full FITS pour sauvegarde (même sans WS, pour /api/camera/save + solver)
-        self._last_image_data = data
-        self._last_image_device = device_name
-        self._camera_images[device_name] = data
         if not fmt:
             if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
                 fmt = "jpg"
             elif len(data) >= 6 and data[:6].startswith(b"SIMPLE"):
                 fmt = "fits"
+        is_jpeg = fmt.lower().endswith("jpg") or fmt.lower().endswith("jpeg")
+        # Stockage séparé : FITS pour save/stats/adu, JPEG preview pour affichage
+        if is_jpeg:
+            self._last_preview_jpeg = data
+            self._last_preview_device = device_name
+            if not hasattr(self, "_preview_jpegs"):
+                self._preview_jpegs = {}
+            self._preview_jpegs[device_name] = data
+            # ne pas écraser le FITS si on a déjà un FITS
+            if not getattr(self, "_last_image_data", None) or not self._last_image_data[:6].startswith(b"SIMPLE"):
+                self._last_image_data = data
+                self._last_image_device = device_name
+        else:
+            self._last_image_data = data
+            self._last_image_device = device_name
+            self._camera_images[device_name] = data
         log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
         if not self._ws_clients:
             log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
-        # >2 Mo FITS → JPEG pleine résolution en thread (évite 77 Mo FITS sur WS)
+        # >2 Mo FITS → JPEG vignette + pleine résolution (évite 77 Mo FITS sur WS)
         if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
+            # vignette 1024 (rapide, 3 Ko) + pleine 8192 (détaillée)
+            thumb_vignette = None
+            thumb_pleine = None
             try:
-                # pleine résolution : max_side >= capteur (6224) → pas de downscale avant stretch
-                thumb = await asyncio.to_thread(self._jpeg_thumb, data, 8192)
+                thumb_vignette = await asyncio.to_thread(self._jpeg_thumb, data, 1024)
             except Exception as e:  # noqa: BLE001
-                log.warning("thumb thread failed: %s", e)
-                thumb = None
-            if thumb:
-                b64 = base64.b64encode(thumb).decode("ascii")
-                payload = json.dumps({
+                log.warning("vignette thread failed: %s", e)
+            try:
+                thumb_pleine = await asyncio.to_thread(self._jpeg_thumb, data, 8192)
+            except Exception as e:  # noqa: BLE001
+                log.warning("pleine thread failed: %s", e)
+            loop = asyncio.get_running_loop()
+            # Broadcast vignette d'abord (rapide)
+            if thumb_vignette:
+                b64v = base64.b64encode(thumb_vignette).decode("ascii")
+                payload_v = json.dumps({
                     "type": "image",
                     "device": device_name,
                     "format": "jpg",
-                    "data": b64,
+                    "variant": "vignette",
+                    "data": b64v,
                 })
-                loop = asyncio.get_running_loop()
-                async def _safe_send(ws):
-                    try:
-                        await ws.send_text(payload)
-                    except Exception:
-                        self._safe_remove_client(ws)
+                async def _safe_send_v(ws):
+                    try: await ws.send_text(payload_v)
+                    except Exception: self._safe_remove_client(ws)
                 for ws in self._ws_clients[:]:
-                    loop.create_task(_safe_send(ws))
-                log.info("Broadcast JPEG pleine résolution %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
-                self._last_thumb = thumb
+                    loop.create_task(_safe_send_v(ws))
+                log.info("Broadcast JPEG vignette %d KB for %s (orig %d KB)", len(thumb_vignette)//1024, device_name, len(data)//1024)
+                self._last_thumb = thumb_vignette
                 self._last_thumb_device = device_name
+                self._last_thumb_vignette = thumb_vignette
+            if thumb_pleine:
+                b64p = base64.b64encode(thumb_pleine).decode("ascii")
+                payload_p = json.dumps({
+                    "type": "image",
+                    "device": device_name,
+                    "format": "jpg",
+                    "variant": "pleine",
+                    "data": b64p,
+                })
+                async def _safe_send_p(ws):
+                    try: await ws.send_text(payload_p)
+                    except Exception: self._safe_remove_client(ws)
+                for ws in self._ws_clients[:]:
+                    loop.create_task(_safe_send_p(ws))
+                log.info("Broadcast JPEG pleine résolution %d KB for %s (orig %d KB)", len(thumb_pleine)//1024, device_name, len(data)//1024)
+                self._last_thumb_pleine = thumb_pleine
+                self._last_thumb_pleine_device = device_name
+                # garde aussi la pleine comme _last_thumb pour compatibilité HTTP fallback
+                # ( mais on garde vignette comme _last_thumb pour thumb=1 )
+                if not thumb_vignette:
+                    self._last_thumb = thumb_pleine
+                    self._last_thumb_device = device_name
+            if thumb_vignette or thumb_pleine:
                 return
             else:
                 log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)

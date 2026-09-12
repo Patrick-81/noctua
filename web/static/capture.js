@@ -17,6 +17,8 @@ let _captureAborted = false;        // last capture run was aborted (not complet
 
 // Save
 let _saveDir = '';
+// Preview format : vignette (1024, rapide) vs pleine (6224, détaillé)
+var _capturePreviewFormat = 'full'; // 'vignette' | 'full'
 
 function initCapturePanel() {
     // Camera selector
@@ -129,6 +131,31 @@ function initCapturePanel() {
             _captureAborted = true;
             apiPost('/api/camera/abort', { device: findCamera()?.name });
             updateCaptureProgress();
+        });
+    }
+
+    // Preview format (vignette vs pleine)
+    const fmtSel = document.getElementById('cap-preview-format');
+    if (fmtSel) {
+        const saved = currentModeConfig().preview_format;
+        if (saved === 'vignette' || saved === 'full') _capturePreviewFormat = saved;
+        else if (saved === 'vignette' || saved === 'pleine') _capturePreviewFormat = saved;
+        fmtSel.value = _capturePreviewFormat;
+        fmtSel.addEventListener('change', async () => {
+            _capturePreviewFormat = fmtSel.value;
+            currentModeConfig().preview_format = _capturePreviewFormat;
+            saveUiConfig();
+            addLog('info','capture', `Aperçu: ${_capturePreviewFormat === 'vignette' ? 'Vignette 1024' : 'Pleine 6224'}`);
+            // Si une image est déjà en mémoire, rebascule immédiatement via HTTP
+            const cam = findCamera();
+            if (cam && typeof _lastWsImageAt !== 'undefined' && Date.now() - _lastWsImageAt < 300000) {
+                try {
+                    const variant = _capturePreviewFormat === 'vignette' ? 'vignette' : 'pleine';
+                    const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=1&variant=${variant}`);
+                    const j = await r.json();
+                    if (j && j.ok && j.data) handleCameraImage(j.data, j.format, j.variant);
+                } catch(e) {}
+            }
         });
     }
 }
@@ -303,6 +330,9 @@ async function startSequence(count, delay) {
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
+        // ligne défilante en haut du panneau capture + aperçu pendant chargement
+        document.getElementById('applet-capture-settings')?.classList.add('cap-loading');
+        document.getElementById('applet-capture-preview')?.classList.add('cap-preview-loading');
         await waitExposureDone(cam.name, exposure * 1000 + 5000);
         stopCountdown();
         // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
@@ -354,24 +384,21 @@ function waitExposureDone(camName, timeout) {
     });
 }
 async function _fetchLastImageIfNeeded(camName) {
-    // Si WS a déjà livré dans les 2s, inutile de fetch
     try {
         const age = Date.now() - (typeof _lastWsImageAt !== 'undefined' ? _lastWsImageAt : 0);
         if (age < 2000) return;
-        // Laisse le thumb se générer côté serveur (3s pour 77Mo)
         await sleep(800);
-        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(camName)}&thumb=1`);
+        const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
+        const variantParam = wantVignette ? '&variant=vignette' : '&variant=pleine';
+        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(camName)}&thumb=1${variantParam}`);
         const j = await r.json();
         if (j && j.ok && j.data) {
-            // Évite le doublon si WS est arrivé entre-temps
             const age2 = Date.now() - (typeof _lastWsImageAt !== 'undefined' ? _lastWsImageAt : 0);
             if (age2 < 2000) return;
-            addLog('info', 'capture', 'Rapatriement HTTP (fallback WS)');
-            handleCameraImage(j.data, j.format);
+            addLog('info', 'capture', `Rapatriement HTTP ${j.variant||''} (fallback WS)`);
+            handleCameraImage(j.data, j.format, j.variant);
         }
-    } catch (e) {
-        // silencieux — le WS reste la voie principale
-    }
+    } catch (e) {}
 }
 function startCountdown() {
     const row = document.getElementById('cap-countdown-row');

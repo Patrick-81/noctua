@@ -96,24 +96,55 @@ def register(app, server: "WebServer") -> None:
         return {"ok": True, "path": filepath, "size": len(img)}
 
     @app.get("/api/camera/last_image")
-    async def camera_last_image(device: str = "", thumb: int = 1):
+    async def camera_last_image(device: str = "", thumb: int = 1, variant: str = "", pleine: int = 0):
         """Retourne la dernière image capturée (thumb JPEG si dispo, sinon FITS) en base64.
 
         Fallback HTTP quand le WS a raté la poussée (ws=0, réseau, etc.).
         Le viewer capture l'appelle en fallback après waitExposureDone.
+        variant=pleine ou pleine=1 → JPEG pleine 8192, sinon vignette 1024.
         """
-        # thumb=1 → préfère le JPEG léger (1024px) si disponible
-        if thumb and getattr(server, "_last_thumb", None):
-            tdev = getattr(server, "_last_thumb_device", "") or device or getattr(server, "_last_image_device", "")
-            import base64 as _b64
-            return SanitizedJSONResponse({
-                "ok": True,
-                "device": tdev,
-                "format": "jpg",
-                "data": _b64.b64encode(server._last_thumb).decode("ascii"),
-                "size": len(server._last_thumb),
-                "thumb": True,
-            })
+        # thumb=1 → préfère le JPEG (vignette ou pleine selon variant)
+        if thumb:
+            # pleine demandée explicitement
+            if (variant == "pleine" or pleine) and getattr(server, "_last_thumb_pleine", None):
+                tdev = getattr(server, "_last_thumb_pleine_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": "pleine",
+                    "data": _b64.b64encode(server._last_thumb_pleine).decode("ascii"),
+                    "size": len(server._last_thumb_pleine),
+                    "thumb": True,
+                })
+            if getattr(server, "_last_thumb", None):
+                tdev = getattr(server, "_last_thumb_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                # _last_thumb est la vignette 1024 (ou pleine si pas de vignette)
+                variant_name = "vignette" if getattr(server, "_last_thumb_vignette", None) else "pleine"
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": variant_name,
+                    "data": _b64.b64encode(server._last_thumb).decode("ascii"),
+                    "size": len(server._last_thumb),
+                    "thumb": True,
+                })
+            # fallback pleine si vignette pas dispo mais pleine oui
+            if getattr(server, "_last_thumb_pleine", None):
+                tdev = getattr(server, "_last_thumb_pleine_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": "pleine",
+                    "data": _b64.b64encode(server._last_thumb_pleine).decode("ascii"),
+                    "size": len(server._last_thumb_pleine),
+                    "thumb": True,
+                })
         # sinon full FITS
         img = None
         dev_name = device or getattr(server, "_last_image_device", "")

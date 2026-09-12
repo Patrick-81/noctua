@@ -208,13 +208,13 @@ window._guideClick = _guideClick;
 
 // Consommateur ws:image : route l'image vers le viewer guide ou capture.
 Hub.subscribe('ws:image', 'preview', (env) => {
-    const { device, format, data } = env.payload;
+    const { device, format, data, variant } = env.payload;
     const guideCam = _guideCameraSelect?.value || '';
-    console.log('WS image: device=%s format=%s guideCam=%s match=%s', device, format, guideCam, device === guideCam);
+    console.log('WS image: device=%s format=%s variant=%s guideCam=%s match=%s', device, format, variant||'', guideCam, device === guideCam);
     if (guideCam && device === guideCam) {
         handleGuideImage(data, format);
     } else {
-        handleCameraImage(data, format);
+        handleCameraImage(data, format, variant);
     }
 });
 
@@ -225,9 +225,11 @@ let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
-function handleCameraImage(b64Data, fmt) {
+function handleCameraImage(b64Data, fmt, variant) {
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
+    const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
+    const varNorm = String(variant||'').toLowerCase();
     function _renderAndFetch(b64, f) {
         clearOffsetOverlay();
         clearFocusOverlay();
@@ -235,14 +237,17 @@ function handleCameraImage(b64Data, fmt) {
         const bytes = new Uint8Array(raw.length);
         for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
         _lastWsImageAt = Date.now();
-        console.log(`handleCameraImage: affichée ${f} ${Math.round(b64.length*0.75/1024)}Ko`);
+        console.log(`handleCameraImage: affichée ${f} ${variant||''} ${Math.round(b64.length*0.75/1024)}Ko`);
         if (captureViewer) captureViewer.render(bytes, f);
-        // histo après onload (wrap visible + imgW posé)
+        document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
+        document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
         setTimeout(()=> fetchStatsWithRetry(3), 700);
     }
     function fetchStatsWithRetry(retry) {
         function fetchStats(rem) {
-            fetch(`/api/camera/last_image/stats`).then(r=>r.json()).then(s=>{
+            const cam = (typeof findCamera === 'function' ? findCamera()?.name : '') || '';
+            const devParam = cam ? `?device=${encodeURIComponent(cam)}` : '';
+            fetch(`/api/camera/last_image/stats${devParam}`).then(r=>r.json()).then(s=>{
                 if (s && s.ok && captureViewer) {
                     console.log(`stats: ${s.w}x${s.h} min=${Math.round(s.min)} max=${Math.round(s.max)} median=${Math.round(s.median)} hist=${s.hist ? s.hist.length : 0}`);
                     captureViewer._statsHist = s;
@@ -266,7 +271,20 @@ function handleCameraImage(b64Data, fmt) {
         _renderAndFetch(b64Data, fmt);
         return;
     }
-    // JPEG : vérifie dimensions avant d'afficher — vignette 1024 <2000 → ignorée
+    // filtrage par variant si présent
+    if (varNorm) {
+        if (wantVignette && varNorm === 'pleine') {
+            console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
+            return;
+        }
+        if (!wantVignette && varNorm === 'vignette') {
+            console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
+            return;
+        }
+        _renderAndFetch(b64Data, fmt);
+        return;
+    }
+    // fallback sans variant : dimensions
     try {
         const rawTmp = atob(b64Data);
         const bytesTmp = new Uint8Array(rawTmp.length);
@@ -277,20 +295,23 @@ function handleCameraImage(b64Data, fmt) {
         img.onload = () => {
             URL.revokeObjectURL(url);
             console.log(`handleCameraImage: JPEG candidat ${img.width}x${img.height} ${Math.round(b64Data.length*0.75/1024)}Ko`);
-            if (img.width < 1500) {
-                console.log(`handleCameraImage: vignette ${img.width}x${img.height} ignorée — attente pleine`);
-                return; // ne pose pas _lastWsImageAt, laisse le fallback pleine arriver
+            const isVignetteImg = img.width < 1500;
+            if (wantVignette && !isVignetteImg) {
+                console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
+                return;
+            }
+            if (!wantVignette && isVignetteImg) {
+                console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
+                return;
             }
             _renderAndFetch(b64Data, fmt);
         };
         img.onerror = () => {
             URL.revokeObjectURL(url);
-            console.log('handleCameraImage: JPEG decode error, affichage forcé');
             _renderAndFetch(b64Data, fmt);
         };
         img.src = url;
     } catch(e) {
-        console.warn('handleCameraImage check fail', e);
         _renderAndFetch(b64Data, fmt);
     }
 }
@@ -388,20 +409,29 @@ function initAduCursor() {
                 return;
             }
         }
-        // JPEG pleine résolution → ADU du vrai FITS côté serveur
-        const key = `${ix},${iy}`;
+        // JPEG (vignette 1024 ou pleine 6224) → ADU du vrai FITS côté serveur (avec mise à l'échelle si vignette)
+        let fx = ix, fy = iy;
+        if (cv._statsHist && cv._statsHist.w && cv.imgW !== cv._statsHist.w) {
+            const s = cv._statsHist.w / cv.imgW;
+            fx = Math.floor(ix * s);
+            fy = Math.floor(iy * s);
+        }
+        const key = `${fx},${fy}`;
         if (_aduLastReq === key) return;
         _aduLastReq = key;
         info.textContent = `x:${ix} y:${iy} ADU:…`;
         clearTimeout(_aduFetchTimer);
         _aduFetchTimer = setTimeout(()=>{
-            fetch(`/api/camera/last_image/adu?x=${ix}&y=${iy}`).then(r=>r.json()).then(j=>{
+            const cam = (typeof findCamera === 'function' ? findCamera()?.name : '') || '';
+            const devParam = cam ? `&device=${encodeURIComponent(cam)}` : '';
+            fetch(`/api/camera/last_image/adu?x=${fx}&y=${fy}${devParam}`).then(r=>r.json()).then(j=>{
                 if (j && j.ok && j.adu !== null && j.adu !== undefined) {
                     info.textContent = `x:${ix} y:${iy} ADU:${Math.round(j.adu)}`;
                 } else {
+                    console.warn('ADU fail', j);
                     info.textContent = `x:${ix} y:${iy} —`;
                 }
-            }).catch(()=>{ info.textContent = `x:${ix} y:${iy} —`; });
+            }).catch(e=>{ console.warn('ADU fetch fail', e); info.textContent = `x:${ix} y:${iy} —`; });
         }, 80);
     }
     viewport.addEventListener('mousemove', update);

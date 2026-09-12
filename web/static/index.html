@@ -20,18 +20,18 @@
     <script src="/state.js"></script>
     <script src="/hub.js"></script>
     <script src="/layout.js"></script>
-    <script src="/viewer.js?v=pleine3"></script>
+    <script src="/viewer.js?v=pleine4"></script>
     <script src="/api.js"></script>
     <script src="/mount.js"></script>
     <script src="/controls.js"></script>
     <script src="/ws.js"></script>
     <script src="/objects.js"></script>
     <script src="/hardware.js"></script>
-    <script src="/capture.js?v=pleine3"></script>
+    <script src="/capture.js?v=pleine4"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
     <script src="/stacking.js"></script>
-    <script src="/preview.js?v=pleine3"></script>
+    <script src="/preview.js?v=pleine4"></script>
     <script src="/solver.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
@@ -837,6 +837,17 @@
             <div class="cap-section cap-actions">
                 <button id="cap-expose-btn" class="btn-glass success cap-action-btn" data-i18n="cap.expose">▶ EXPOSER</button>
                 <button id="cap-abort-btn" class="btn-glass danger cap-action-btn" data-i18n="seq.stop">⏹ STOP</button>
+            </div>
+
+            <!-- Aperçu : vignette vs pleine -->
+            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
+                <div class="cap-label">Aperçu</div>
+                <div class="cap-row">
+                    <select id="cap-preview-format" class="cap-select" style="flex:1;">
+                        <option value="vignette">Vignette (1024)</option>
+                        <option value="full" selected>Pleine résolution (6224)</option>
+                    </select>
+                </div>
             </div>
 
             <!-- Save -->
