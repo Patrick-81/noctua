@@ -228,10 +228,25 @@ def register(app, server: "WebServer") -> None:
         import asyncio as _aio
         import re as _re
         import numpy as _np
-        img = server._camera_images.get(device) if device else None
+        # Cherche un FITS (pas un JPEG preview) — _camera_images peut contenir le JPEG si on a écrasé
+        img = None
+        if device:
+            cand = server._camera_images.get(device)
+            if cand and len(cand) >= 6 and cand[:6].startswith(b"SIMPLE"):
+                img = cand
         if not img:
-            img = getattr(server, "_last_image_data", b"")
+            # _last_image_data est FITS si on a bien séparé JPEG/FITS côté server
+            cand = getattr(server, "_last_image_data", b"")
+            if cand and len(cand) >= 6 and cand[:6].startswith(b"SIMPLE"):
+                img = cand
+        if not img:
+            # fallback : scanne tous les _camera_images à la recherche d'un FITS
+            for v in getattr(server, "_camera_images", {}).values():
+                if v and len(v) >= 6 and v[:6].startswith(b"SIMPLE"):
+                    img = v
+                    break
         if not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE"):
+            log.warning("ADU: no FITS found (device=%s, last_is_jpeg=%s)", device, str(getattr(server, "_last_image_data", b"")[:2] == b"\xff\xd8"))
             return {"ok": False, "error": "no FITS"}
         def _get():
             try:
