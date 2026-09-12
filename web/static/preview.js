@@ -280,6 +280,13 @@ function handleCameraImage(b64Data, fmt) {
     // bouton télécharger visible dès qu'on a une image
     const dl = document.getElementById('cap-download-btn');
     if (dl) dl.style.display = '';
+    // histogramme/ADU du vrai FITS côté serveur (même quand l'aperçu est JPEG)
+    fetch(`/api/camera/last_image/stats`).then(r=>r.json()).then(s=>{
+        if (s && s.ok && captureViewer) {
+            captureViewer._statsHist = s;
+            captureViewer.renderHistogramFromStats(s);
+        }
+    }).catch(()=>{});
 }
 
 
@@ -344,6 +351,9 @@ function _fitPreviewZoom() { captureViewer?.fitZoom(); }
 function initPreviewZoomPan() { captureViewer?.initZoomPan(); }
 
 // ── ADU cursor ───────────────────────────────────────────────────
+// Pour le JPEG (vignette/pleine) on va chercher l'ADU du vrai FITS côté serveur
+let _aduFetchTimer = 0;
+let _aduLastReq = '';
 function initAduCursor() {
     const viewport = document.getElementById('cap-preview-viewport');
     const info = document.getElementById('cap-adu-cursor');
@@ -351,11 +361,9 @@ function initAduCursor() {
     if (!viewport || !info || !canvas) return;
     function update(e) {
         const cv = captureViewer;
-        if (!cv || !cv.pixels || !cv.imgW || !cv.imgH) { info.textContent = ' '; return; }
+        if (!cv || !cv.imgW || !cv.imgH) { info.textContent = ' '; return; }
         const cRect = canvas.getBoundingClientRect();
         if (cRect.width === 0 || cRect.height === 0) { info.textContent = ' '; return; }
-        const zoom = cv.zoom || 1;
-        // canvas rect already scaled, so image coord = (mouse - left) / (width/imgW)
         const scaleX = cRect.width / cv.imgW;
         const scaleY = cRect.height / cv.imgH;
         const xImg = (e.clientX - cRect.left) / scaleX;
@@ -363,10 +371,38 @@ function initAduCursor() {
         const ix = Math.floor(xImg);
         const iy = Math.floor(yImg);
         if (ix < 0 || ix >= cv.imgW || iy < 0 || iy >= cv.imgH) { info.textContent = ' '; return; }
-        const arrayY = cv.imgH - 1 - iy;
-        const adu = cv.pixels[arrayY * cv.imgW + ix];
-        if (adu === undefined || isNaN(adu)) { info.textContent = `x:${ix} y:${iy} —`; return; }
-        info.textContent = `x:${ix} y:${iy} ADU:${Math.round(adu)}`;
+        // Si on a le FITS en mémoire (mode FITS ou vignette avec pixels), lecture directe
+        if (cv.pixels && cv.imgW && cv.imgH) {
+            const arrayY = cv.imgH - 1 - iy;
+            const adu = cv.pixels[arrayY * cv.imgW + ix];
+            if (adu !== undefined && !isNaN(adu)) {
+                info.textContent = `x:${ix} y:${iy} ADU:${Math.round(adu)}`;
+                return;
+            }
+        }
+        // Sinon JPEG : on demande au serveur l'ADU du vrai FITS (avec mise à l'échelle si vignette)
+        // vignette 1024 -> FITS 6224 : facteur ~6
+        const isVignette = cv.imgW < 2000; // thumb 1024 vs plein 6224
+        let fx = ix, fy = iy;
+        if (isVignette && cv._statsHist && cv._statsHist.w) {
+            const scale = cv._statsHist.w / cv.imgW;
+            fx = Math.floor(ix * scale);
+            fy = Math.floor(iy * scale);
+        }
+        const key = `${fx},${fy}`;
+        if (_aduLastReq === key) return;
+        _aduLastReq = key;
+        info.textContent = `x:${ix} y:${iy} ADU:…`;
+        clearTimeout(_aduFetchTimer);
+        _aduFetchTimer = setTimeout(()=>{
+            fetch(`/api/camera/last_image/adu?x=${fx}&y=${fy}`).then(r=>r.json()).then(j=>{
+                if (j && j.ok && j.adu !== null && j.adu !== undefined) {
+                    info.textContent = `x:${ix} y:${iy} ADU:${Math.round(j.adu)}`;
+                } else {
+                    info.textContent = `x:${ix} y:${iy} —`;
+                }
+            }).catch(()=>{ info.textContent = `x:${ix} y:${iy} —`; });
+        }, 80);
     }
     viewport.addEventListener('mousemove', update);
     viewport.addEventListener('mouseleave', () => { info.textContent = ' '; });

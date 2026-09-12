@@ -555,9 +555,48 @@ class Viewer {
         this.fitZoom();
     }
 
+    // ── Histogram (depuis stats serveur) ────────────────────────
+    renderHistogramFromStats(stats) {
+        const canvas = document.getElementById('cap-histo-canvas');
+        if (!canvas || !stats || !stats.hist) return;
+        const ctx = canvas.getContext('2d');
+        const W = canvas.width = canvas.offsetWidth * 2;
+        const H = canvas.height = canvas.offsetHeight * 2;
+        const hist = stats.hist;
+        let maxBin = 1;
+        for (let i=0;i<hist.length;i++) if (hist[i] > maxBin) maxBin = hist[i];
+        ctx.clearRect(0,0,W,H);
+        ctx.fillStyle = 'rgba(0,0,0,0.4)';
+        ctx.fillRect(0,0,W,H);
+        const blackFrac = this.histAuto ? 0 : this.histBlackPct/100;
+        const blX = blackFrac * W;
+        ctx.fillStyle = 'rgba(0,255,204,0.08)';
+        ctx.fillRect(blX,0,W-blX,H);
+        for (let i=0;i<hist.length;i++) {
+            const bh = Math.max(1, (hist[i]/maxBin)*H);
+            ctx.fillStyle = 'rgba(0,255,204,0.5)';
+            ctx.fillRect(i*W/hist.length, H-bh, W/hist.length+1, bh);
+        }
+        ctx.strokeStyle = '#ff5577'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(blX,0); ctx.lineTo(blX,H); ctx.stroke();
+        // maj des bornes affichées
+        const minEl = document.getElementById('cap-histo-min');
+        const maxEl = document.getElementById('cap-histo-max');
+        if (minEl) minEl.textContent = Math.round(stats.min);
+        if (maxEl) maxEl.textContent = Math.round(stats.max);
+        const slider = document.getElementById('cap-histo-slider');
+        if (slider) slider.value = this.histAuto ? 0 : this.histBlackPct;
+        const val = document.getElementById('cap-histo-val');
+        if (val) val.textContent = this.histAuto ? 'AUTO' : Math.round(this.histBlackPct)+'%';
+        // garde les stats pour le stretch
+        this._statsHist = stats;
+    }
+
     // ── Histogram ──
 
     renderHistogram() {
+        // si on a des stats serveur, on les préfère (vignette JPEG mais histo FITS natif)
+        if (this._statsHist) return this.renderHistogramFromStats(this._statsHist);
         const canvas = document.getElementById('cap-histo-canvas');
         if (!canvas || !this.histPixels) return;
         const ctx = canvas.getContext('2d');
