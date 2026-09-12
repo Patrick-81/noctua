@@ -224,30 +224,42 @@ let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
+var _lastPreviewWasFull = false; // true si dernier aperçu était un JPEG plein format (6224x4168)
 function handleCameraImage(b64Data, fmt) {
     _lastWsImageAt = Date.now();
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantFits = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'fits');
-    // Si l'utilisateur veut du FITS pour les niveaux mais qu'on a reçu un JPEG (thumb/preview),
-    // on fetch le FITS complet en HTTP et on l'affiche (écrase le JPEG).
+    const wantJpeg = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'jpeg');
+    // FITS complet demandé : on ignore les JPEG (preview 411KB et thumb 3KB) et on va chercher le FITS natif
     if (wantFits && !isFits) {
         _captureLastWasThumb = true;
         if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
-        // fetch async sans bloquer le rendu du JPEG (on le montre déjà)
+        // Ne pas afficher le JPEG du tout, fetch direct du FITS 6224x4168
         fetch(`/api/camera/last_image?thumb=0`).then(r=>r.json()).then(j=>{
             if (j && j.ok && j.data) {
                 const raw2 = atob(j.data);
                 const bytes2 = new Uint8Array(raw2.length);
                 for (let i=0;i<raw2.length;i++) bytes2[i]=raw2.charCodeAt(i);
                 if (captureViewer) captureViewer.render(bytes2, j.format);
-                addLog('info','capture','Aperçu FITS complet chargé (niveaux)');
+                // histo + ADU seront posés par le render FITS
             }
         }).catch(()=>{});
-    } else {
-        _captureLastWasThumb = !isFits;
-        if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
+        return;
     }
+    // Auto : si on vient d'afficher un JPEG plein format, on ignore le thumb 1024x686 qui arrive juste après
+    if (!wantFits && !wantJpeg && !isFits) {
+        // Heuristique thumb = petite taille (<100KB b64) et viewer déjà en plein format
+        const isThumbCandidate = b64Data.length < 150000; // 3KB thumb vs 550KB preview
+        if (isThumbCandidate && _lastPreviewWasFull && captureViewer && captureViewer.imgW > 2000) {
+            return; // garde le 6224x4168, n'écrase pas par 1024x686
+        }
+        _lastPreviewWasFull = !isThumbCandidate;
+    } else if (isFits) {
+        _lastPreviewWasFull = false;
+    }
+    _captureLastWasThumb = !isFits;
+    if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
     clearOffsetOverlay();
     clearFocusOverlay();
     const raw = atob(b64Data);
