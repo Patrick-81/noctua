@@ -15,8 +15,14 @@ let _captureFilter = '';            // current filter slot name
 let _captureFilterSeq = [];         // ordered filter sequence for the loop
 let _captureAborted = false;        // last capture run was aborted (not completed)
 
-// Save
+// Save & preview format (global, persisté via uiConfig)
 let _saveDir = '';
+var _capturePreviewFormat = 'auto'; // auto | jpeg | fits
+var _captureSaveServer = true;
+var _captureSaveLocal = false;
+var _captureSaveWhen = 'end'; // end | each
+let _capturePendingSaves = []; // [{device, filter, ts}]
+let _captureLastWasThumb = false; // true si dernier WS était un thumb/jpeg
 
 function initCapturePanel() {
     // Camera selector
@@ -131,6 +137,87 @@ function initCapturePanel() {
             updateCaptureProgress();
         });
     }
+
+    // Preview format (global)
+    const fmtSel = document.getElementById('cap-preview-format');
+    if (fmtSel) {
+        // restore from uiConfig
+        const saved = currentModeConfig().preview_format;
+        if (saved) { _capturePreviewFormat = saved; fmtSel.value = saved; }
+        fmtSel.addEventListener('change', () => {
+            _capturePreviewFormat = fmtSel.value;
+            currentModeConfig().preview_format = _capturePreviewFormat;
+            saveUiConfig();
+            updatePreviewFormatUI();
+        });
+        updatePreviewFormatUI();
+    }
+    const loadFitsBtn = document.getElementById('cap-load-fits-btn');
+    if (loadFitsBtn) {
+        loadFitsBtn.addEventListener('click', async () => {
+            const cam = findCamera();
+            if (!cam) return;
+            loadFitsBtn.disabled = true; loadFitsBtn.textContent = '…';
+            try {
+                const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=0`);
+                const j = await r.json();
+                if (j.ok && j.data) handleCameraImage(j.data, j.format);
+                else addLog('warning','capture', j.error || 'Pas de FITS');
+            } finally { loadFitsBtn.disabled = false; loadFitsBtn.textContent = 'Charger FITS'; }
+        });
+    }
+    const dlBtn = document.getElementById('cap-download-btn');
+    if (dlBtn) {
+        dlBtn.addEventListener('click', async () => {
+            const cam = findCamera();
+            const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam?.name||'')}&thumb=0`);
+            const j = await r.json();
+            if (j.ok && j.data) downloadFits(j.data, j.device);
+            else addLog('warning','capture','Pas d\'image à télécharger');
+        });
+    }
+    // Save options
+    const saveServerCb = document.getElementById('cap-save-server');
+    const saveLocalCb = document.getElementById('cap-save-local');
+    const saveWhenSel = document.getElementById('cap-save-when');
+    if (saveServerCb) {
+        const cfg = currentModeConfig();
+        if (cfg.save_server !== undefined) _captureSaveServer = !!cfg.save_server;
+        if (cfg.save_local !== undefined) _captureSaveLocal = !!cfg.save_local;
+        if (cfg.save_when) _captureSaveWhen = cfg.save_when;
+        saveServerCb.checked = _captureSaveServer;
+        if (saveLocalCb) saveLocalCb.checked = _captureSaveLocal;
+        if (saveWhenSel) saveWhenSel.value = _captureSaveWhen;
+        saveServerCb.addEventListener('change', () => { _captureSaveServer = saveServerCb.checked; currentModeConfig().save_server = _captureSaveServer; saveUiConfig(); });
+        if (saveLocalCb) saveLocalCb.addEventListener('change', () => { _captureSaveLocal = saveLocalCb.checked; currentModeConfig().save_local = _captureSaveLocal; saveUiConfig(); });
+        if (saveWhenSel) saveWhenSel.addEventListener('change', () => { _captureSaveWhen = saveWhenSel.value; currentModeConfig().save_when = _captureSaveWhen; saveUiConfig(); });
+    }
+}
+
+function updatePreviewFormatUI() {
+    const btn = document.getElementById('cap-load-fits-btn');
+    const dl = document.getElementById('cap-download-btn');
+    if (btn) btn.style.display = (_capturePreviewFormat === 'fits') ? 'none' : '';
+    if (dl) dl.style.display = _capturePendingSaves.length || _lastWsImageAt ? '' : 'none';
+    // Si on passe en FITS et qu'on a déjà un thumb, propose de charger le FITS
+    if (_capturePreviewFormat === 'fits' && _captureLastWasThumb) {
+        if (btn) btn.style.display = '';
+    }
+}
+function downloadFits(b64Data, deviceName) {
+    try {
+        const raw = atob(b64Data);
+        const bytes = new Uint8Array(raw.length);
+        for (let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
+        const blob = new Blob([bytes], {type:'image/fits'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const ts = new Date().toISOString().replace(/[-:T]/g,'').slice(0,15);
+        a.href = url; a.download = `capture_${deviceName||'cam'}_${ts}.fits`;
+        document.body.appendChild(a); a.click();
+        setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000);
+        addLog('info','capture', `Téléchargé ${a.download}`);
+    } catch(e) { addLog('error','capture', e.message); }
 }
 
 function findCamera() {
@@ -307,12 +394,29 @@ async function startSequence(count, delay) {
         stopCountdown();
         // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
         await _fetchLastImageIfNeeded(cam.name);
+        // Sauvegarde selon options globales
+        if (_captureSaveServer || _captureSaveLocal) {
+            if (_captureSaveWhen === 'each') {
+                await _doSaveForCurrentPose(cam.name, filter);
+            } else {
+                // fin de séquence : on capture le FITS maintenant pour ne pas le perdre (last_image sera écrasé)
+                try {
+                    const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=0`);
+                    const j = await r.json();
+                    if (j && j.ok) _capturePendingSaves.push({ device: cam.name, filter, b64: j.data, fmt: j.format });
+                } catch {}
+            }
+        }
         if (!_captureRunning) break;
         _captureQueue--;
         updateCaptureProgress();
         if (i < count - 1 && delay > 0 && _captureRunning) {
             await sleep(delay * 1000);
         }
+    }
+    // Flush sauvegardes en fin de séquence
+    if (_capturePendingSaves.length) {
+        await _processPendingSaves();
     }
     _captureRunning = false;
     _captureQueue = 0;
@@ -371,6 +475,60 @@ async function _fetchLastImageIfNeeded(camName) {
         }
     } catch (e) {
         // silencieux — le WS reste la voie principale
+    }
+}
+async function _doSaveForCurrentPose(deviceName, filter) {
+    const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
+    if (_captureSaveServer) {
+        if (!dir) { addLog('warning','capture','Dossier serveur non défini — sauvegarde serveur ignorée'); }
+        else {
+            try {
+                const r = await fetch('/api/camera/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dir, filter}) });
+                const j = await r.json();
+                if (j.ok) addLog('info','capture', `Sauvé serveur: ${j.path}`);
+                else addLog('error','capture', j.error);
+            } catch(e) { addLog('error','capture', e.message); }
+        }
+    }
+    if (_captureSaveLocal) {
+        try {
+            const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(deviceName)}&thumb=0`);
+            const j = await r.json();
+            if (j.ok && j.data) downloadFits(j.data, deviceName + (filter?`_${filter}`:''));
+            else addLog('warning','capture','Pas d\'image pour téléchargement local');
+        } catch(e) { addLog('error','capture', e.message); }
+    }
+}
+async function _processPendingSaves() {
+    if (!_capturePendingSaves.length) return;
+    const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
+    addLog('info','capture', `Sauvegarde fin de séquence: ${_capturePendingSaves.length} image(s)`);
+    for (let idx=0; idx<_capturePendingSaves.length; idx++) {
+        const entry = _capturePendingSaves[idx];
+        if (_captureSaveServer && dir) {
+            // On restaure temporairement le last_image pour que /api/camera/save l'écrive
+            // Le serveur ne garde que le dernier, donc on doit le réinjecter via /api/test/fits-store
+            // Mais plus simple: on écrit côté client via fetch du b64 stocké
+            // Pour l'instant on appelle save qui sauvera le last (qui est le dernier de la séquence)
+            // Donc pour le batch on doit poster le b64 directement
+            try {
+                // Si b64 stocké, on peut directement écrire via un endpoint dédié ou réutiliser save
+                // On utilise le last_image stocké: on le repousse via /api/test/fits-store puis save
+                await fetch('/api/test/fits-store', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({data: entry.b64}) });
+                const r = await fetch('/api/camera/save', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({dir, filter: entry.filter}) });
+                const j = await r.json();
+                if (j.ok) addLog('info','capture', `Sauvé serveur [${idx+1}/${_capturePendingSaves.length}]: ${j.path}`);
+            } catch(e) { addLog('error','capture', e.message); }
+        }
+        if (_captureSaveLocal && entry.b64) {
+            downloadFits(entry.b64, entry.device + (entry.filter?`_${entry.filter}`:'') + `_${idx+1}`);
+            await sleep(300); // laisse le navigateur respirer entre 2 downloads
+        }
+    }
+    _capturePendingSaves = [];
+    // restaure le dernier FITS comme last_image
+    if (_capturePendingSaves.length===0 && _captureSaveServer) {
+        // rien à faire, le dernier save a déjà écrasé
     }
 }
 function startCountdown() {

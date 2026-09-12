@@ -226,12 +226,37 @@ let _guideAutoStar = null;
 var _lastWsImageAt = 0;
 function handleCameraImage(b64Data, fmt) {
     _lastWsImageAt = Date.now();
+    const norm = String(fmt||'').toLowerCase();
+    const isFits = norm.includes('fits');
+    const wantFits = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'fits');
+    // Si l'utilisateur veut du FITS pour les niveaux mais qu'on a reçu un JPEG (thumb/preview),
+    // on fetch le FITS complet en HTTP et on l'affiche (écrase le JPEG).
+    if (wantFits && !isFits) {
+        _captureLastWasThumb = true;
+        if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
+        // fetch async sans bloquer le rendu du JPEG (on le montre déjà)
+        fetch(`/api/camera/last_image?thumb=0`).then(r=>r.json()).then(j=>{
+            if (j && j.ok && j.data) {
+                const raw2 = atob(j.data);
+                const bytes2 = new Uint8Array(raw2.length);
+                for (let i=0;i<raw2.length;i++) bytes2[i]=raw2.charCodeAt(i);
+                if (captureViewer) captureViewer.render(bytes2, j.format);
+                addLog('info','capture','Aperçu FITS complet chargé (niveaux)');
+            }
+        }).catch(()=>{});
+    } else {
+        _captureLastWasThumb = !isFits;
+        if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
+    }
     clearOffsetOverlay();
     clearFocusOverlay();
     const raw = atob(b64Data);
     const bytes = new Uint8Array(raw.length);
     for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
     if (captureViewer) captureViewer.render(bytes, fmt);
+    // bouton télécharger visible dès qu'on a une image
+    const dl = document.getElementById('cap-download-btn');
+    if (dl) dl.style.display = '';
 }
 
 
@@ -311,18 +336,31 @@ function initSaveImage() {
     }
     if (saveBtn) {
         saveBtn.addEventListener('click', async () => {
-            if (!_histPixels) { addLog('warning', 'capture', i18n('log.capture.no_image')); return; }
+            // Ne bloque plus sur _histPixels: le FITS complet est toujours sur le serveur même si l'aperçu est JPEG
             const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
-            if (!dir) { addLog('warning', 'capture', i18n('log.capture.choose_dir')); return; }
+            const wantServer = document.getElementById('cap-save-server')?.checked ?? true;
+            const wantLocal = document.getElementById('cap-save-local')?.checked ?? false;
+            if (wantServer && !dir) { addLog('warning', 'capture', i18n('log.capture.choose_dir')); return; }
+            if (!wantServer && !wantLocal) { addLog('warning','capture','Coche au moins Serveur ou Local'); return; }
             try {
-                const res = await fetch('/api/camera/save', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ dir, filter: _captureFilter }),
-                });
-                const data = await res.json();
-                if (data.ok) addLog('info', 'capture', i18nFmt('log.capture.image_saved', { path: data.path }));
-                else addLog('error', 'capture', i18nFmt('log.ws.error', { err: data.error }));
+                if (wantServer) {
+                    const res = await fetch('/api/camera/save', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ dir, filter: _captureFilter }),
+                    });
+                    const data = await res.json();
+                    if (data.ok) addLog('info', 'capture', i18nFmt('log.capture.image_saved', { path: data.path }));
+                    else addLog('error', 'capture', i18nFmt('log.ws.error', { err: data.error }));
+                }
+                if (wantLocal) {
+                    const r = await fetch('/api/camera/last_image?thumb=0');
+                    const j = await r.json();
+                    if (j.ok && j.data) {
+                        const cam = (typeof findCamera==='function' ? findCamera()?.name : '') || j.device || 'cam';
+                        downloadFits(j.data, cam + (typeof _captureFilter!=='undefined' && _captureFilter?`_${_captureFilter}`:''));
+                    } else addLog('warning','capture', j.error || 'Pas d\'image à télécharger');
+                }
             } catch (e) {
                 addLog('error', 'capture', i18nFmt('log.ws.error', { err: e.message }));
             }

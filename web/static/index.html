@@ -839,13 +839,35 @@
                 <button id="cap-abort-btn" class="btn-glass danger cap-action-btn" data-i18n="seq.stop">⏹ STOP</button>
             </div>
 
+            <!-- Preview format (global) -->
+            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
+                <div class="cap-label">Aperçu</div>
+                <div class="cap-row">
+                    <select id="cap-preview-format" class="cap-select" style="flex:1;">
+                        <option value="auto">Auto (JPEG si &gt;2Mo)</option>
+                        <option value="jpeg">JPEG léger</option>
+                        <option value="fits">FITS complet (niveaux)</option>
+                    </select>
+                    <button id="cap-load-fits-btn" class="btn-glass" style="font-size:0.6rem; display:none;">Charger FITS</button>
+                </div>
+            </div>
+
             <!-- Save -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
                 <div class="cap-label" data-i18n="cap.save">Sauvegarde</div>
+                <div class="cap-row" style="flex-wrap:wrap; gap:4px; margin-bottom:4px;">
+                    <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-server" checked> Serveur</label>
+                    <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-local"> Local</label>
+                    <select id="cap-save-when" class="cap-select" style="flex:1; min-width:90px; font-size:0.6rem;">
+                        <option value="end">En fin de séquence</option>
+                        <option value="each">À chaque pose</option>
+                    </select>
+                </div>
                 <div class="cap-row">
                     <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
                     <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
                 </div>
+                <button id="cap-download-btn" class="btn-glass" style="width:100%; font-size:0.6rem; margin-top:4px; display:none;">⬇ Télécharger FITS</button>
             </div>
 
             <!-- Live stacking toggle -->
