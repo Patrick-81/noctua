@@ -64,7 +64,6 @@ body {
 #applet-capture-settings {
     z-index: 25;
 }
-#applet-capture-settings.cap-loading::before,
 #applet-capture-preview.cap-preview-loading::before {
     content: '';
     position: absolute;
@@ -74,10 +73,6 @@ body {
     animation: cap-loading-bar 1.2s infinite linear;
     z-index: 10;
     pointer-events: none;
-}
-#applet-capture-settings.cap-loading,
-#applet-capture-preview.cap-preview-loading {
-    position: relative;
 }
 @keyframes cap-loading-bar {
     0% { background-position: 200% 0; }

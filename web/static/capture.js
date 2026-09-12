@@ -330,8 +330,7 @@ async function startSequence(count, delay) {
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
-        // ligne défilante en haut du panneau capture + aperçu pendant chargement
-        document.getElementById('applet-capture-settings')?.classList.add('cap-loading');
+        // ligne défilante en haut du panneau aperçu pendant chargement
         document.getElementById('applet-capture-preview')?.classList.add('cap-preview-loading');
         await waitExposureDone(cam.name, exposure * 1000 + 5000);
         stopCountdown();
