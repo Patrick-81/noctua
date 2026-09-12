@@ -235,34 +235,15 @@ function handleCameraImage(b64Data, fmt) {
     if (!isFits) {
         const isThumbCandidate = b64Data.length < 150000; // thumb 3KB vs preview 550KB
         if (wantVignette) {
-            // vignette veut le petit thumb, ignore le plein format s'il arrive en premier
-            if (!isThumbCandidate) {
-                // c'est le JPEG plein format 6224, on l'ignore et on attend le thumb 1024
-                // sauf si c'est une petite image sans thumb (ex: SVBONY 2Mo) -> on l'affiche quand même après un délai
-                setTimeout(()=>{
-                    if (!_lastPreviewWasFull && captureViewer && captureViewer.imgW === 0) {
-                        // aucun thumb n'est arrivé, affiche le plein quand même
-                        _lastPreviewWasFull = true;
-                        _captureLastWasThumb = false;
-                        if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
-                        clearOffsetOverlay(); clearFocusOverlay();
-                        const raw = atob(b64Data);
-                        const bytes = new Uint8Array(raw.length);
-                        for (let i=0;i<raw.length;i++) bytes[i]=raw.charCodeAt(i);
-                        if (captureViewer) captureViewer.render(bytes, fmt);
-                    }
-                }, 2500);
-                return;
-            }
+            // vignette veut le petit thumb 1024, on n'affiche que le thumb
+            if (!isThumbCandidate) return; // ignore le JPEG 6224, attend le thumb
             _lastPreviewWasFull = false;
         } else if (wantFull) {
             // pleine résolution veut le JPEG 6224, ignore le thumb 1024
-            if (isThumbCandidate && _lastPreviewWasFull && captureViewer && captureViewer.imgW > 2000) {
-                return; // garde le 6224, n'écrase pas par 1024
-            }
-            _lastPreviewWasFull = !isThumbCandidate;
+            if (isThumbCandidate) return; // ignore le thumb 1024, garde le 6224
+            _lastPreviewWasFull = true;
         } else {
-            // fallback (ancien auto) : garde le plein, ignore le thumb
+            // fallback : garde le plein, ignore le thumb
             if (isThumbCandidate && _lastPreviewWasFull && captureViewer && captureViewer.imgW > 2000) return;
             _lastPreviewWasFull = !isThumbCandidate;
         }
