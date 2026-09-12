@@ -225,32 +225,31 @@ let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
 var _lastPreviewWasFull = false; // true si dernier aperçu était un JPEG plein format (6224x4168)
+var _pendingFitsFetch = false;
 function handleCameraImage(b64Data, fmt) {
     _lastWsImageAt = Date.now();
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantFits = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'fits');
     const wantJpeg = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'jpeg');
-    console.log(`handleCameraImage fmt=${fmt} isFits=${isFits} wantFits=${wantFits} b64len=${b64Data.length} previewFormat=${typeof _capturePreviewFormat!=='undefined'?_capturePreviewFormat:'undef'}`);
     // FITS complet demandé : on ignore les JPEG (preview 411KB et thumb 3KB) et on va chercher le FITS natif
     if (wantFits && !isFits) {
         _captureLastWasThumb = true;
         if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
-        // Ne pas afficher le JPEG du tout, fetch direct du FITS 6224x4168
-        console.log('FITS mode: fetching full FITS via HTTP...');
-        fetch(`/api/camera/last_image?thumb=0`).then(r=>r.json()).then(j=>{
-            console.log(`fetch last_image thumb=0 -> ok=${j.ok} format=${j.format} size=${j.size}`);
-            if (j && j.ok && j.data) {
-                const raw2 = atob(j.data);
-                const bytes2 = new Uint8Array(raw2.length);
-                for (let i=0;i<raw2.length;i++) bytes2[i]=raw2.charCodeAt(i);
-                console.log(`rendering full FITS ${bytes2.length} bytes`);
-                if (captureViewer) captureViewer.render(bytes2, j.format);
-                // histo + ADU seront posés par le render FITS
-            } else {
-                console.warn('fetch FITS failed', j);
-            }
-        }).catch(e=>{ console.error('fetch FITS error', e);});
+        if (_pendingFitsFetch) return; // évite les fetch multiples pour la même pose
+        _pendingFitsFetch = true;
+        // Ne pas afficher le JPEG du tout, fetch direct du FITS 6224x4168 (après un court délai pour laisser le FITS arriver)
+        setTimeout(()=>{
+            fetch(`/api/camera/last_image?thumb=0`).then(r=>r.json()).then(j=>{
+                _pendingFitsFetch = false;
+                if (j && j.ok && j.data) {
+                    const raw2 = atob(j.data);
+                    const bytes2 = new Uint8Array(raw2.length);
+                    for (let i=0;i<raw2.length;i++) bytes2[i]=raw2.charCodeAt(i);
+                    if (captureViewer) captureViewer.render(bytes2, j.format);
+                }
+            }).catch(e=>{ _pendingFitsFetch=false; console.error('fetch FITS error', e);});
+        }, 800);
         return;
     }
     // Auto : si on vient d'afficher un JPEG plein format, on ignore le thumb 1024x686 qui arrive juste après
