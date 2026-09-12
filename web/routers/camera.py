@@ -95,6 +95,44 @@ def register(app, server: "WebServer") -> None:
         log.info("Image saved: %s (%d bytes)", filepath, len(img))
         return {"ok": True, "path": filepath, "size": len(img)}
 
+    @app.get("/api/camera/last_image")
+    async def camera_last_image(device: str = "", thumb: int = 1):
+        """Retourne la dernière image capturée (thumb JPEG si dispo, sinon FITS) en base64.
+
+        Fallback HTTP quand le WS a raté la poussée (ws=0, réseau, etc.).
+        Le viewer capture l'appelle en fallback après waitExposureDone.
+        """
+        # thumb=1 → préfère le JPEG léger (1024px) si disponible
+        if thumb and getattr(server, "_last_thumb", None):
+            tdev = getattr(server, "_last_thumb_device", "") or device or getattr(server, "_last_image_device", "")
+            import base64 as _b64
+            return SanitizedJSONResponse({
+                "ok": True,
+                "device": tdev,
+                "format": "jpg",
+                "data": _b64.b64encode(server._last_thumb).decode("ascii"),
+                "size": len(server._last_thumb),
+                "thumb": True,
+            })
+        # sinon full FITS
+        img = None
+        dev_name = device or getattr(server, "_last_image_device", "")
+        if dev_name:
+            img = server._camera_images.get(dev_name)
+        if not img:
+            img = getattr(server, "_last_image_data", b"")
+        if not img:
+            return {"ok": False, "error": "no image captured yet"}
+        import base64 as _b64
+        return SanitizedJSONResponse({
+            "ok": True,
+            "device": dev_name or "unknown",
+            "format": "fits",
+            "data": _b64.b64encode(img).decode("ascii"),
+            "size": len(img),
+            "thumb": False,
+        })
+
     @app.post("/api/camera/temperature")
     async def camera_temperature(body: dict):
         c = server.registry.get_camera(body.get("device"))
