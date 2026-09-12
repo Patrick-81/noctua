@@ -852,22 +852,27 @@
                 </div>
             </div>
 
-            <!-- Save -->
+            <!-- Save (collapsible) -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
-                <div class="cap-label" data-i18n="cap.save">Sauvegarde</div>
-                <div class="cap-row" style="flex-wrap:wrap; gap:4px; margin-bottom:4px;">
-                    <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-server" checked> Serveur</label>
-                    <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-local"> Local</label>
-                    <select id="cap-save-when" class="cap-select" style="flex:1; min-width:90px; font-size:0.6rem;">
-                        <option value="end">En fin de séquence</option>
-                        <option value="each">À chaque pose</option>
-                    </select>
+                <div class="cap-row" style="justify-content:space-between; align-items:center; cursor:pointer;" id="cap-save-toggle">
+                    <div class="cap-label" data-i18n="cap.save" style="margin:0;">Sauvegarde</div>
+                    <span id="cap-save-toggle-icon" style="font-size:0.7rem; color:#888;">▼</span>
                 </div>
-                <div class="cap-row">
-                    <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
-                    <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
+                <div id="cap-save-body" style="margin-top:4px;">
+                    <div class="cap-row" style="flex-wrap:wrap; gap:4px; margin-bottom:4px;">
+                        <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-server" checked> Serveur</label>
+                        <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-local"> Local</label>
+                        <select id="cap-save-when" class="cap-select" style="flex:1; min-width:90px; font-size:0.6rem;">
+                            <option value="end">En fin de séquence</option>
+                            <option value="each">À chaque pose</option>
+                        </select>
+                    </div>
+                    <div class="cap-row">
+                        <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
+                        <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
+                    </div>
+                    <button id="cap-download-btn" class="btn-glass" style="width:100%; font-size:0.6rem; margin-top:4px; display:none;">⬇ Télécharger FITS</button>
                 </div>
-                <button id="cap-download-btn" class="btn-glass" style="width:100%; font-size:0.6rem; margin-top:4px; display:none;">⬇ Télécharger FITS</button>
             </div>
 
             <!-- Live stacking toggle -->
@@ -1036,6 +1041,7 @@
                 </div>
                 <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
                 <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
+                <div id="cap-adu-cursor" style="font-size:0.6rem; color:#00ffcc; font-family:monospace; min-height:0.9em; margin-top:2px; text-align:right; white-space:nowrap; overflow:hidden;"> </div>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">
                     <button id="cap-zoom-reset" class="cap-zoom-btn" title="Zoom 100%" data-i18n-title="prev.zoom100">1:1</button>
                     <button id="cap-zoom-fit" class="cap-zoom-btn" title="Adapter à la fenêtre" data-i18n-title="prev.fit">◻</button>

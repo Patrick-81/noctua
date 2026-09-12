@@ -542,6 +542,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     initFlatWizard();
     initPreviewResize();
     initSaveImage();
+    if (typeof initAduCursor === 'function') initAduCursor();
     captureViewer.initHistogramControls();
     initSolverPanel();
     initTargetPanel();

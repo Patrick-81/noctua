@@ -320,6 +320,39 @@ function _resetPreviewZoom() { captureViewer?.resetZoom(); }
 function _fitPreviewZoom() { captureViewer?.fitZoom(); }
 function initPreviewZoomPan() { captureViewer?.initZoomPan(); }
 
+// ── ADU cursor ───────────────────────────────────────────────────
+function initAduCursor() {
+    const viewport = document.getElementById('cap-preview-viewport');
+    const info = document.getElementById('cap-adu-cursor');
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!viewport || !info || !canvas) return;
+    function update(e) {
+        const cv = captureViewer;
+        if (!cv || !cv.pixels || !cv.imgW || !cv.imgH) { info.textContent = ' '; return; }
+        const cRect = canvas.getBoundingClientRect();
+        if (cRect.width === 0 || cRect.height === 0) { info.textContent = ' '; return; }
+        const zoom = cv.zoom || 1;
+        // canvas rect already scaled, so image coord = (mouse - left) / (width/imgW)
+        const scaleX = cRect.width / cv.imgW;
+        const scaleY = cRect.height / cv.imgH;
+        const xImg = (e.clientX - cRect.left) / scaleX;
+        const yImg = (e.clientY - cRect.top) / scaleY;
+        const ix = Math.floor(xImg);
+        const iy = Math.floor(yImg);
+        if (ix < 0 || ix >= cv.imgW || iy < 0 || iy >= cv.imgH) { info.textContent = ' '; return; }
+        const arrayY = cv.imgH - 1 - iy;
+        const adu = cv.pixels[arrayY * cv.imgW + ix];
+        if (adu === undefined || isNaN(adu)) { info.textContent = `x:${ix} y:${iy} —`; return; }
+        info.textContent = `x:${ix} y:${iy} ADU:${Math.round(adu)}`;
+    }
+    viewport.addEventListener('mousemove', update);
+    viewport.addEventListener('mouseleave', () => { info.textContent = ' '; });
+    // touch
+    viewport.addEventListener('touchmove', (e) => {
+        if (e.touches && e.touches[0]) update(e.touches[0]);
+    }, {passive:true});
+}
+
 // ── Save image ─────────────────────────────────────────────────
 
 function initSaveImage() {

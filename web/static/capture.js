@@ -192,6 +192,23 @@ function initCapturePanel() {
         if (saveLocalCb) saveLocalCb.addEventListener('change', () => { _captureSaveLocal = saveLocalCb.checked; currentModeConfig().save_local = _captureSaveLocal; saveUiConfig(); });
         if (saveWhenSel) saveWhenSel.addEventListener('change', () => { _captureSaveWhen = saveWhenSel.value; currentModeConfig().save_when = _captureSaveWhen; saveUiConfig(); });
     }
+    // Save section collapsible (pour ne pas allonger le panneau)
+    const saveToggle = document.getElementById('cap-save-toggle');
+    const saveBody = document.getElementById('cap-save-body');
+    const saveIcon = document.getElementById('cap-save-toggle-icon');
+    if (saveToggle && saveBody) {
+        const cfg2 = currentModeConfig();
+        let collapsed = cfg2.save_collapsed !== undefined ? !!cfg2.save_collapsed : true;
+        function applySaveCollapsed(c) {
+            collapsed = c;
+            saveBody.style.display = c ? 'none' : '';
+            if (saveIcon) saveIcon.textContent = c ? '▶' : '▼';
+            cfg2.save_collapsed = c;
+            saveUiConfig();
+        }
+        applySaveCollapsed(collapsed);
+        saveToggle.addEventListener('click', () => applySaveCollapsed(!collapsed));
+    }
 }
 
 function updatePreviewFormatUI() {
