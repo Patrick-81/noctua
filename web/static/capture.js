@@ -17,7 +17,7 @@ let _captureAborted = false;        // last capture run was aborted (not complet
 
 // Save & preview format (global, persisté via uiConfig)
 let _saveDir = '';
-var _capturePreviewFormat = 'auto'; // auto | jpeg | fits
+var _capturePreviewFormat = 'full'; // vignette | full
 var _captureSaveServer = true;
 var _captureSaveLocal = false;
 var _captureSaveWhen = 'end'; // end | each
@@ -138,12 +138,17 @@ function initCapturePanel() {
         });
     }
 
-    // Preview format (global)
+    // Preview format (global) : vignette (1024) vs pleine résolution (6224)
     const fmtSel = document.getElementById('cap-preview-format');
     if (fmtSel) {
-        // restore from uiConfig
+        // migration anciens noms auto/jpeg/fits -> vignette/full
         const saved = currentModeConfig().preview_format;
-        if (saved) { _capturePreviewFormat = saved; fmtSel.value = saved; }
+        if (saved) {
+            if (saved === 'auto' || saved === 'jpeg') _capturePreviewFormat = 'vignette';
+            else if (saved === 'fits') _capturePreviewFormat = 'full';
+            else _capturePreviewFormat = saved;
+            fmtSel.value = _capturePreviewFormat;
+        }
         fmtSel.addEventListener('change', () => {
             _capturePreviewFormat = fmtSel.value;
             currentModeConfig().preview_format = _capturePreviewFormat;
@@ -151,20 +156,6 @@ function initCapturePanel() {
             updatePreviewFormatUI();
         });
         updatePreviewFormatUI();
-    }
-    const loadFitsBtn = document.getElementById('cap-load-fits-btn');
-    if (loadFitsBtn) {
-        loadFitsBtn.addEventListener('click', async () => {
-            const cam = findCamera();
-            if (!cam) return;
-            loadFitsBtn.disabled = true; loadFitsBtn.textContent = '…';
-            try {
-                const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=0`);
-                const j = await r.json();
-                if (j.ok && j.data) handleCameraImage(j.data, j.format);
-                else addLog('warning','capture', j.error || 'Pas de FITS');
-            } finally { loadFitsBtn.disabled = false; loadFitsBtn.textContent = 'Charger FITS'; }
-        });
     }
     const dlBtn = document.getElementById('cap-download-btn');
     if (dlBtn) {
@@ -212,14 +203,8 @@ function initCapturePanel() {
 }
 
 function updatePreviewFormatUI() {
-    const btn = document.getElementById('cap-load-fits-btn');
     const dl = document.getElementById('cap-download-btn');
-    if (btn) btn.style.display = (_capturePreviewFormat === 'fits') ? 'none' : '';
     if (dl) dl.style.display = _capturePendingSaves.length || _lastWsImageAt ? '' : 'none';
-    // Si on passe en FITS et qu'on a déjà un thumb, propose de charger le FITS
-    if (_capturePreviewFormat === 'fits' && _captureLastWasThumb) {
-        if (btn) btn.style.display = '';
-    }
 }
 function downloadFits(b64Data, deviceName) {
     try {
