@@ -79,7 +79,13 @@ class WebServer:
         self.app.add_middleware(BaseHTTPMiddleware, dispatch=self._no_cache_middleware)
         self._ws_clients: list[WebSocket] = []
         self._last_image_data: bytes = b""
+        self._last_image_device: str = ""
         self._camera_images: dict[str, bytes] = {}  # device_name → last image bytes
+        self._last_thumb: bytes | None = None
+        self._last_thumb_device: str = ""
+        # Unifie les 2 listes WS (server + weblog) pour éviter la divergence qui causait ws=0
+        # côté image alors que les logs passaient encore.
+        self._ws_clients = weblog_handler._clients  # alias partagé
         # Duration of the last test exposure used by /api/camera/exposure/estimate
         # (so GET /recommend can extrapolate without re-taking a frame).
         self._last_exposure_test_s: float = 0.0
@@ -574,6 +580,10 @@ class WebServer:
             self._ws_clients.remove(ws)
         except ValueError:
             pass
+        try:
+            weblog_handler.remove_client(ws)
+        except Exception:
+            pass
 
     def _make_image_callback(self, device_name: str):
         """Create an image callback that captures the device name."""
@@ -632,24 +642,22 @@ class WebServer:
                     arr = arr.reshape((h, w))
                 except Exception:
                     return None
-            # Échantillon 200k px pour median/percentile (évite OOM)
+            # Réduction AVANT conversion float pour limiter le pic mémoire
+            # (26 Mpx → ~0.7 Mpx). Le median/percentile reste représentatif.
+            scale = max(1, int(max(w, h) / max_side))
+            if scale > 1:
+                arr = arr[::scale, ::scale]
             flat = arr.ravel()
             step = max(1, flat.size // 200_000)
             sample = flat[::step].astype(_np.float32)
             med = float(_np.median(sample))
             arr_f = _np.clip(arr.astype(_np.float32) - med, 0, None)
-            # Percentile sur échantillon
             lo, hi = _np.percentile(sample - med, [2, 99.5])
             lo = max(0, lo); hi = max(1, hi)
             if hi > lo:
                 arr_f = (arr_f - lo) / (hi - lo)
             arr_f = _np.clip(arr_f, 0, 1)
             arr_f = _np.arcsinh(arr_f * 10) / _np.arcsinh(10)
-            # Réduction directe sans former l'image pleine taille : on sous-échantillonne
-            # en prenant 1 px sur N pour tenir dans max_side avant Pillow
-            scale = max(1, int(max(w, h) / max_side))
-            if scale > 1:
-                arr_f = arr_f[::scale, ::scale]
             arr_u8 = (arr_f * 255).astype(_np.uint8)
             img = _PIL.fromarray(arr_u8, mode="L")
             img.thumbnail((max_side, max_side), _PIL.BILINEAR)
@@ -671,57 +679,58 @@ class WebServer:
         if url:
             log.info("Camera image URL from %s: %s (fmt=%s)", device_name, url, fmt)
             asyncio.ensure_future(self._fetch_and_broadcast(device_name, url, fmt))
-        else:
-            if not data:
-                log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
+            return
+        if not data:
+            log.warning("Camera image from %s has ZERO bytes — skipping", device_name)
+            return
+        # Store full FITS pour sauvegarde (même sans WS, pour /api/camera/save + solver)
+        self._last_image_data = data
+        self._last_image_device = device_name
+        self._camera_images[device_name] = data
+        if not fmt:
+            if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
+                fmt = "jpg"
+            elif len(data) >= 6 and data[:6].startswith(b"SIMPLE"):
+                fmt = "fits"
+        log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
+        if not self._ws_clients:
+            log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
+        # >2 Mo FITS → JPEG vignette en thread (évite blocage WS + limite mémoire)
+        if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
+            try:
+                thumb = await asyncio.to_thread(self._jpeg_thumb, data)
+            except Exception as e:  # noqa: BLE001
+                log.warning("thumb thread failed: %s", e)
+                thumb = None
+            if thumb:
+                b64 = base64.b64encode(thumb).decode("ascii")
+                payload = json.dumps({
+                    "type": "image",
+                    "device": device_name,
+                    "format": "jpg",
+                    "data": b64,
+                })
+                loop = asyncio.get_running_loop()
+                async def _safe_send(ws):
+                    try:
+                        await ws.send_text(payload)
+                    except Exception:
+                        self._safe_remove_client(ws)
+                for ws in self._ws_clients[:]:
+                    loop.create_task(_safe_send(ws))
+                log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
+                self._last_thumb = thumb
+                self._last_thumb_device = device_name
                 return
-            # Store full FITS pour sauvegarde
-            self._last_image_data = data
-            self._camera_images[device_name] = data
-            if not fmt:
-                if len(data) >= 2 and data[0] == 0xFF and data[1] == 0xD8:
-                    fmt = "jpg"
-                elif len(data) >= 6 and data[:6].startswith(b"SIMPLE"):
-                    fmt = "fits"
-            log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
-            if not self._ws_clients:
-                log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
-            # >5 Mo FITS → JPEG vignette en thread (évite blocage WS)
-            if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
-                try:
-                    thumb = await asyncio.to_thread(self._jpeg_thumb, data)
-                except Exception as e:  # noqa: BLE001
-                    log.warning("thumb thread failed: %s", e)
-                    thumb = None
-                if thumb:
-                    b64 = base64.b64encode(thumb).decode("ascii")
-                    payload = json.dumps({
-                        "type": "image",
-                        "device": device_name,
-                        "format": "jpg",
-                        "data": b64,
-                    })
-                    loop = asyncio.get_running_loop()
-                    async def _safe_send(ws):
-                        try:
-                            await ws.send_text(payload)
-                        except Exception:
-                            self._safe_remove_client(ws)
-                    for ws in self._ws_clients[:]:
-                        loop.create_task(_safe_send(ws))
-                    log.info("Broadcast JPEG thumb %d KB for %s (orig %d KB)", len(thumb)//1024, device_name, len(data)//1024)
-                    self._last_thumb = thumb
-                    self._last_thumb_device = device_name
-                    return
-                else:
-                    log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
-            b64 = base64.b64encode(data).decode("ascii")
-            payload = json.dumps({
-                "type": "image",
-                "device": device_name,
-                "format": fmt,
-                "data": b64,
-            })
+            else:
+                log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
+        b64 = base64.b64encode(data).decode("ascii")
+        payload = json.dumps({
+            "type": "image",
+            "device": device_name,
+            "format": fmt,
+            "data": b64,
+        })
         loop = asyncio.get_running_loop()
 
         async def _safe_send(ws):
@@ -737,20 +746,28 @@ class WebServer:
         """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""
         import aiohttp
         try:
-            # The INDIGO server runs on the same host as the INDIGO TCP connection.
-            # Only accept BLOB paths from the INDIGO server itself to avoid SSRF.
             allowed_host = self.registry.client._host
-            allowed_port = 7624
+            allowed_port = getattr(self.registry.client, "_port", 7624)
             if url.startswith("/"):
                 path = url
-            elif url.startswith(f"http://{allowed_host}:{allowed_port}"):
-                path = url[len(f"http://{allowed_host}:{allowed_port}"):]
-                if not path.startswith("/"):
-                    path = "/" + path
+            elif url.startswith("http://"):
+                # Accepte http://host:port/path où port == allowed_port (host peut être
+                # 127.0.0.1 vs localhost selon le BLOB URL INDIGO).
+                try:
+                    from urllib.parse import urlparse as _up
+                    parsed = _up(url)
+                    if parsed.port != allowed_port:
+                        log.error("Refusing BLOB fetch for disallowed port: %s", url)
+                        return
+                    path = parsed.path or "/"
+                    if parsed.query:
+                        path += "?" + parsed.query
+                except Exception:
+                    log.error("Refusing BLOB fetch for disallowed URL: %s", url)
+                    return
             else:
                 log.error("Refusing BLOB fetch for disallowed URL: %s", url)
                 return
-
             if ".." in path.split("/"):
                 log.error("Refusing BLOB fetch with path traversal: %s", path)
                 return

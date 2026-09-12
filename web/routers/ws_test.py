@@ -20,8 +20,13 @@ def register(app, server: "WebServer") -> None:
     async def websocket_endpoint(ws: WebSocket):
         from ..weblog import handler as weblog_handler
         await ws.accept()
-        server._ws_clients.append(ws)
-        weblog_handler.add_client(ws)
+        # server._ws_clients est un alias de weblog_handler._clients (partage)
+        # on n'ajoute qu'une fois pour éviter le doublon
+        if ws not in weblog_handler._clients:
+            weblog_handler.add_client(ws)
+        # garde l'alias cohérent si jamais ils divergeaient (ancienne instance)
+        if ws not in server._ws_clients:
+            server._ws_clients.append(ws)
         log.info("WS client connected (%d total)", len(server._ws_clients))
         try:
             # Send current state immediately
@@ -61,9 +66,10 @@ def register(app, server: "WebServer") -> None:
         except WebSocketDisconnect:
             pass
         finally:
-            if ws in server._ws_clients:
-                server._ws_clients.remove(ws)
             weblog_handler.remove_client(ws)
+            # alias partagé : un seul remove suffit, mais garde la compatibilité
+            if server._ws_clients is not weblog_handler._clients and ws in server._ws_clients:
+                server._ws_clients.remove(ws)
             log.info("WS client disconnected (%d remaining)", len(server._ws_clients))
 
     # ── Test endpoints (dev only) ─────────────────────────────

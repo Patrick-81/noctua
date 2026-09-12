@@ -223,7 +223,9 @@ function _guideCap() { return guideViewer?._guideCaptureData || _guideLegacyCapt
 let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
+var _lastWsImageAt = 0;
 function handleCameraImage(b64Data, fmt) {
+    _lastWsImageAt = Date.now();
     clearOffsetOverlay();
     clearFocusOverlay();
     const raw = atob(b64Data);

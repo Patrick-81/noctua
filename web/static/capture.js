@@ -305,6 +305,8 @@ async function startSequence(count, delay) {
         startCountdown();
         await waitExposureDone(cam.name, exposure * 1000 + 5000);
         stopCountdown();
+        // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
+        await _fetchLastImageIfNeeded(cam.name);
         if (!_captureRunning) break;
         _captureQueue--;
         updateCaptureProgress();
@@ -350,6 +352,26 @@ function waitExposureDone(camName, timeout) {
         };
         setTimeout(check, 200);
     });
+}
+async function _fetchLastImageIfNeeded(camName) {
+    // Si WS a déjà livré dans les 2s, inutile de fetch
+    try {
+        const age = Date.now() - (typeof _lastWsImageAt !== 'undefined' ? _lastWsImageAt : 0);
+        if (age < 2000) return;
+        // Laisse le thumb se générer côté serveur (3s pour 77Mo)
+        await sleep(800);
+        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(camName)}&thumb=1`);
+        const j = await r.json();
+        if (j && j.ok && j.data) {
+            // Évite le doublon si WS est arrivé entre-temps
+            const age2 = Date.now() - (typeof _lastWsImageAt !== 'undefined' ? _lastWsImageAt : 0);
+            if (age2 < 2000) return;
+            addLog('info', 'capture', 'Rapatriement HTTP (fallback WS)');
+            handleCameraImage(j.data, j.format);
+        }
+    } catch (e) {
+        // silencieux — le WS reste la voie principale
+    }
 }
 function startCountdown() {
     const row = document.getElementById('cap-countdown-row');

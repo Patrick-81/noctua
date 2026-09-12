@@ -205,7 +205,9 @@ class Viewer {
     // ── Rendering ──
 
     render(bytes, fmt) {
-        if (fmt === 'image/fits' || (bytes.length > 0 && bytes[0] === 0x53)) {
+        const norm = (fmt || '').toLowerCase();
+        const isFits = norm === 'fits' || norm === 'image/fits' || norm === '.fits' || norm === '.fit' || norm === 'image/x-fits';
+        if (isFits || (bytes.length > 0 && bytes[0] === 0x53)) {
             this._renderFITS(bytes);
         } else {
             this._renderNonFITS(bytes, fmt);
@@ -264,7 +266,13 @@ class Viewer {
     }
 
     _renderNonFITS(bytes, fmt) {
-        const blob = new Blob([bytes], { type: fmt || 'image/png' });
+        let mime = fmt || 'image/png';
+        const lower = String(fmt || '').toLowerCase();
+        if (lower === 'jpg' || lower === 'jpeg') mime = 'image/jpeg';
+        else if (lower === 'png') mime = 'image/png';
+        else if (lower === 'fits' || lower === '.fits') mime = 'image/fits';
+        else if (!lower.includes('/')) mime = fmt; // keep as-is if already mime
+        const blob = new Blob([bytes], { type: mime });
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
