@@ -64,6 +64,23 @@ body {
 #applet-capture-settings {
     z-index: 25;
 }
+#applet-capture-settings.cap-loading {
+    position: relative;
+}
+#applet-capture-settings.cap-loading::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    background-size: 200% 100%;
+    animation: cap-loading-bar 1.2s infinite linear;
+    z-index: 10;
+    pointer-events: none;
+}
+@keyframes cap-loading-bar {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
 
 /* ── Applet positions ───────────────────────────────────────── */
 
