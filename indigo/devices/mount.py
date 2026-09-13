@@ -267,34 +267,23 @@ class Mount(BaseDevice):
         await self._poll_coords()
 
     async def _send_park_switch(self, target_item: str) -> None:
-        """Envoie le switch PARK — exhaustif pour OnStep.
+        """Envoie le switch PARK — OnStep LX200 utilise :hP#/:hR# via MOUNT_PARK.
 
-        L'observatoire a montré que ni mono-item ni bi-item sur Mount LX200
-        ne commute. On brute-force les combinaisons connues (device × prop × item)
-        et on log le XML réellement envoyé (via client._send).
+        Vu sur l'observatoire (log 16:24:12) : UNPARKED=On mono-item commute bien
+        en ~3s (True->False), mais un retry trop précoce (1.8s) le re-parque.
+        On n'envoie qu'une fois, le driver fait le reste.
         """
         park_prop = self._resolve_prop_name("MOUNT_PARK")
         pv = self._properties.get(park_prop)
-        # Détermine les item names réels du vecteur (PARKED/UNPARKED)
-        if pv and len(pv.items) >= 2:
-            # Essaie mono-item puis bi-item via la même propriété (les deux sont légaux INDIGO)
-            log.info("[%s] park: sending %s.%s=On (mount mono)", self.name, park_prop, target_item)
-            await self.send_switch(park_prop, [{"name": target_item, "value": True}])
-            return
         if pv and pv.get_item(target_item):
-            log.info("[%s] park: sending %s.%s=On (mount)", self.name, park_prop, target_item)
+            log.info("[%s] park: sending %s.%s=On", self.name, park_prop, target_item)
             await self.send_switch(park_prop, [{"name": target_item, "value": True}])
             return
-        # Fallback : brute-force sur les noms connus (Mount Agent, etc.)
-        for alt_dev in ("Mount Agent", "Mount LX200 (guider)", "Mount LX200 (aux)"):
-            for alt_prop in ("MOUNT_PARK", "TELESCOPE_PARK"):
-                for alt_item in (target_item, "PARK" if target_item == "PARKED" else "UNPARK"):
-                    try:
-                        log.info("[%s] park: trying alt %s.%s.%s=On", self.name, alt_dev, alt_prop, alt_item)
-                        await self.client.send_new_switch(alt_dev, alt_prop, [{"name": alt_item, "value": True}])
-                        return
-                    except Exception:
-                        continue
+        if pv and len(pv.items) >= 2:
+            log.info("[%s] park: sending %s.%s=On (bi fallback)", self.name, park_prop, target_item)
+            items = [{"name": it.name, "value": it.name == target_item} for it in pv.items]
+            await self.send_switch(park_prop, items)
+            return
         alt_prop = "TELESCOPE_PARK"
         if alt_prop in self._properties:
             log.info("[%s] park: sending %s.%s=On (alias)", self.name, alt_prop, target_item)
@@ -302,64 +291,26 @@ class Mount(BaseDevice):
             return
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
-    async def _exhaustive_unpark_probe(self) -> None:
-        """Sonde exhaustive quand l'OnStep reste parké — envoie tous les combos et log la réponse.
-
-        Appelé par unpark() après les retries normaux. N'exige pas de succès,
-        mais permet de voir dans le Log quel combo fait bouger _parse_park.
-        """
-        combos = [
-            ("Mount LX200", "MOUNT_PARK", "UNPARKED"),
-            ("Mount LX200", "MOUNT_PARK", "UNPARK"),
-            ("Mount LX200", "TELESCOPE_PARK", "UNPARKED"),
-            ("Mount LX200", "TELESCOPE_PARK", "UNPARK"),
-            ("Mount Agent", "MOUNT_PARK", "UNPARKED"),
-            ("Mount Agent", "TELESCOPE_PARK", "PARK"),
-            ("Mount LX200 (guider)", "MOUNT_PARK", "UNPARKED"),
-        ]
-        for dev, prop, item in combos:
-            log.info("[%s] probe unpark: %s.%s.%s=On", self.name, dev, prop, item)
-            try:
-                await self.client.send_new_switch(dev, prop, [{"name": item, "value": True}])
-            except Exception as e:
-                log.debug("[%s] probe %s.%s failed: %s", self.name, dev, prop, e)
-            await asyncio.sleep(0.6)
-            if not self.parked:
-                log.info("[%s] probe SUCCESS: %s.%s.%s dé-parqué !", self.name, dev, prop, item)
-                return
-        log.warning("[%s] probe unpark: tous les combos ont échoué, parked reste %s", self.name, self.parked)
-
     async def park(self) -> None:
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
-        await asyncio.sleep(1.8)
+        # OnStep :hP# prend ~3s à répondre (vu 16:24:11), ne pas retry avant
+        await asyncio.sleep(4.0)
         if not self.parked:
-            return
-        pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
-        if pv2 and len(pv2.items) >= 2:
-            log.info("[%s] park: retry bi-item after still parked=%s", self.name, self.parked)
-            items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
-            await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
+            log.info("[%s] park: success", self.name)
+        else:
+            log.warning("[%s] park: still parked after 4s (state=%s)", self.name, self.park_state)
 
     async def unpark(self) -> None:
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
         await self._send_park_switch(target)
-        await asyncio.sleep(1.8)
+        await asyncio.sleep(4.0)
         if self.parked is False:
-            return
-        pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
-        if pv2 and len(pv2.items) >= 2:
-            log.info("[%s] unpark: retry bi-item after still parked=%s", self.name, self.parked)
-            items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
-            await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            await asyncio.sleep(1.2)
-            if not self.parked:
-                return
-        if self.parked:
-            log.info("[%s] unpark: still parked after retries, lancement probe exhaustive", self.name)
-            await self._exhaustive_unpark_probe()
+            log.info("[%s] unpark: success", self.name)
+        else:
+            log.warning("[%s] unpark: still parked after 4s (state=%s) — OnStep n'a pas répondu", self.name, self.park_state)
 
     async def home(self) -> None:
         """Send HOME command to the mount.
