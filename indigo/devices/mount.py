@@ -370,13 +370,23 @@ class Mount(BaseDevice):
                 d_ra -= 360
             if d_ra < -180:
                 d_ra += 360
+            # Au pôle (DEC 87°) le sens RA est inversé (pier side) — on teste les deux
             if abs(d_ra) > 3.0:
-                direction = "WEST" if d_ra > 0 else "EAST"
-                log.info("[%s] slew_to: puis parallèle %s %.1f° vers RA=%.2fh", self.name, direction, abs(d_ra), ra_hours)
-                await self.move(direction, "FIND")
-                await asyncio.sleep(min(4.0, abs(d_ra) * 0.08))
-                await self.halt_move()
-                await asyncio.sleep(0.8)
+                # OnStep à 87° : le RA est dégénéré, on tente WEST d'abord (comme le joystick qui marche en West à 20:21)
+                for attempt, direction in enumerate([("WEST" if d_ra > 0 else "EAST"), ("EAST" if d_ra > 0 else "WEST")]):
+                    if attempt == 1:
+                        log.info("[%s] slew_to: parallèle %s n'a pas bougé, retry %s", self.name, "WEST" if d_ra > 0 else "EAST", direction)
+                    else:
+                        log.info("[%s] slew_to: puis parallèle %s %.1f° vers RA=%.2fh", self.name, direction, abs(d_ra), ra_hours)
+                    before_ra = self.ra_hours
+                    await self.move(direction, "MAX")
+                    await asyncio.sleep(min(6.0, abs(d_ra) * 0.12))
+                    await self.halt_move()
+                    await asyncio.sleep(0.8)
+                    if abs(self.ra_hours - before_ra) > 0.05:
+                        break
+                    if attempt == 0:
+                        await asyncio.sleep(0.5)
             log.info("[%s] slew_to: après méridien/parallèle à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
         await self._slew_to_raw(ra_hours, dec_deg)
         await asyncio.sleep(1.5)
