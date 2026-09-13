@@ -342,7 +342,7 @@ class Mount(BaseDevice):
         log.warning("[%s] unpark: still parked after 8s (state=%s)", self.name, self.park_state)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
-        """GOTO: dé-parque, tracking ON, sort du pôle, puis slew."""
+        """GOTO: dé-parque, tracking ON, sort du pôle, puis slew (robuste)."""
         log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s tracking=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked, self.tracking)
         if self.parked:
             log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
@@ -351,7 +351,6 @@ class Mount(BaseDevice):
             if self.parked:
                 log.warning("[%s] slew_to: still parked, slew annulé", self.name)
                 return
-        # OnStep refuse :MS# si tracking OFF (vu HR544 29° bloqué à 80°)
         if not self.tracking:
             log.info("[%s] slew_to: tracking OFF → ON avant slew", self.name)
             await self.set_tracking(True)
@@ -363,9 +362,19 @@ class Mount(BaseDevice):
             await self.halt_move()
             await asyncio.sleep(0.8)
         await self._slew_to_raw(ra_hours, dec_deg)
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.2)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: GOTO HR%.0f n'a pas bougé (resté RA=%.4fh DEC=%.2f°), limites OnStep ?", self.name, ra_hours*15, self.ra_hours, self.dec_deg)
+            log.warning("[%s] slew_to: GOTO n'a pas bougé (resté RA=%.4fh DEC=%.2f°), retry sans SLEW trigger (OnStep limite méridien ?)", self.name, self.ra_hours, self.dec_deg)
+            # OnStep parfois refuse le :MS# quand le flip est dû — on tente sans le trigger SLEW (slew implicite)
+            coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
+            await self.send_number(coords_prop, [{"name": "RA", "value": ra_hours}, {"name": "DEC", "value": dec_deg}])
+            self.slewing = True
+            self._target_ra = ra_hours
+            self._target_dec = dec_deg
+            self._start_move_poll()
+            await asyncio.sleep(1.0)
+            if not self.slewing:
+                log.warning("[%s] slew_to: retry aussi bloqué, cible hors limites OnStep ?", self.name)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO brut: envoie les coords + trigger SLEW."""
