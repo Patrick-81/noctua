@@ -355,21 +355,40 @@ class Mount(BaseDevice):
             log.info("[%s] slew_to: tracking OFF → ON avant slew", self.name)
             await self.set_tracking(True)
             await asyncio.sleep(0.8)
-        if abs(self.dec_deg - 87.0) < 5.0 and abs(dec_deg - 87.0) > 5.0:
-            log.info("[%s] slew_to: près du pôle (DEC=%.1f°) → move South 5° avant GOTO (joystick qui marche)", self.name, self.dec_deg)
-            await self.move("SOUTH", "FIND")
-            await asyncio.sleep(2.5)
-            await self.halt_move()
-            await asyncio.sleep(1.0)
-            log.info("[%s] slew_to: après move à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
+        # Méridien puis parallèle : on sort du pôle en DEC d'abord (joystick South qui marche), puis on corrige RA
+        if abs(self.dec_deg - 87.0) < 5.0:
+            d_dec = dec_deg - self.dec_deg
+            if abs(d_dec) > 2.0:
+                direction = "NORTH" if d_dec > 0 else "SOUTH"
+                log.info("[%s] slew_to: pôle → méridien %s %.1f° vers DEC=%.1f°", self.name, direction, abs(d_dec), dec_deg)
+                await self.move(direction, "FIND")
+                await asyncio.sleep(min(4.0, abs(d_dec) * 0.15))  # ~0.15s/deg en FIND
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+            d_ra = (ra_hours - self.ra_hours) * 15.0
+            if d_ra > 180:
+                d_ra -= 360
+            if d_ra < -180:
+                d_ra += 360
+            if abs(d_ra) > 3.0:
+                direction = "WEST" if d_ra > 0 else "EAST"
+                log.info("[%s] slew_to: puis parallèle %s %.1f° vers RA=%.2fh", self.name, direction, abs(d_ra), ra_hours)
+                await self.move(direction, "FIND")
+                await asyncio.sleep(min(4.0, abs(d_ra) * 0.08))
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+            log.info("[%s] slew_to: après méridien/parallèle à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
         await self._slew_to_raw(ra_hours, dec_deg)
         await asyncio.sleep(1.5)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: :MS# bloqué (resté RA=%.4fh DEC=%.2f°) → move South + retry", self.name, self.ra_hours, self.dec_deg)
-            await self.move("SOUTH", "FIND")
-            await asyncio.sleep(2.5)
-            await self.halt_move()
-            await asyncio.sleep(1.0)
+            log.warning("[%s] slew_to: :MS# bloqué (resté RA=%.4fh DEC=%.2f°) → retry méridien/parallèle", self.name, self.ra_hours, self.dec_deg)
+            # retry : on refait méridien puis parallèle
+            d_dec2 = dec_deg - self.dec_deg
+            if abs(d_dec2) > 1:
+                await self.move("NORTH" if d_dec2 > 0 else "SOUTH", "FIND")
+                await asyncio.sleep(min(3.0, abs(d_dec2) * 0.15))
+                await self.halt_move()
+                await asyncio.sleep(0.5)
             await self._slew_to_raw(ra_hours, dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
