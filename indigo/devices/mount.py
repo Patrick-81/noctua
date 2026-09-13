@@ -343,6 +343,7 @@ class Mount(BaseDevice):
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: dé-parque si besoin, sort du pôle si DEC≈90°, puis slew."""
+        log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked)
         if self.parked:
             log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
             await self.unpark()
@@ -350,7 +351,6 @@ class Mount(BaseDevice):
             if self.parked:
                 log.warning("[%s] slew_to: still parked, slew annulé", self.name)
                 return
-        # OnStep au pôle (DEC 90°) refuse le :MS# — on s'écarte légèrement via move avant le GOTO
         if abs(self.dec_deg - 90.0) < 1.0 and abs(dec_deg - 90.0) > 1.0:
             log.info("[%s] slew_to: au pôle (DEC=%.1f°) → petit move South avant GOTO", self.name, self.dec_deg)
             await self.move("SOUTH", "FIND")
@@ -358,6 +358,10 @@ class Mount(BaseDevice):
             await self.halt_move()
             await asyncio.sleep(0.8)
         await self._slew_to_raw(ra_hours, dec_deg)
+        # Si le :MS# OnStep a été refusé (cible sous horizon/limites), on le verra en _parse_park/_move_poll
+        await asyncio.sleep(0.5)
+        if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
+            log.warning("[%s] slew_to: GOTO HR%.0f n'a pas bougé (resté RA=%.4fh DEC=%.2f°), cible sous horizon ou limites ?", self.name, ra_hours*15, self.ra_hours, self.dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO brut: envoie les coords + trigger SLEW."""
