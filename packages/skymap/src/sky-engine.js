@@ -166,7 +166,8 @@ export class SkyEngine {
             .clipAngle(90)
             .rotate(this._currentRotation);
 
-        this._projection = this._wrapMirrored(this._rawProjection);
+        this._mirroredProjection = this._wrapMirrored(this._rawProjection);
+        this._projection = this._mirroredProjection;
         this._rawPathGenerator = d3.geo.path().projection(this._rawProjection).context(this._ctx);
 
         this._pathGenerator = d3.geo.path().projection(this._projection).context(this._ctx);
@@ -839,7 +840,16 @@ export class SkyEngine {
                     ctx.font = "bold 14px monospace";
                     ctx.textAlign = "left";
                     ctx.textBaseline = "bottom";
-                    ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
+                    // Annule le miroir horizontal du canvas pour le texte
+                    ctx.save();
+                    const isMirrored = this._projection === this._mirroredProjection;
+                    if (isMirrored) {
+                        ctx.scale(-1, 1);
+                        ctx.fillText("TELESCOPE", -(pt[0] + 16), pt[1] - 4);
+                    } else {
+                        ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
+                    }
+                    ctx.restore();
                 }
             }
         }
