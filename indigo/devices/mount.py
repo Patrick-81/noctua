@@ -364,36 +364,49 @@ class Mount(BaseDevice):
         await self._slew_to_raw(ra_hours, dec_deg)
         await asyncio.sleep(1.5)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: :MS# bloqué à 87° (resté RA=%.4fh DEC=%.2f°) → fallback move relatif OnStep", self.name, self.ra_hours, self.dec_deg)
-            # OnStep à 87° refuse le :MS# lointain — on passe par un slew relatif via move (comme le joystick qui marche)
-            # On calcule le delta et on lance un move long dans la bonne direction, puis on poll jusqu'à la cible
-            d_ra = (ra_hours - self.ra_hours) * 15.0  # deg, wrap RA
-            if d_ra > 180:
-                d_ra -= 360
-            if d_ra < -180:
-                d_ra += 360
-            d_dec = dec_deg - self.dec_deg
-            # Choix de l'axe dominant pour le move
-            if abs(d_dec) > abs(d_ra):
-                direction = "NORTH" if d_dec > 0 else "SOUTH"
-            else:
-                direction = "WEST" if d_ra > 0 else "EAST"
-            log.info("[%s] slew_to: fallback %s %.1f° vers RA=%.4fh DEC=%.2f°", self.name, direction, max(abs(d_ra), abs(d_dec)), ra_hours, dec_deg)
-            await self.move(direction, "FIND")
-            # Poll jusqu'à ce que la cible soit approchée ou timeout 20s
-            for _ in range(40):
-                await asyncio.sleep(0.5)
-                if abs(self.ra_hours - ra_hours) < 0.1 and abs(self.dec_deg - dec_deg) < 1.0:
-                    break
-                if abs(self.dec_deg - 87.3) < 0.5 and abs(d_dec) > 5:
-                    # Toujours bloqué à 87°, on force un halt et on retente le :MS#
-                    log.info("[%s] slew_to: toujours à 87°, halt + retry :MS#", self.name)
-                    await self.halt_move()
+            log.warning("[%s] slew_to: :MS# bloqué à 87° (resté RA=%.4fh DEC=%.2f°) → fallback move relatif", self.name, self.ra_hours, self.dec_deg)
+            # Gamma Cas depuis 87° = 27° en DEC + 176° en RA (mais à 87° le RA compte peu) — on sort du pôle d'abord
+            # 1) Descend en DEC avec FIND (comme le joystick qui marche), puis 2) corrige RA
+            for step, (d_ra, d_dec, rate) in enumerate([
+                (0, dec_deg - self.dec_deg, "FIND"),  # d'abord DEC
+                ((ra_hours - self.ra_hours) * 15.0, 0, "MAX"),  # puis RA en MAX
+            ]):
+                if step == 1:
+                    d_ra_wrapped = d_ra
+                    if d_ra_wrapped > 180:
+                        d_ra_wrapped -= 360
+                    if d_ra_wrapped < -180:
+                        d_ra_wrapped += 360
+                    if abs(d_ra_wrapped) < 5:  # déjà proche en RA
+                        continue
+                    direction = "WEST" if d_ra_wrapped > 0 else "EAST"
+                    delta = abs(d_ra_wrapped)
+                else:
+                    if abs(d_dec) < 1:
+                        continue
+                    direction = "NORTH" if d_dec > 0 else "SOUTH"
+                    delta = abs(d_dec)
+                log.info("[%s] slew_to: fallback %s %.1f° (step %d/2) vers RA=%.4fh DEC=%.2f°", self.name, direction, delta, ra_hours, dec_deg)
+                await self.move(direction, rate)
+                for _ in range(60):  # 30s max par axe
                     await asyncio.sleep(0.5)
-                    await self._slew_to_raw(ra_hours, dec_deg)
-                    break
-            await self.halt_move()
-            log.info("[%s] slew_to: fallback move terminé à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+                    cur_ra_err = abs((ra_hours - self.ra_hours) * 15.0)
+                    if cur_ra_err > 180:
+                        cur_ra_err = 360 - cur_ra_err
+                    cur_dec_err = abs(self.dec_deg - dec_deg)
+                    if cur_dec_err < 2.0 and cur_ra_err < 5.0:
+                        break
+                    if abs(self.dec_deg - 87.3) < 1.0 and step == 0 and d_dec < -5:
+                        # Toujours bloqué à 87° en DEC, on force un halt + retry :MS# direct
+                        log.info("[%s] slew_to: bloqué à 87° en DEC, halt + retry :MS#", self.name)
+                        await self.halt_move()
+                        await asyncio.sleep(0.5)
+                        await self._slew_to_raw(ra_hours, dec_deg)
+                        break
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+                log.info("[%s] slew_to: step %d terminé à RA=%.4fh DEC=%.2f°", self.name, step, self.ra_hours, self.dec_deg)
+            log.info("[%s] slew_to: fallback terminé à RA=%.4fh DEC=%.2f° (cible RA=%.4fh DEC=%.2f°)", self.name, self.ra_hours, self.dec_deg, ra_hours, dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO brut: envoie les coords + trigger SLEW."""
