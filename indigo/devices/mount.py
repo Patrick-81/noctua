@@ -342,7 +342,7 @@ class Mount(BaseDevice):
         log.warning("[%s] unpark: still parked after 8s (state=%s)", self.name, self.park_state)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
-        """GOTO: dé-parque, tracking ON, sort du pôle, puis slew (robuste)."""
+        """GOTO: dé-parque, tracking ON, sort du pôle, puis slew — fallback move si :MS# bloqué."""
         log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s tracking=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked, self.tracking)
         if self.parked:
             log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
@@ -362,19 +362,38 @@ class Mount(BaseDevice):
             await self.halt_move()
             await asyncio.sleep(0.8)
         await self._slew_to_raw(ra_hours, dec_deg)
-        await asyncio.sleep(1.2)
+        await asyncio.sleep(1.5)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: GOTO n'a pas bougé (resté RA=%.4fh DEC=%.2f°), retry sans SLEW trigger (OnStep limite méridien ?)", self.name, self.ra_hours, self.dec_deg)
-            # OnStep parfois refuse le :MS# quand le flip est dû — on tente sans le trigger SLEW (slew implicite)
-            coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
-            await self.send_number(coords_prop, [{"name": "RA", "value": ra_hours}, {"name": "DEC", "value": dec_deg}])
-            self.slewing = True
-            self._target_ra = ra_hours
-            self._target_dec = dec_deg
-            self._start_move_poll()
-            await asyncio.sleep(1.0)
-            if not self.slewing:
-                log.warning("[%s] slew_to: retry aussi bloqué, cible hors limites OnStep ?", self.name)
+            log.warning("[%s] slew_to: :MS# bloqué à 87° (resté RA=%.4fh DEC=%.2f°) → fallback move relatif OnStep", self.name, self.ra_hours, self.dec_deg)
+            # OnStep à 87° refuse le :MS# lointain — on passe par un slew relatif via move (comme le joystick qui marche)
+            # On calcule le delta et on lance un move long dans la bonne direction, puis on poll jusqu'à la cible
+            d_ra = (ra_hours - self.ra_hours) * 15.0  # deg, wrap RA
+            if d_ra > 180:
+                d_ra -= 360
+            if d_ra < -180:
+                d_ra += 360
+            d_dec = dec_deg - self.dec_deg
+            # Choix de l'axe dominant pour le move
+            if abs(d_dec) > abs(d_ra):
+                direction = "NORTH" if d_dec > 0 else "SOUTH"
+            else:
+                direction = "WEST" if d_ra > 0 else "EAST"
+            log.info("[%s] slew_to: fallback %s %.1f° vers RA=%.4fh DEC=%.2f°", self.name, direction, max(abs(d_ra), abs(d_dec)), ra_hours, dec_deg)
+            await self.move(direction, "FIND")
+            # Poll jusqu'à ce que la cible soit approchée ou timeout 20s
+            for _ in range(40):
+                await asyncio.sleep(0.5)
+                if abs(self.ra_hours - ra_hours) < 0.1 and abs(self.dec_deg - dec_deg) < 1.0:
+                    break
+                if abs(self.dec_deg - 87.3) < 0.5 and abs(d_dec) > 5:
+                    # Toujours bloqué à 87°, on force un halt et on retente le :MS#
+                    log.info("[%s] slew_to: toujours à 87°, halt + retry :MS#", self.name)
+                    await self.halt_move()
+                    await asyncio.sleep(0.5)
+                    await self._slew_to_raw(ra_hours, dec_deg)
+                    break
+            await self.halt_move()
+            log.info("[%s] slew_to: fallback move terminé à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO brut: envoie les coords + trigger SLEW."""
