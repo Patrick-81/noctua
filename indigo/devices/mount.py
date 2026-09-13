@@ -295,12 +295,20 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
-        # OnStep :hP# prend ~3s à répondre (vu 16:24:11), ne pas retry avant
         await asyncio.sleep(4.0)
         if not self.parked:
             log.info("[%s] park: success", self.name)
-        else:
-            log.warning("[%s] park: still parked after 4s (state=%s)", self.name, self.park_state)
+            return
+        log.info("[%s] park: still parked after 4s, retry bi-item", self.name)
+        pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
+        if pv2 and len(pv2.items) >= 2:
+            items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
+            await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
+            await asyncio.sleep(4.0)
+            if not self.parked:
+                log.info("[%s] park: success after bi-item", self.name)
+                return
+        log.warning("[%s] park: still parked after 8s (state=%s)", self.name, self.park_state)
 
     async def unpark(self) -> None:
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
@@ -309,8 +317,18 @@ class Mount(BaseDevice):
         await asyncio.sleep(4.0)
         if self.parked is False:
             log.info("[%s] unpark: success", self.name)
-        else:
-            log.warning("[%s] unpark: still parked after 4s (state=%s) — OnStep n'a pas répondu", self.name, self.park_state)
+            return
+        log.info("[%s] unpark: still parked after 4s, retry bi-item", self.name)
+        pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
+        if pv2 and len(pv2.items) >= 2:
+            items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
+            log.info("[%s] unpark: sending bi-item %s", self.name, items)
+            await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
+            await asyncio.sleep(4.0)
+            if not self.parked:
+                log.info("[%s] unpark: success after bi-item", self.name)
+                return
+        log.warning("[%s] unpark: still parked after 8s (state=%s) — OnStep n'a pas répondu", self.name, self.park_state)
 
     async def home(self) -> None:
         """Send HOME command to the mount.
