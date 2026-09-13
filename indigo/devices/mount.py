@@ -342,7 +342,7 @@ class Mount(BaseDevice):
         log.warning("[%s] unpark: still parked after 8s (state=%s)", self.name, self.park_state)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
-        """GOTO: dé-parque si besoin (OnStep refuse :MS# quand PARKED), puis slew."""
+        """GOTO: dé-parque si besoin, sort du pôle si DEC≈90°, puis slew."""
         if self.parked:
             log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
             await self.unpark()
@@ -350,6 +350,13 @@ class Mount(BaseDevice):
             if self.parked:
                 log.warning("[%s] slew_to: still parked, slew annulé", self.name)
                 return
+        # OnStep au pôle (DEC 90°) refuse le :MS# — on s'écarte légèrement via move avant le GOTO
+        if abs(self.dec_deg - 90.0) < 1.0 and abs(dec_deg - 90.0) > 1.0:
+            log.info("[%s] slew_to: au pôle (DEC=%.1f°) → petit move South avant GOTO", self.name, self.dec_deg)
+            await self.move("SOUTH", "FIND")
+            await asyncio.sleep(1.2)
+            await self.halt_move()
+            await asyncio.sleep(0.8)
         await self._slew_to_raw(ra_hours, dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
