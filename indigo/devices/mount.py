@@ -356,26 +356,20 @@ class Mount(BaseDevice):
             await self.set_tracking(True)
             await asyncio.sleep(0.8)
         if abs(self.dec_deg - 87.0) < 5.0 and abs(dec_deg - 87.0) > 5.0:
-            log.info("[%s] slew_to: près du pôle (DEC=%.1f°) → HOME avant GOTO lointain", self.name, self.dec_deg)
-            await self.home()
-            for _ in range(30):
-                await asyncio.sleep(0.5)
-                if not self.homing and abs(self.dec_deg - 90.0) > 2.0:
-                    break
-                if not self.homing:
-                    break
+            log.info("[%s] slew_to: près du pôle (DEC=%.1f°) → move South 5° avant GOTO (joystick qui marche)", self.name, self.dec_deg)
+            await self.move("SOUTH", "FIND")
+            await asyncio.sleep(2.5)
+            await self.halt_move()
             await asyncio.sleep(1.0)
-            log.info("[%s] slew_to: après HOME à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
+            log.info("[%s] slew_to: après move à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
         await self._slew_to_raw(ra_hours, dec_deg)
         await asyncio.sleep(1.5)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: :MS# bloqué (resté RA=%.4fh DEC=%.2f°) → HOME + retry", self.name, self.ra_hours, self.dec_deg)
-            await self.home()
-            await asyncio.sleep(2.0)
-            for _ in range(20):
-                await asyncio.sleep(0.5)
-                if not self.homing:
-                    break
+            log.warning("[%s] slew_to: :MS# bloqué (resté RA=%.4fh DEC=%.2f°) → move South + retry", self.name, self.ra_hours, self.dec_deg)
+            await self.move("SOUTH", "FIND")
+            await asyncio.sleep(2.5)
+            await self.halt_move()
+            await asyncio.sleep(1.0)
             await self._slew_to_raw(ra_hours, dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
