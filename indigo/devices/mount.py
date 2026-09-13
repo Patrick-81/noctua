@@ -292,25 +292,36 @@ class Mount(BaseDevice):
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
     async def park(self) -> None:
+        # OnStep :hP# exige tracking OFF et pas de slew en cours — on s'aligne sur HOME qui marche
+        if self.tracking:
+            log.info("[%s] park: tracking ON → OFF avant park", self.name)
+            await self.set_tracking(False)
+            await asyncio.sleep(0.8)
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
         await asyncio.sleep(4.0)
-        if not self.parked:
-            log.info("[%s] park: success", self.name)
+        if self.parked:
+            log.info("[%s] park: success Busy→%s", self.name, self.park_state)
             return
-        log.info("[%s] park: still parked after 4s, retry bi-item", self.name)
+        log.info("[%s] park: still not parked=%s after 4s, retry bi-item", self.name, self.parked)
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
             await asyncio.sleep(4.0)
-            if not self.parked:
+            if self.parked:
                 log.info("[%s] park: success after bi-item", self.name)
                 return
-        log.warning("[%s] park: still parked after 8s (state=%s)", self.name, self.park_state)
+        log.warning("[%s] park: still not parked after 8s (state=%s)", self.name, self.park_state)
 
     async def unpark(self) -> None:
+        # Si HOME est Busy (vu à 18:39), on l'abort d'abord — sinon :hR# est ignoré
+        home_pv = self._properties.get(self._resolve_prop_name("MOUNT_HOME"))
+        if home_pv and home_pv.state == "Busy":
+            log.info("[%s] unpark: HOME Busy → abort avant unpark", self.name)
+            await self.abort()
+            await asyncio.sleep(0.8)
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
         await self._send_park_switch(target)
@@ -328,7 +339,38 @@ class Mount(BaseDevice):
             if not self.parked:
                 log.info("[%s] unpark: success after bi-item", self.name)
                 return
-        log.warning("[%s] unpark: still parked after 8s (state=%s) — OnStep n'a pas répondu", self.name, self.park_state)
+        log.warning("[%s] unpark: still parked after 8s (state=%s)", self.name, self.park_state)
+
+    async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
+        """GOTO: dé-parque si besoin (OnStep refuse :MS# quand PARKED), puis slew."""
+        if self.parked:
+            log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
+            await self.unpark()
+            await asyncio.sleep(1.0)
+            if self.parked:
+                log.warning("[%s] slew_to: still parked, slew annulé", self.name)
+                return
+        await self._slew_to_raw(ra_hours, dec_deg)
+
+    async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
+        """GOTO brut: envoie les coords + trigger SLEW."""
+        self.slewing = True
+        self._target_ra = ra_hours
+        self._target_dec = dec_deg
+        self._prev_ra = self.ra_hours
+        self._prev_dec = self.dec_deg
+        coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
+        items = [
+            {"name": "RA", "value": ra_hours},
+            {"name": "DEC", "value": dec_deg},
+        ]
+        await self.send_number(coords_prop, items)
+
+        slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
+        if slew_prop in self._properties:
+            await self.send_switch(slew_prop, [{"name": "SLEW", "value": True}])
+
+        self._start_move_poll()
 
     async def home(self) -> None:
         """Send HOME command to the mount.
