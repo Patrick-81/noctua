@@ -204,9 +204,10 @@ class Mount(BaseDevice):
                 val = str(item.value).lower()
                 new_parked = val in ("on", "true", "1", "enabled")
                 break
-        # INFO pour diagnostiquer le vrai OnStep (était debug, invisible sur l'observatoire)
-        if new_parked != self.parked or new_state != self.park_state:
-            log.info("[%s] park: %s -> %s state=%s->%s (%s)", self.name, self.parked, new_parked, self.park_state, new_state, pv.name)
+        # Toujours en INFO pour OnStep : on veut voir le message et la state même sans changement
+        msg = getattr(pv, "message", "") or ""
+        if new_parked != self.parked or new_state != self.park_state or pv.state in ("Alert", "Busy") or msg:
+            log.info("[%s] park: %s -> %s state=%s->%s (%s) msg='%s' items=%s", self.name, self.parked, new_parked, self.park_state, new_state, pv.name, msg, [(it.name, it.value) for it in pv.items])
         else:
             log.debug("[%s] park=%s state=%s", self.name, new_parked, new_state)
         self.park_state = new_state
@@ -266,40 +267,34 @@ class Mount(BaseDevice):
         await self._poll_coords()
 
     async def _send_park_switch(self, target_item: str) -> None:
-        """Envoie le switch PARK sur le bon device (LX200 ou Mount Agent).
+        """Envoie le switch PARK — exhaustif pour OnStep.
 
-        L'OnStep réel expose parfois PARK sur Mount Agent, pas sur Mount LX200.
-        On tente d'abord la monture elle-même, puis tout device connecté avec MOUNT_PARK.
+        L'observatoire a montré que ni mono-item ni bi-item sur Mount LX200
+        ne commute. On brute-force les combinaisons connues (device × prop × item)
+        et on log le XML réellement envoyé (via client._send).
         """
-        # 1) Monture elle-même (cas nominal)
         park_prop = self._resolve_prop_name("MOUNT_PARK")
         pv = self._properties.get(park_prop)
+        # Détermine les item names réels du vecteur (PARKED/UNPARKED)
+        if pv and len(pv.items) >= 2:
+            # Essaie mono-item puis bi-item via la même propriété (les deux sont légaux INDIGO)
+            log.info("[%s] park: sending %s.%s=On (mount mono)", self.name, park_prop, target_item)
+            await self.send_switch(park_prop, [{"name": target_item, "value": True}])
+            return
         if pv and pv.get_item(target_item):
             log.info("[%s] park: sending %s.%s=On (mount)", self.name, park_prop, target_item)
             await self.send_switch(park_prop, [{"name": target_item, "value": True}])
             return
-        # bi-item fallback pour drivers stricts (envoie les deux explicitement)
-        if pv and len(pv.items) >= 2:
-            log.info("[%s] park: sending %s bi-item %s:On (fallback bi)", self.name, park_prop, target_item)
-            items = [{"name": it.name, "value": it.name == target_item} for it in pv.items]
-            await self.send_switch(park_prop, items)
-            return
-        # 2) Cherche un autre device connecté avec MOUNT_PARK (Mount Agent OnStep)
-        try:
-            from ..registry import DeviceRegistry  # noqa: F401  # type hint only
-            # self.client n'a pas accès direct au registry, on passe par les devices connus via _properties
-            # Fallback : brute-force sur les noms connus
-            for alt_dev in ("Mount Agent", "Mount LX200 (guider)", "Telescope"):
-                # On ne peut pas résoudre sans registry, on tente un send direct
-                log.info("[%s] park: trying alt device %s.%s", self.name, alt_dev, park_prop)
-                try:
-                    await self.client.send_new_switch(alt_dev, park_prop, [{"name": target_item, "value": True}])
-                    return
-                except Exception:
-                    continue
-        except Exception:
-            pass
-        # 3) Dernier recours : alias TELESCOPE_PARK
+        # Fallback : brute-force sur les noms connus (Mount Agent, etc.)
+        for alt_dev in ("Mount Agent", "Mount LX200 (guider)", "Mount LX200 (aux)"):
+            for alt_prop in ("MOUNT_PARK", "TELESCOPE_PARK"):
+                for alt_item in (target_item, "PARK" if target_item == "PARKED" else "UNPARK"):
+                    try:
+                        log.info("[%s] park: trying alt %s.%s.%s=On", self.name, alt_dev, alt_prop, alt_item)
+                        await self.client.send_new_switch(alt_dev, alt_prop, [{"name": alt_item, "value": True}])
+                        return
+                    except Exception:
+                        continue
         alt_prop = "TELESCOPE_PARK"
         if alt_prop in self._properties:
             log.info("[%s] park: sending %s.%s=On (alias)", self.name, alt_prop, target_item)
@@ -307,12 +302,38 @@ class Mount(BaseDevice):
             return
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
+    async def _exhaustive_unpark_probe(self) -> None:
+        """Sonde exhaustive quand l'OnStep reste parké — envoie tous les combos et log la réponse.
+
+        Appelé par unpark() après les retries normaux. N'exige pas de succès,
+        mais permet de voir dans le Log quel combo fait bouger _parse_park.
+        """
+        combos = [
+            ("Mount LX200", "MOUNT_PARK", "UNPARKED"),
+            ("Mount LX200", "MOUNT_PARK", "UNPARK"),
+            ("Mount LX200", "TELESCOPE_PARK", "UNPARKED"),
+            ("Mount LX200", "TELESCOPE_PARK", "UNPARK"),
+            ("Mount Agent", "MOUNT_PARK", "UNPARKED"),
+            ("Mount Agent", "TELESCOPE_PARK", "PARK"),
+            ("Mount LX200 (guider)", "MOUNT_PARK", "UNPARKED"),
+        ]
+        for dev, prop, item in combos:
+            log.info("[%s] probe unpark: %s.%s.%s=On", self.name, dev, prop, item)
+            try:
+                await self.client.send_new_switch(dev, prop, [{"name": item, "value": True}])
+            except Exception as e:
+                log.debug("[%s] probe %s.%s failed: %s", self.name, dev, prop, e)
+            await asyncio.sleep(0.6)
+            if not self.parked:
+                log.info("[%s] probe SUCCESS: %s.%s.%s dé-parqué !", self.name, dev, prop, item)
+                return
+        log.warning("[%s] probe unpark: tous les combos ont échoué, parked reste %s", self.name, self.parked)
+
     async def park(self) -> None:
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
-        # retry bi-item si le driver n'a pas commuté après 1.5s (OnStep pointilleux)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.8)
         if not self.parked:
             return
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
@@ -325,7 +346,7 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
         await self._send_park_switch(target)
-        await asyncio.sleep(1.5)
+        await asyncio.sleep(1.8)
         if self.parked is False:
             return
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
@@ -333,13 +354,12 @@ class Mount(BaseDevice):
             log.info("[%s] unpark: retry bi-item after still parked=%s", self.name, self.parked)
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-        # dernier essai : envoie aussi à Mount Agent (certains OnStep l'exposent là)
+            await asyncio.sleep(1.2)
+            if not self.parked:
+                return
         if self.parked:
-            log.info("[%s] unpark: retry alt device Mount Agent", self.name)
-            try:
-                await self.client.send_new_switch("Mount Agent", "MOUNT_PARK", [{"name": target, "value": True}])
-            except Exception as e:
-                log.debug("[%s] unpark alt device failed: %s", self.name, e)
+            log.info("[%s] unpark: still parked after retries, lancement probe exhaustive", self.name)
+            await self._exhaustive_unpark_probe()
 
     async def home(self) -> None:
         """Send HOME command to the mount.
