@@ -63,8 +63,8 @@ function initButtons() {
     bind('btn-tracking', mountToggleTracking);
     bind('btn-park-toggle', () => {
         const m = findMount();
-        if (!m) return;
-        if (m.dev.parked) mountUnpark(); else mountPark();
+        if (!m) { addLog('warning','mount','Pas de monture'); return; }
+        if (m.dev.parked) { addLog('info','mount','UNPARK demandé'); mountUnpark(); } else { addLog('info','mount','PARK demandé'); mountPark(); }
     });
     bind('btn-home', mountHome);
     bind('btn-set-park', () => { addLog('info','mount','SET PARK demandé'); apiPost('/api/mount/park/set'); });

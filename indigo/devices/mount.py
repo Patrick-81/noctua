@@ -265,22 +265,28 @@ class Mount(BaseDevice):
     async def park(self) -> None:
         park_prop = self._resolve_prop_name("MOUNT_PARK")
         pv = self._properties.get(park_prop)
+        # OnStep/LX200 réel (observatoire) : OneOfMany strict — n'envoie que l'item cible On
+        # (le mock tolère les deux, mais le vrai driver reste PARKED:true si on envoie PARKED:Off+UNPARKED:On ensemble)
+        # On tente mono-item d'abord, avec log pour diagnostiquer
         if pv and len(pv.items) >= 2:
-            # OneOfMany : il faut envoyer les deux items explicitement
-            items = [{"name": it.name, "value": it.name == "PARKED" or it.name == "PARK"} for it in pv.items]
-            await self.send_switch(park_prop, items)
+            target = "PARKED" if any(it.name == "PARKED" for it in pv.items) else "PARK"
+            log.info("[%s] park: sending %s.%s=On (mono-item OneOfMany)", self.name, park_prop, target)
+            await self.send_switch(park_prop, [{"name": target, "value": True}])
         else:
             item = self._resolve_item_name(park_prop, "PARKED", {"PARKED": "PARK"})
+            log.info("[%s] park: sending %s.%s=On (fallback)", self.name, park_prop, item)
             await self.send_switch(park_prop, [{"name": item, "value": True}])
 
     async def unpark(self) -> None:
         park_prop = self._resolve_prop_name("MOUNT_PARK")
         pv = self._properties.get(park_prop)
         if pv and len(pv.items) >= 2:
-            items = [{"name": it.name, "value": it.name == "UNPARKED" or it.name == "UNPARK"} for it in pv.items]
-            await self.send_switch(park_prop, items)
+            target = "UNPARKED" if any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
+            log.info("[%s] unpark: sending %s.%s=On (mono-item OneOfMany)", self.name, park_prop, target)
+            await self.send_switch(park_prop, [{"name": target, "value": True}])
         else:
             item = self._resolve_item_name(park_prop, "UNPARKED", {"UNPARKED": "UNPARK"})
+            log.info("[%s] unpark: sending %s.%s=On (fallback)", self.name, park_prop, item)
             await self.send_switch(park_prop, [{"name": item, "value": True}])
 
     async def home(self) -> None:
