@@ -205,6 +205,7 @@ communiquent avec le reste via des globales `window.*` exposées par `preview.js
 |--------|----------|-----------|
 | Unitaires/intégration | `tests/test_*.py` | `python -m pytest tests/ -q` (284 tests, ~79 s) |
 | Flows (bout-en-bout sans matériel, TestClient + mock stub) | `tests/test_*_flow.py` (ex. `test_mosaic_flow`, `test_sequence_flow`) | **lancés directement** : `python tests/test_sequence_flow.py` (98 checks) |
+| **Sanctuarisation monture** | `tests/test_mount_flow.py` | **lancé directement** : `python tests/test_mount_flow.py` (12 tests, park/unpark/slew/tracking/home/move + isolation monture↔caméra + `ws:state` pendant capture) — **gate obligatoire avant tout merge** |
 | Simulations INDIGO | `tests/mock_indigo.py` (port 17624) | `./start-mock-server.sh` |
 | E2E contre un vrai `indigo_server` (simulateurs) | `tests/test_blanc_indigo.py` | `python tests/test_blanc_indigo.py` |
 | JS (node) | `tests/test_hub.js`, `tests/test_polar_math.js` | `node tests/test_hub.js` |
@@ -214,6 +215,13 @@ communiquent avec le reste via des globales `window.*` exposées par `preview.js
 Les features « pur » (mosaïque, fitsmeta, masters, exposure, meridian…) sont testées sans serveur INDIGO
 (`tests/test_*.py`), les flux HTTP via TestClient avec des **stubs** de devices (`tests/test_*_flow.py`).
 
+> **Règle branche-par-atelier** : 1 branche = 1 atelier (`fix/mount-*`, `feat/capture-*`, `feat/sequencer-*`…).
+> Chaque PR touche un seul atelier (router + device + panneau) et doit passer **pytest + `test_mount_flow.py`**
+> avant merge. Les branches longues divergentes sont interdites — rebase quotidien sur `origin/master`.
+> Le serveur partage la même event loop : toute modif capture qui bloque (`to_thread` séquentiel, FITS 77 Mo synchrone)
+> retarde `ws:state` monture et casse `unpark` côté UI. Tests `test_ws_state_mount_during_capture` et
+> `test_camera_capture_does_not_break_mount` verrouillent ce couplage.
+
 ## 7. Commandes utiles
 
 ```bash
@@ -221,4 +229,5 @@ Les features « pur » (mosaïque, fitsmeta, masters, exposure, meridian…) son
 ./start-mock-server.sh              # mock INDIGO (17624)
 .venv/bin/python -m pytest tests/ -q
 python tests/test_sequence_flow.py  # séquences + mosaïque + reprise
+python tests/test_mount_flow.py     # sanctuarisation monture (gate)
 ```

@@ -96,24 +96,55 @@ def register(app, server: "WebServer") -> None:
         return {"ok": True, "path": filepath, "size": len(img)}
 
     @app.get("/api/camera/last_image")
-    async def camera_last_image(device: str = "", thumb: int = 1):
+    async def camera_last_image(device: str = "", thumb: int = 1, variant: str = "", pleine: int = 0):
         """Retourne la dernière image capturée (thumb JPEG si dispo, sinon FITS) en base64.
 
         Fallback HTTP quand le WS a raté la poussée (ws=0, réseau, etc.).
         Le viewer capture l'appelle en fallback après waitExposureDone.
+        variant=pleine ou pleine=1 → JPEG pleine 8192, sinon vignette 1024.
         """
-        # thumb=1 → préfère le JPEG léger (1024px) si disponible
-        if thumb and getattr(server, "_last_thumb", None):
-            tdev = getattr(server, "_last_thumb_device", "") or device or getattr(server, "_last_image_device", "")
-            import base64 as _b64
-            return SanitizedJSONResponse({
-                "ok": True,
-                "device": tdev,
-                "format": "jpg",
-                "data": _b64.b64encode(server._last_thumb).decode("ascii"),
-                "size": len(server._last_thumb),
-                "thumb": True,
-            })
+        # thumb=1 → préfère le JPEG (vignette ou pleine selon variant)
+        if thumb:
+            # pleine demandée explicitement
+            if (variant == "pleine" or pleine) and getattr(server, "_last_thumb_pleine", None):
+                tdev = getattr(server, "_last_thumb_pleine_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": "pleine",
+                    "data": _b64.b64encode(server._last_thumb_pleine).decode("ascii"),
+                    "size": len(server._last_thumb_pleine),
+                    "thumb": True,
+                })
+            if getattr(server, "_last_thumb", None):
+                tdev = getattr(server, "_last_thumb_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                # _last_thumb est la vignette 1024 (ou pleine si pas de vignette)
+                variant_name = "vignette" if getattr(server, "_last_thumb_vignette", None) else "pleine"
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": variant_name,
+                    "data": _b64.b64encode(server._last_thumb).decode("ascii"),
+                    "size": len(server._last_thumb),
+                    "thumb": True,
+                })
+            # fallback pleine si vignette pas dispo mais pleine oui
+            if getattr(server, "_last_thumb_pleine", None):
+                tdev = getattr(server, "_last_thumb_pleine_device", "") or device or getattr(server, "_last_image_device", "")
+                import base64 as _b64
+                return SanitizedJSONResponse({
+                    "ok": True,
+                    "device": tdev,
+                    "format": "jpg",
+                    "variant": "pleine",
+                    "data": _b64.b64encode(server._last_thumb_pleine).decode("ascii"),
+                    "size": len(server._last_thumb_pleine),
+                    "thumb": True,
+                })
         # sinon full FITS
         img = None
         dev_name = device or getattr(server, "_last_image_device", "")
@@ -135,11 +166,9 @@ def register(app, server: "WebServer") -> None:
 
     @app.get("/api/camera/last_image/stats")
     async def camera_last_image_stats(device: str = "", bins: int = 256):
-        """Histogramme + stats du dernier FITS (calculé côté serveur sur le vrai FITS 51Mo).
-
-        Utilisé par l'aperçu vignette/pleine résolution JPEG pour afficher l'histo/ADU
-        sans télécharger le FITS complet.
-        """
+        """Histogramme + stats du dernier FITS (calculé côté serveur sur le vrai FITS).
+        Utilisé par l'aperçu JPEG pleine résolution pour afficher l'histo/ADU
+        sans télécharger le FITS complet."""
         import asyncio as _aio
         import re as _re
         import numpy as _np
@@ -176,12 +205,10 @@ def register(app, server: "WebServer") -> None:
                     try: arr = arr.reshape((h,w))
                     except: return None
                 flat = arr.ravel().astype(_np.float32)
-                # échantillon 200k pour min/max/median rapides
                 step = max(1, flat.size // 200000)
                 sample = flat[::step]
                 vmin = float(_np.min(sample)); vmax = float(_np.max(sample))
                 median = float(_np.median(sample))
-                # histogramme 256 bins sur sample (suffisant pour visu)
                 hist, edges = _np.histogram(sample, bins=256, range=(vmin, vmax))
                 return {
                     "w": w, "h": h, "bitpix": bitpix,
@@ -197,14 +224,29 @@ def register(app, server: "WebServer") -> None:
 
     @app.get("/api/camera/last_image/adu")
     async def camera_last_image_adu(device: str = "", x: int = 0, y: int = 0):
-        """ADU du vrai FITS à la coordonnée x,y (0..w-1, 0..h-1, origine coin haut-gauche comme l'affichage)."""
+        """ADU du vrai FITS à la coordonnée x,y (origine coin haut-gauche comme l'affichage)."""
         import asyncio as _aio
         import re as _re
         import numpy as _np
-        img = server._camera_images.get(device) if device else None
+        # Cherche un FITS (pas un JPEG preview) — _camera_images peut contenir le JPEG si on a écrasé
+        img = None
+        if device:
+            cand = server._camera_images.get(device)
+            if cand and len(cand) >= 6 and cand[:6].startswith(b"SIMPLE"):
+                img = cand
         if not img:
-            img = getattr(server, "_last_image_data", b"")
+            # _last_image_data est FITS si on a bien séparé JPEG/FITS côté server
+            cand = getattr(server, "_last_image_data", b"")
+            if cand and len(cand) >= 6 and cand[:6].startswith(b"SIMPLE"):
+                img = cand
+        if not img:
+            # fallback : scanne tous les _camera_images à la recherche d'un FITS
+            for v in getattr(server, "_camera_images", {}).values():
+                if v and len(v) >= 6 and v[:6].startswith(b"SIMPLE"):
+                    img = v
+                    break
         if not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE"):
+            log.warning("ADU: no FITS found (device=%s, last_is_jpeg=%s)", device, str(getattr(server, "_last_image_data", b"")[:2] == b"\xff\xd8"))
             return {"ok": False, "error": "no FITS"}
         def _get():
             try:
@@ -218,27 +260,63 @@ def register(app, server: "WebServer") -> None:
                 bpp = 2 if bitpix==16 else 1 if bitpix==8 else 4 if bitpix==-32 else 2
                 hdr_end = img.find(b"END" + b" " * 77)
                 off = ((hdr_end // 2880) + 1) * 2880 if hdr_end!=-1 else 2880
-                # y affichage 0 en haut → array y = h-1 - y
                 ay = h - 1 - int(y)
                 ax = int(x)
                 if ax <0 or ax>=w or ay<0 or ay>=h: return {"adu": None, "w":w,"h":h}
-                # lecture directe d'un seul pixel sans charger tout (seek)
-                # on lit tout quand même pour simplicité (51Mo) mais en thread
                 naxis = _geti("NAXIS"); naxis3 = _geti("NAXIS3"); planes = naxis3 if naxis==3 and naxis3 else 1
-                need = w*h*planes*bpp
-                raw = img[off:off+need]
-                if bitpix==8: arr = _np.frombuffer(raw, dtype=_np.uint8)
-                elif bitpix==-32: arr = _np.frombuffer(raw, dtype=">f4")
-                else: arr = _np.frombuffer(raw, dtype=">i2")
-                if planes==3:
-                    try:
-                        arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
-                        arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
-                    except: return None
+                # Lecture directe d'un seul pixel sans charger tout le tableau 77 Mo
+                if planes == 1:
+                    need_one = bpp
+                    pix_off = off + (ay * w + ax) * bpp
+                    if pix_off + bpp > len(img): return None
+                    raw1 = img[pix_off:pix_off+bpp]
+                    if bitpix == 8: adu = float(raw1[0])
+                    elif bitpix == -32: adu = float(_np.frombuffer(raw1, dtype=">f4")[0])
+                    else: adu = float(_np.frombuffer(raw1, dtype=">i2")[0])
                 else:
-                    arr = arr.reshape((h,w))
-                adu = float(arr[ay, ax])
-                return {"adu": adu, "w":w, "h":h, "x":ax, "y":int(y)}
+                    # 3 plans : essaie (planes,h,w) puis (h,w,planes)
+                    # Cas (3,h,w) : plan * w*h + ay*w+ax
+                    # Cas (h,w,3) : (ay*w+ax)*3 + c
+                    # On lit 3 octets/valeurs et on moyenne
+                    if bitpix == 8:
+                        # taille totale = w*h*3
+                        # test rapide : si on est en (3,h,w), les 3 plans sont contigus
+                        # on lit les 3 bytes et on moyenne
+                        # pour (h,w,3), les 3 bytes sont contigus à pix_off
+                        # On distingue par la taille du header ? On tente les deux et on prend la moyenne la plus plausible
+                        # Plus simple : on lit les deux interprétations et on moyenne les 3 valeurs lues
+                        # Pour (3,h,w) : offsets séparés
+                        off0 = off + 0 * w * h + ay * w + ax
+                        off1 = off + 1 * w * h + ay * w + ax
+                        off2 = off + 2 * w * h + ay * w + ax
+                        if off2 < len(img):
+                            v0 = img[off0]; v1 = img[off1]; v2 = img[off2]
+                            adu_planar = (int(v0) + int(v1) + int(v2)) / 3.0
+                        else:
+                            adu_planar = None
+                        # Pour (h,w,3) : interleaved
+                        pix_off_inter = off + (ay * w + ax) * 3
+                        if pix_off_inter + 2 < len(img):
+                            vi0 = img[pix_off_inter]; vi1 = img[pix_off_inter+1]; vi2 = img[pix_off_inter+2]
+                            adu_inter = (int(vi0) + int(vi1) + int(vi2)) / 3.0
+                        else:
+                            adu_inter = None
+                        # Si les deux sont valides, elles devraient être proches pour une vraie image
+                        # On préfère la version planar (classique FITS 3 planes)
+                        adu = adu_planar if adu_planar is not None else adu_inter
+                        if adu is None: return None
+                    else:
+                        # 16-bit ou float 3 plans : on retombe sur le décodage complet (rare)
+                        need = w*h*planes*bpp
+                        raw = img[off:off+need]
+                        if bitpix == -32: arr = _np.frombuffer(raw, dtype=">f4")
+                        else: arr = _np.frombuffer(raw, dtype=">i2")
+                        try:
+                            arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
+                            arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
+                        except: return None
+                        adu = float(arr[ay, ax])
+                return {"adu": adu, "w":w,"h":h, "x":ax, "y":int(y)}
             except Exception as e:
                 return {"error": str(e)}
         res = await _aio.to_thread(_get)

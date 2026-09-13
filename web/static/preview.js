@@ -1,5 +1,6 @@
 // ═══════════════════════════════════════════════════════════════
 // Noctua — preview.js (module classique, bindings lexicaux globaux)
+console.log('preview.js v3 pleine 8192 — vignette filtrée <3000px, histo+ADU');
 // ═══════════════════════════════════════════════════════════════
 
 // ── FITS image handling ──────────────────────────────────────
@@ -207,13 +208,13 @@ window._guideClick = _guideClick;
 
 // Consommateur ws:image : route l'image vers le viewer guide ou capture.
 Hub.subscribe('ws:image', 'preview', (env) => {
-    const { device, format, data } = env.payload;
+    const { device, format, data, variant } = env.payload;
     const guideCam = _guideCameraSelect?.value || '';
-    console.log('WS image: device=%s format=%s guideCam=%s match=%s', device, format, guideCam, device === guideCam);
+    console.log('WS image: device=%s format=%s variant=%s guideCam=%s match=%s', device, format, variant||'', guideCam, device === guideCam);
     if (guideCam && device === guideCam) {
         handleGuideImage(data, format);
     } else {
-        handleCameraImage(data, format);
+        handleCameraImage(data, format, variant);
     }
 });
 
@@ -224,54 +225,95 @@ let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
-var _lastPreviewWasFull = false; // true si dernier aperçu était un JPEG plein format (6224x4168)
-function handleCameraImage(b64Data, fmt) {
-    _lastWsImageAt = Date.now();
+function handleCameraImage(b64Data, fmt, variant) {
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
-    const wantFull = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'full');
-    // Vignette (1024) vs Pleine résolution (6224) : on filtre le doublon JPEG preview 411KB vs thumb 3KB
-    if (!isFits) {
-        const isThumbCandidate = b64Data.length < 150000; // thumb 3KB vs preview 550KB
-        if (wantVignette) {
-            // vignette veut le petit thumb 1024, on n'affiche que le thumb
-            if (!isThumbCandidate) return; // ignore le JPEG 6224, attend le thumb
-            _lastPreviewWasFull = false;
-        } else if (wantFull) {
-            // pleine résolution veut le JPEG 6224, ignore le thumb 1024
-            if (isThumbCandidate) return; // ignore le thumb 1024, garde le 6224
-            _lastPreviewWasFull = true;
-        } else {
-            // fallback : garde le plein, ignore le thumb
-            if (isThumbCandidate && _lastPreviewWasFull && captureViewer && captureViewer.imgW > 2000) return;
-            _lastPreviewWasFull = !isThumbCandidate;
-        }
-    } else {
-        _lastPreviewWasFull = false;
+    const varNorm = String(variant||'').toLowerCase();
+    function _renderAndFetch(b64, f) {
+        clearOffsetOverlay();
+        clearFocusOverlay();
+        const raw = atob(b64);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        _lastWsImageAt = Date.now();
+        console.log(`handleCameraImage: affichée ${f} ${variant||''} ${Math.round(b64.length*0.75/1024)}Ko`);
+        if (captureViewer) captureViewer.render(bytes, f);
+        document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
+        document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+        setTimeout(()=> fetchStatsWithRetry(3), 700);
     }
-    _captureLastWasThumb = !isFits;
-    if (typeof updatePreviewFormatUI === 'function') updatePreviewFormatUI();
-    clearOffsetOverlay();
-    clearFocusOverlay();
-    const raw = atob(b64Data);
-    const bytes = new Uint8Array(raw.length);
-    for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-    if (captureViewer) captureViewer.render(bytes, fmt);
-    // bouton télécharger visible dès qu'on a une image
-    const dl = document.getElementById('cap-download-btn');
-    if (dl) dl.style.display = '';
-    // histogramme/ADU du vrai FITS côté serveur (même quand l'aperçu est JPEG) — avec sablier sur l'aperçu
-    const previewPanel = document.getElementById('applet-capture-preview');
-    if (previewPanel) previewPanel.classList.add('cap-preview-loading');
-    fetch(`/api/camera/last_image/stats`).then(r=>r.json()).then(s=>{
-        if (s && s.ok && captureViewer) {
-            captureViewer._statsHist = s;
-            captureViewer.renderHistogramFromStats(s);
+    function fetchStatsWithRetry(retry) {
+        function fetchStats(rem) {
+            const cam = (typeof findCamera === 'function' ? findCamera()?.name : '') || '';
+            const devParam = cam ? `?device=${encodeURIComponent(cam)}` : '';
+            fetch(`/api/camera/last_image/stats${devParam}`).then(r=>r.json()).then(s=>{
+                if (s && s.ok && captureViewer) {
+                    console.log(`stats: ${s.w}x${s.h} min=${Math.round(s.min)} max=${Math.round(s.max)} median=${Math.round(s.median)} hist=${s.hist ? s.hist.length : 0}`);
+                    captureViewer._statsHist = s;
+                    const c = document.getElementById('cap-histo-canvas');
+                    if (c && c.offsetWidth === 0 && rem > 0) {
+                        console.log('histo canvas pas visible, retry', rem);
+                        setTimeout(()=> fetchStats(rem-1), 500);
+                        return;
+                    }
+                    captureViewer.renderHistogramFromStats(s);
+                    console.log('histo rendu');
+                } else if (s && !s.ok) {
+                    console.warn('stats error', s.error);
+                }
+            }).catch(e=> console.warn('stats fetch fail', e));
         }
-    }).catch(()=>{}).finally(()=>{
-        if (previewPanel) previewPanel.classList.remove('cap-preview-loading');
-    });
+        fetchStats(retry);
+    }
+    if (isFits) {
+        console.log(`handleCameraImage: FITS ${Math.round(b64Data.length*0.75/1024)}Ko`);
+        _renderAndFetch(b64Data, fmt);
+        return;
+    }
+    // filtrage par variant si présent
+    if (varNorm) {
+        if (wantVignette && varNorm === 'pleine') {
+            console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
+            return;
+        }
+        if (!wantVignette && varNorm === 'vignette') {
+            console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
+            return;
+        }
+        _renderAndFetch(b64Data, fmt);
+        return;
+    }
+    // fallback sans variant : dimensions
+    try {
+        const rawTmp = atob(b64Data);
+        const bytesTmp = new Uint8Array(rawTmp.length);
+        for (let i = 0; i < rawTmp.length; i++) bytesTmp[i] = rawTmp.charCodeAt(i);
+        const blob = new Blob([bytesTmp], {type:'image/jpeg'});
+        const url = URL.createObjectURL(blob);
+        const img = new Image();
+        img.onload = () => {
+            URL.revokeObjectURL(url);
+            console.log(`handleCameraImage: JPEG candidat ${img.width}x${img.height} ${Math.round(b64Data.length*0.75/1024)}Ko`);
+            const isVignetteImg = img.width < 1500;
+            if (wantVignette && !isVignetteImg) {
+                console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
+                return;
+            }
+            if (!wantVignette && isVignetteImg) {
+                console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
+                return;
+            }
+            _renderAndFetch(b64Data, fmt);
+        };
+        img.onerror = () => {
+            URL.revokeObjectURL(url);
+            _renderAndFetch(b64Data, fmt);
+        };
+        img.src = url;
+    } catch(e) {
+        _renderAndFetch(b64Data, fmt);
+    }
 }
 
 
@@ -336,7 +378,6 @@ function _fitPreviewZoom() { captureViewer?.fitZoom(); }
 function initPreviewZoomPan() { captureViewer?.initZoomPan(); }
 
 // ── ADU cursor ───────────────────────────────────────────────────
-// Pour le JPEG (vignette/pleine) on va chercher l'ADU du vrai FITS côté serveur
 let _aduFetchTimer = 0;
 let _aduLastReq = '';
 function initAduCursor() {
@@ -349,6 +390,9 @@ function initAduCursor() {
         if (!cv || !cv.imgW || !cv.imgH) { info.textContent = ' '; return; }
         const cRect = canvas.getBoundingClientRect();
         if (cRect.width === 0 || cRect.height === 0) { info.textContent = ' '; return; }
+        // canvas CSS size vs image size (transform pan/zoom already accounted via getBoundingClientRect)
+        // On calcule la position image brute via rect du canvas (qui inclut transform scale)
+        // Plus simple: mappe clientX -> pixel via比例 canvas rect / imgW
         const scaleX = cRect.width / cv.imgW;
         const scaleY = cRect.height / cv.imgH;
         const xImg = (e.clientX - cRect.left) / scaleX;
@@ -356,7 +400,7 @@ function initAduCursor() {
         const ix = Math.floor(xImg);
         const iy = Math.floor(yImg);
         if (ix < 0 || ix >= cv.imgW || iy < 0 || iy >= cv.imgH) { info.textContent = ' '; return; }
-        // Si on a le FITS en mémoire (mode FITS ou vignette avec pixels), lecture directe
+        // Si FITS en mémoire, lecture directe (rare : JPEG pleine résolution a pixels=null)
         if (cv.pixels && cv.imgW && cv.imgH) {
             const arrayY = cv.imgH - 1 - iy;
             const adu = cv.pixels[arrayY * cv.imgW + ix];
@@ -365,14 +409,12 @@ function initAduCursor() {
                 return;
             }
         }
-        // Sinon JPEG : on demande au serveur l'ADU du vrai FITS (avec mise à l'échelle si vignette)
-        // vignette 1024 -> FITS 6224 : facteur ~6
-        const isVignette = cv.imgW < 2000; // thumb 1024 vs plein 6224
+        // JPEG (vignette 1024 ou pleine 6224) → ADU du vrai FITS côté serveur (avec mise à l'échelle si vignette)
         let fx = ix, fy = iy;
-        if (isVignette && cv._statsHist && cv._statsHist.w) {
-            const scale = cv._statsHist.w / cv.imgW;
-            fx = Math.floor(ix * scale);
-            fy = Math.floor(iy * scale);
+        if (cv._statsHist && cv._statsHist.w && cv.imgW !== cv._statsHist.w) {
+            const s = cv._statsHist.w / cv.imgW;
+            fx = Math.floor(ix * s);
+            fy = Math.floor(iy * s);
         }
         const key = `${fx},${fy}`;
         if (_aduLastReq === key) return;
@@ -380,18 +422,20 @@ function initAduCursor() {
         info.textContent = `x:${ix} y:${iy} ADU:…`;
         clearTimeout(_aduFetchTimer);
         _aduFetchTimer = setTimeout(()=>{
-            fetch(`/api/camera/last_image/adu?x=${fx}&y=${fy}`).then(r=>r.json()).then(j=>{
+            const cam = (typeof findCamera === 'function' ? findCamera()?.name : '') || '';
+            const devParam = cam ? `&device=${encodeURIComponent(cam)}` : '';
+            fetch(`/api/camera/last_image/adu?x=${fx}&y=${fy}${devParam}`).then(r=>r.json()).then(j=>{
                 if (j && j.ok && j.adu !== null && j.adu !== undefined) {
                     info.textContent = `x:${ix} y:${iy} ADU:${Math.round(j.adu)}`;
                 } else {
+                    console.warn('ADU fail', j);
                     info.textContent = `x:${ix} y:${iy} —`;
                 }
-            }).catch(()=>{ info.textContent = `x:${ix} y:${iy} —`; });
+            }).catch(e=>{ console.warn('ADU fetch fail', e); info.textContent = `x:${ix} y:${iy} —`; });
         }, 80);
     }
     viewport.addEventListener('mousemove', update);
     viewport.addEventListener('mouseleave', () => { info.textContent = ' '; });
-    // touch
     viewport.addEventListener('touchmove', (e) => {
         if (e.touches && e.touches[0]) update(e.touches[0]);
     }, {passive:true});
@@ -413,31 +457,18 @@ function initSaveImage() {
     }
     if (saveBtn) {
         saveBtn.addEventListener('click', async () => {
-            // Ne bloque plus sur _histPixels: le FITS complet est toujours sur le serveur même si l'aperçu est JPEG
+            if (!_histPixels) { addLog('warning', 'capture', i18n('log.capture.no_image')); return; }
             const dir = _saveDir || document.getElementById('cap-save-dir')?.value?.trim() || '';
-            const wantServer = document.getElementById('cap-save-server')?.checked ?? true;
-            const wantLocal = document.getElementById('cap-save-local')?.checked ?? false;
-            if (wantServer && !dir) { addLog('warning', 'capture', i18n('log.capture.choose_dir')); return; }
-            if (!wantServer && !wantLocal) { addLog('warning','capture','Coche au moins Serveur ou Local'); return; }
+            if (!dir) { addLog('warning', 'capture', i18n('log.capture.choose_dir')); return; }
             try {
-                if (wantServer) {
-                    const res = await fetch('/api/camera/save', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ dir, filter: _captureFilter }),
-                    });
-                    const data = await res.json();
-                    if (data.ok) addLog('info', 'capture', i18nFmt('log.capture.image_saved', { path: data.path }));
-                    else addLog('error', 'capture', i18nFmt('log.ws.error', { err: data.error }));
-                }
-                if (wantLocal) {
-                    const r = await fetch('/api/camera/last_image?thumb=0');
-                    const j = await r.json();
-                    if (j.ok && j.data) {
-                        const cam = (typeof findCamera==='function' ? findCamera()?.name : '') || j.device || 'cam';
-                        downloadFits(j.data, cam + (typeof _captureFilter!=='undefined' && _captureFilter?`_${_captureFilter}`:''));
-                    } else addLog('warning','capture', j.error || 'Pas d\'image à télécharger');
-                }
+                const res = await fetch('/api/camera/save', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dir, filter: _captureFilter }),
+                });
+                const data = await res.json();
+                if (data.ok) addLog('info', 'capture', i18nFmt('log.capture.image_saved', { path: data.path }));
+                else addLog('error', 'capture', i18nFmt('log.ws.error', { err: data.error }));
             } catch (e) {
                 addLog('error', 'capture', i18nFmt('log.ws.error', { err: e.message }));
             }

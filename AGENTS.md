@@ -59,6 +59,10 @@ docs/                   # UTILISATION.md (guide utilisateur), CONFIGURATION.md (
 > Documentation : avant de répondre à une question d'utilisation ou de config, consulter
 > `docs/UTILISATION.md` et `docs/CONFIGURATION.md` ; pour une question d'implémentation, `docs/ARCHITECTURE.md`.
 
+> **Règle branche-par-atelier** : 1 branche = 1 atelier (`fix/mount-*`, `feat/capture-*`…) — chaque PR 1 atelier max,
+> doit passer `pytest` + `python tests/test_mount_flow.py` avant merge. Rebase quotidien sur `origin/master`.
+> Toute modif capture ne doit pas bloquer l'event loop (risque `unpark` KO) — verrouillé par `test_mount_flow.py`.
+
 ## 3. Commandes build / test
 
 Un seul venv est présent : `.venv` (dépendances OK). **`start.sh` préfère `.venv`**, sinon `venv`.
@@ -69,6 +73,7 @@ Un seul venv est présent : `.venv` (dépendances OK). **`start.sh` préfère `.
 | Lancer le mock INDIGO | `./start-mock-server.sh` (mock INDIGO, port 17624) |
 | Tests pytest | `.venv/bin/python -m pytest tests/ -q` (285 tests, ~79 s) |
 | Tests flux (directement) | `python tests/test_exposure.py`, `python tests/test_guide_flow.py`, `python tests/test_sequence_flow.py` (98 checks), `python tests/test_mosaic_flow.py` |
+| Sanctuarisation monture | `python tests/test_mount_flow.py` (12 tests, park/unpark/slew/home/move + isolation caméra + ws:state) — **gate obligatoire** |
 | Tests unitaires JS | `node tests/test_hub.js` (39 tests), `node tests/test_polar_math.js` |
 | Tests UI (Playwright) | `npx playwright test` (specs `tests/*.spec.js`) |
 | Test E2E complet | `python tests/test_blanc_indigo.py` (lançouter `indigo_server` simulateurs) |

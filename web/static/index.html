@@ -20,18 +20,18 @@
     <script src="/state.js"></script>
     <script src="/hub.js"></script>
     <script src="/layout.js"></script>
-    <script src="/viewer.js"></script>
+    <script src="/viewer.js?v=pleine7"></script>
     <script src="/api.js"></script>
     <script src="/mount.js"></script>
     <script src="/controls.js"></script>
     <script src="/ws.js"></script>
     <script src="/objects.js"></script>
     <script src="/hardware.js"></script>
-    <script src="/capture.js"></script>
+    <script src="/capture.js?v=pleine7"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
     <script src="/stacking.js"></script>
-    <script src="/preview.js"></script>
+    <script src="/preview.js?v=pleine7"></script>
     <script src="/solver.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
@@ -839,7 +839,7 @@
                 <button id="cap-abort-btn" class="btn-glass danger cap-action-btn" data-i18n="seq.stop">⏹ STOP</button>
             </div>
 
-            <!-- Preview format (global) -->
+            <!-- Aperçu : vignette vs pleine -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
                 <div class="cap-label">Aperçu</div>
                 <div class="cap-row">
@@ -850,26 +850,12 @@
                 </div>
             </div>
 
-            <!-- Save (collapsible) -->
+            <!-- Save -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
-                <div class="cap-row" style="justify-content:space-between; align-items:center; cursor:pointer;" id="cap-save-toggle">
-                    <div class="cap-label" data-i18n="cap.save" style="margin:0;">Sauvegarde</div>
-                    <span id="cap-save-toggle-icon" style="font-size:0.7rem; color:#888;">▼</span>
-                </div>
-                <div id="cap-save-body" style="margin-top:4px;">
-                    <div class="cap-row" style="flex-wrap:wrap; gap:4px; margin-bottom:4px;">
-                        <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-server" checked> Serveur</label>
-                        <label style="font-size:0.6rem; display:flex; align-items:center; gap:3px;"><input type="checkbox" id="cap-save-local"> Local</label>
-                        <select id="cap-save-when" class="cap-select" style="flex:1; min-width:90px; font-size:0.6rem;">
-                            <option value="end">En fin de séquence</option>
-                            <option value="each">À chaque pose</option>
-                        </select>
-                    </div>
-                    <div class="cap-row">
-                        <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
-                        <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
-                    </div>
-                    <button id="cap-download-btn" class="btn-glass" style="width:100%; font-size:0.6rem; margin-top:4px; display:none;">⬇ Télécharger FITS</button>
+                <div class="cap-label" data-i18n="cap.save">Sauvegarde</div>
+                <div class="cap-row">
+                    <input type="text" id="cap-save-dir" class="cap-input" style="flex:1; width:auto;" placeholder="~/captures/">
+                    <button id="cap-save-btn" class="btn-glass" style="font-size:0.6rem; padding:3px 8px;" data-i18n="cap.save_btn">💾 Sauver</button>
                 </div>
             </div>
 

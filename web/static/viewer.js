@@ -276,6 +276,11 @@ class Viewer {
         const url = URL.createObjectURL(blob);
         const img = new Image();
         img.onload = () => {
+            this.imgW = img.width;
+            this.imgH = img.height;
+            this.pixels = null;
+            // legacy globals for overlay/save compatibility
+            _histWidth = img.width; _histHeight = img.height;
             const canvas = document.getElementById(this.canvasId);
             if (canvas) { canvas.width = img.width; canvas.height = img.height; canvas.getContext('2d').drawImage(img, 0, 0); }
             for (const id of this.overlayIds || []) {
@@ -283,6 +288,10 @@ class Viewer {
                 if (ov) { ov.width = img.width; ov.height = img.height; ov.style.width = img.width + 'px'; ov.style.height = img.height + 'px'; }
             }
             this._showWrap();
+            // sync stretch globals for overlays
+            if (this.mode === 'capture' || this.mode === 'focuser' || this.mode === 'astrometry' || this.mode === 'aberration') {
+                this.fitZoom();
+            }
             if (this.mode === 'capture') this.setInfo(`${img.width}×${img.height} — ${fmt}`);
             else this.setStatus(`Image ${img.width}×${img.height} (${fmt}) ✓`, '#44cc44');
             URL.revokeObjectURL(url);
@@ -579,7 +588,6 @@ class Viewer {
         }
         ctx.strokeStyle = '#ff5577'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(blX,0); ctx.lineTo(blX,H); ctx.stroke();
-        // maj des bornes affichées
         const minEl = document.getElementById('cap-histo-min');
         const maxEl = document.getElementById('cap-histo-max');
         if (minEl) minEl.textContent = Math.round(stats.min);
@@ -588,14 +596,12 @@ class Viewer {
         if (slider) slider.value = this.histAuto ? 0 : this.histBlackPct;
         const val = document.getElementById('cap-histo-val');
         if (val) val.textContent = this.histAuto ? 'AUTO' : Math.round(this.histBlackPct)+'%';
-        // garde les stats pour le stretch
         this._statsHist = stats;
     }
 
     // ── Histogram ──
 
     renderHistogram() {
-        // si on a des stats serveur, on les préfère (vignette JPEG mais histo FITS natif)
         if (this._statsHist) return this.renderHistogramFromStats(this._statsHist);
         const canvas = document.getElementById('cap-histo-canvas');
         if (!canvas || !this.histPixels) return;
