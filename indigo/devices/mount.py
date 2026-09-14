@@ -287,6 +287,15 @@ class Mount(BaseDevice):
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
     async def park(self) -> None:
+        # Si on est au pôle (89.98°) le :hP# peut rester bloqué comme le :MS# — sortir du pôle d'abord
+        if abs(self.dec_deg) > 85.0:
+            log.info("[%s] park: pôle DEC %.1f° → palier 80° avant park", self.name, self.dec_deg)
+            await self._slew_to_raw(self.ra_hours, 80.0)
+            for _ in range(16):
+                await asyncio.sleep(0.5)
+                if not self.slewing:
+                    break
+            await asyncio.sleep(0.5)
         # OnStep :hP# exige tracking OFF et pas de slew en cours — on s'aligne sur HOME qui marche
         if self.tracking:
             log.info("[%s] park: tracking ON → OFF avant park", self.name)
@@ -380,14 +389,38 @@ class Mount(BaseDevice):
                 log.warning("[%s] slew_to: tracking toujours OFF après 3s, on tente quand même", self.name)
             else:
                 await asyncio.sleep(0.3)
-        # Méridien puis parallèle : on sort du pôle en DEC d'abord (joystick South qui marche), puis on corrige RA
-        if abs(self.dec_deg - 87.0) < 5.0:
+        # Sortie de pôle : OnStep à DEC>85° refuse le :MS# lointain (vu 89.98°→55° bloqué)
+        # Stratégie INDIGO : un slew direct est :Sr/:Sd/:MS# → si bloqué, le driver
+        # renvoie '1' et reste à 89.98°. On tente d'abord un palier intermédiaire
+        # à 80° (petit déplacement, moins de risque de limite méridienne), puis GOTO final.
+        # Si le palier échoue, fallback joystick comme avant.
+        if abs(self.dec_deg) > 85.0 and abs(dec_deg - self.dec_deg) > 10.0:
+            mid_dec = 80.0 if dec_deg < 80 else 75.0
+            log.info("[%s] slew_to: pôle DEC %.1f° → palier intermédiaire %.1f° avant cible %.1f°", self.name, self.dec_deg, mid_dec, dec_deg)
+            await self._slew_to_raw(self.ra_hours, mid_dec)
+            # Attente poll slewing (max 8s) — laisse le temps au :MS# intermédiaire
+            for _ in range(16):
+                await asyncio.sleep(0.5)
+                if not self.slewing:
+                    break
+            log.info("[%s] slew_to: après palier à RA=%.4fh DEC=%.2f° (slewing=%s)", self.name, self.ra_hours, self.dec_deg, self.slewing)
+            if abs(self.dec_deg - 89.98) < 2.0 and abs(self.dec_deg - mid_dec) > 2.0:
+                log.warning("[%s] slew_to: palier intermédiaire n'a pas bougé (resté %.1f°) → fallback joystick", self.name, self.dec_deg)
+                # Fallback joystick : SOUTH MAX 6s pour sortir du pôle
+                await self.move("SOUTH", "MAX")
+                await asyncio.sleep(6.0)
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+                log.info("[%s] slew_to: après fallback joystick à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+            # Si on a bougé, on enchaîne directement au GOTO final
+        elif abs(self.dec_deg - 87.0) < 5.0:
+            # Cas historique 87° (park) — garde l'ancien méridien/parallèle mais avec MAX
             d_dec = dec_deg - self.dec_deg
             if abs(d_dec) > 2.0:
                 direction = "NORTH" if d_dec > 0 else "SOUTH"
-                log.info("[%s] slew_to: pôle → méridien %s %.1f° vers DEC=%.1f°", self.name, direction, abs(d_dec), dec_deg)
-                await self.move(direction, "FIND")
-                await asyncio.sleep(min(4.0, abs(d_dec) * 0.15))  # ~0.15s/deg en FIND
+                log.info("[%s] slew_to: pôle 87° → méridien %s %.1f°", self.name, direction, abs(d_dec))
+                await self.move(direction, "MAX")
+                await asyncio.sleep(min(6.0, abs(d_dec) * 0.20))
                 await self.halt_move()
                 await asyncio.sleep(0.8)
             d_ra = (ra_hours - self.ra_hours) * 15.0
@@ -395,14 +428,12 @@ class Mount(BaseDevice):
                 d_ra -= 360
             if d_ra < -180:
                 d_ra += 360
-            # Au pôle (DEC 87°) le sens RA est inversé (pier side) — on teste les deux
             if abs(d_ra) > 3.0:
-                # OnStep à 87° : le RA est dégénéré, on tente WEST d'abord (comme le joystick qui marche en West à 20:21)
                 for attempt, direction in enumerate([("WEST" if d_ra > 0 else "EAST"), ("EAST" if d_ra > 0 else "WEST")]):
                     if attempt == 1:
-                        log.info("[%s] slew_to: parallèle %s n'a pas bougé, retry %s", self.name, "WEST" if d_ra > 0 else "EAST", direction)
+                        log.info("[%s] slew_to: parallèle retry %s", self.name, direction)
                     else:
-                        log.info("[%s] slew_to: puis parallèle %s %.1f° vers RA=%.2fh", self.name, direction, abs(d_ra), ra_hours)
+                        log.info("[%s] slew_to: parallèle %s %.1f°", self.name, direction, abs(d_ra))
                     before_ra = self.ra_hours
                     await self.move(direction, "MAX")
                     await asyncio.sleep(min(6.0, abs(d_ra) * 0.12))
@@ -412,7 +443,7 @@ class Mount(BaseDevice):
                         break
                     if attempt == 0:
                         await asyncio.sleep(0.5)
-            log.info("[%s] slew_to: après méridien/parallèle à RA=%.4fh DEC=%.2f° → GOTO", self.name, self.ra_hours, self.dec_deg)
+            log.info("[%s] slew_to: après méridien/parallèle à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
         await self._slew_to_raw(ra_hours, dec_deg)
         await asyncio.sleep(1.5)
         if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
@@ -564,6 +595,12 @@ class Mount(BaseDevice):
 
     async def move(self, direction: str, rate: str = "CENTERING") -> None:
         """Start a manual move. direction: N/S/E/W or NORTH/SOUTH/EAST/WEST"""
+        # Rate doit être positionné avant le move (INDIGO MOUNT_SLEW_RATE)
+        try:
+            await self.set_slew_rate(rate)
+            await asyncio.sleep(0.2)
+        except Exception:
+            pass
         _DIR_MAP = {"NORTH": "N", "SOUTH": "S", "EAST": "E", "WEST": "W"}
         d = _DIR_MAP.get(direction.upper(), direction.upper())
         if d in ("N", "S"):
