@@ -536,13 +536,25 @@ class MockMount:
                 self.homing = True
                 log.info("Homing started")
                 responses.append(f'<setSwitchVector device="Mount" name="{prop_name}" state="Busy"><oneSwitch name="{on}">On</oneSwitch></setSwitchVector>')
-                # Simulate homing completion after 1.5s
-                async def _finish_homing():
+                # Simulate homing completion after 1.5s — push final coords + state like real OnStep
+                _writer = getattr(self, '_writer', None)
+
+                async def _finish_homing(writer=_writer):
                     await asyncio.sleep(1.5)
                     self.homing = False
                     self.ra_hours = 0
                     self.dec_deg = 90
                     log.info("Homing complete: RA=%.4fh DEC=%.4f", self.ra_hours, self.dec_deg)
+                    # Push final state to the client (writer may have been set later)
+                    w = writer or getattr(self, '_writer', None)
+                    if w is not None:
+                        try:
+                            w.write((self.coords_xml("Ok") + "\n").encode())
+                            w.write((self.home_xml() + "\n").encode())
+                            w.write((self.horizontal_xml() + "\n").encode())
+                            await w.drain()
+                        except Exception:
+                            pass
                 asyncio.create_task(_finish_homing())
             else:
                 self.homing = False
@@ -918,6 +930,7 @@ class MockIndigoServer:
         addr = writer.get_extra_info("peername")
         log.info("Client connected: %s", addr)
         self._writer = writer
+        self.mount._writer = writer
         motion_task = asyncio.create_task(self.mount.motion_loop(writer))
         try:
             xml_buf = b""

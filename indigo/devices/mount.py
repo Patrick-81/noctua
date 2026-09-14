@@ -232,29 +232,6 @@ class Mount(BaseDevice):
 
     # ── Commands ─────────────────────────────────────────────────
 
-    async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
-        """GOTO: set coordinates and trigger slew."""
-        self.slewing = True
-        self._target_ra = ra_hours
-        self._target_dec = dec_deg
-        self._prev_ra = self.ra_hours
-        self._prev_dec = self.dec_deg
-        coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
-        items = [
-            {"name": "RA", "value": ra_hours},
-            {"name": "DEC", "value": dec_deg},
-        ]
-        await self.send_number(coords_prop, items)
-
-        # On INDIGO v2.0: explicit SLEW trigger needed
-        # On INDI legacy (OnStep): slew is implicit when EQUATORIAL_EOD_COORD is set
-        slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
-        if slew_prop in self._properties:
-            await self.send_switch(slew_prop, [{"name": "SLEW", "value": True}])
-
-        # Start polling to detect slew completion
-        self._start_move_poll()
-
     async def abort(self) -> None:
         abort_prop = self._resolve_prop_name("MOUNT_ABORT_MOTION")
         item = self._resolve_item_name(abort_prop, "ABORT_MOTION", {
@@ -262,31 +239,49 @@ class Mount(BaseDevice):
         })
         await self.send_switch(abort_prop, [{ "name": item, "value": True }])
         self.slewing = False
+        self.homing = False
         self._target_ra = None
         self._target_dec = None
         await self._poll_coords()
 
     async def _send_park_switch(self, target_item: str) -> None:
-        """Envoie le switch PARK — OnStep LX200 utilise :hP#/:hR# via MOUNT_PARK.
+        """Envoie le switch PARK — INDIGO LX200 OnStep :hP#/:hR#.
 
-        Vu sur l'observatoire (log 16:24:12) : UNPARKED=On mono-item commute bien
-        en ~3s (True->False), mais un retry trop précoce (1.8s) le re-parque.
-        On n'envoie qu'une fois, le driver fait le reste.
+        INDIGO `MOUNT_PARK` OnStep = `count=2` `ONE_OF_MANY` (`PARKED`/`UNPARKED`).
+        Le handler `indigo_change_property` copie les valeurs et teste
+        `PARKED true → park` / `UNPARKED true → unpark`. Si on n'envoie que
+        `UNPARKED=On` mono-item, `PARKED` reste `On` (valeur précédente) → les
+        deux sont `On` → le driver retombe sur la branche `PARKED` et ignore
+        le déparcage. Il faut donc toujours envoyer les 2 items pour `count==2`.
+        Pour Meade (`count=1` `AT_MOST_ONE`) le mono-item reste correct.
+        Vu à l'observatoire : mono `UNPARKED` ne déparquait jamais, `bi` OK.
         """
         park_prop = self._resolve_prop_name("MOUNT_PARK")
         pv = self._properties.get(park_prop)
+        # Cas OnStep/NYX : 2 items ONE_OF_MANY → envoi bi-item obligatoire
+        if pv and len(pv.items) == 2:
+            items = [{"name": it.name, "value": it.name == target_item} for it in pv.items]
+            log.info("[%s] park: sending %s bi %s", self.name, park_prop, items)
+            await self.send_switch(park_prop, items)
+            return
         if pv and pv.get_item(target_item):
-            log.info("[%s] park: sending %s.%s=On", self.name, park_prop, target_item)
+            log.info("[%s] park: sending %s.%s=On (mono AT_MOST_ONE)", self.name, park_prop, target_item)
             await self.send_switch(park_prop, [{"name": target_item, "value": True}])
             return
         if pv and len(pv.items) >= 2:
-            log.info("[%s] park: sending %s.%s=On (bi fallback)", self.name, park_prop, target_item)
             items = [{"name": it.name, "value": it.name == target_item} for it in pv.items]
+            log.info("[%s] park: sending %s.%s=On (bi fallback)", self.name, park_prop, target_item)
             await self.send_switch(park_prop, items)
             return
         alt_prop = "TELESCOPE_PARK"
         if alt_prop in self._properties:
-            log.info("[%s] park: sending %s.%s=On (alias)", self.name, alt_prop, target_item)
+            pv2 = self._properties.get(alt_prop)
+            if pv2 and len(pv2.items) == 2:
+                items = [{"name": it.name, "value": it.name == target_item} for it in pv2.items]
+                log.info("[%s] park: sending %s bi %s (alias)", self.name, alt_prop, items)
+                await self.send_switch(alt_prop, items)
+                return
+            log.info("[%s] park: sending %s.%s=On (alias mono)", self.name, alt_prop, target_item)
             await self.send_switch(alt_prop, [{"name": target_item, "value": True}])
             return
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
@@ -300,20 +295,29 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
-        await asyncio.sleep(4.0)
+        # Poll jusqu'à 10s : évite de bloquer 8s fixes et détecte le vrai Busy→Ok
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            if self.parked and self.park_state != "Busy":
+                log.info("[%s] park: success (parked True, state=%s)", self.name, self.park_state)
+                return
+            if self.park_state == "Alert":
+                log.warning("[%s] park: Alert reçu (state=%s msg park=%s)", self.name, self.park_state, self.parked)
+                break
         if self.parked:
-            log.info("[%s] park: success Busy→%s", self.name, self.park_state)
+            log.info("[%s] park: success Busy→%s (après poll)", self.name, self.park_state)
             return
-        log.info("[%s] park: still not parked=%s after 4s, retry bi-item", self.name, self.parked)
+        log.info("[%s] park: still not parked=%s after poll, retry bi-item", self.name, self.parked)
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            await asyncio.sleep(4.0)
-            if self.parked:
-                log.info("[%s] park: success after bi-item", self.name)
-                return
-        log.warning("[%s] park: still not parked after 8s (state=%s)", self.name, self.park_state)
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                if self.parked and self.park_state != "Busy":
+                    log.info("[%s] park: success after bi-item", self.name)
+                    return
+        log.warning("[%s] park: still not parked after 10s (state=%s parked=%s)", self.name, self.park_state, self.parked)
 
     async def unpark(self) -> None:
         # Si HOME est Busy (vu à 18:39), on l'abort d'abord — sinon :hR# est ignoré
@@ -325,36 +329,57 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
         await self._send_park_switch(target)
-        await asyncio.sleep(4.0)
-        if self.parked is False:
-            log.info("[%s] unpark: success", self.name)
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            if self.parked is False and self.park_state != "Busy":
+                log.info("[%s] unpark: success (parked False, state=%s)", self.name, self.park_state)
+                return
+            if self.park_state == "Alert":
+                log.warning("[%s] unpark: Alert (state=%s)", self.name, self.park_state)
+                break
+        if not self.parked:
+            log.info("[%s] unpark: success after poll (parked False, state=%s)", self.name, self.park_state)
             return
-        log.info("[%s] unpark: still parked after 4s, retry bi-item", self.name)
+        log.info("[%s] unpark: still parked after poll, retry bi-item", self.name)
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             log.info("[%s] unpark: sending bi-item %s", self.name, items)
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            await asyncio.sleep(4.0)
-            if not self.parked:
-                log.info("[%s] unpark: success after bi-item", self.name)
-                return
-        log.warning("[%s] unpark: still parked after 8s (state=%s)", self.name, self.park_state)
+            for _ in range(20):
+                await asyncio.sleep(0.5)
+                if not self.parked and self.park_state != "Busy":
+                    log.info("[%s] unpark: success after bi-item", self.name)
+                    return
+        log.warning("[%s] unpark: still parked after 10s (state=%s parked=%s)", self.name, self.park_state, self.parked)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: dé-parque, tracking ON, sort du pôle, puis slew — fallback move si :MS# bloqué."""
-        log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s tracking=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked, self.tracking)
-        if self.parked:
-            log.info("[%s] slew_to: parked → unpark auto avant slew", self.name)
+        log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s tracking=%s park_state=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked, self.tracking, self.park_state)
+        if self.parked or self.park_state == "Busy":
+            log.info("[%s] slew_to: parked/busy → unpark auto avant slew", self.name)
             await self.unpark()
+            # unpark poll déjà 10s, plus 1s de marge
             await asyncio.sleep(1.0)
-            if self.parked:
-                log.warning("[%s] slew_to: still parked, slew annulé", self.name)
+            if self.parked or self.park_state == "Busy":
+                log.warning("[%s] slew_to: still parked/busy (%s/%s), slew annulé", self.name, self.parked, self.park_state)
                 return
+        if self.homing:
+            log.info("[%s] slew_to: homing en cours → abort avant slew", self.name)
+            await self.abort()
+            await asyncio.sleep(0.8)
         if not self.tracking:
             log.info("[%s] slew_to: tracking OFF → ON avant slew", self.name)
             await self.set_tracking(True)
-            await asyncio.sleep(0.8)
+            # Poll tracking jusqu'à 3s
+            for _ in range(6):
+                await asyncio.sleep(0.5)
+                if self.tracking:
+                    break
+            if not self.tracking:
+                log.warning("[%s] slew_to: tracking toujours OFF après 3s, on tente quand même", self.name)
+            else:
+                await asyncio.sleep(0.3)
         # Méridien puis parallèle : on sort du pôle en DEC d'abord (joystick South qui marche), puis on corrige RA
         if abs(self.dec_deg - 87.0) < 5.0:
             d_dec = dec_deg - self.dec_deg
@@ -424,9 +449,25 @@ class Mount(BaseDevice):
     async def home(self) -> None:
         """Send HOME command to the mount.
 
+        OnStep :hC# exige unparked et pas de slew/park Busy.
+        On dé-parque auto (comme slew), abort si slewing, puis envoie HOME.
         Tries INDIGO v2.0 (MOUNT_HOME / HOME) then INDI legacy
         (TELESCOPE_HOME / GO, FIND, SET).
         """
+        log.info("[%s] home: demandé (parked=%s tracking=%s slewing=%s homing=%s)",
+                 self.name, self.parked, self.tracking, self.slewing, self.homing)
+        if self.parked:
+            log.info("[%s] home: parked → unpark auto avant home", self.name)
+            await self.unpark()
+            await asyncio.sleep(1.0)
+            if self.parked:
+                log.warning("[%s] home: still parked, annulé", self.name)
+                return
+        if self.slewing or self.homing:
+            log.info("[%s] home: slewing/homing → abort avant home", self.name)
+            await self.abort()
+            await asyncio.sleep(0.8)
+        # Si un home est déjà Busy côté serveur, l'abort précédent l'a libéré
         home_prop = self._resolve_prop_name("MOUNT_HOME")
         pv = self._properties.get(home_prop)
         if pv is None:
@@ -445,8 +486,19 @@ class Mount(BaseDevice):
                 if pv.get_item(candidate):
                     item = candidate
                     break
-            log.info("[%s] home: sending %s.%s", self.name, home_prop, item)
-            await self.send_switch(home_prop, [{"name": item, "value": True}])
+            # OneOfMany mono-item suffit, mais on gère le bi-item comme park
+            # pour les drivers à 2 items (ex. HOME/UNHOME).
+            if pv.get_item(item) and len(pv.items) == 1:
+                log.info("[%s] home: sending %s.%s=On", self.name, home_prop, item)
+                await self.send_switch(home_prop, [{"name": item, "value": True}])
+            elif len(pv.items) >= 2:
+                # Envoie l'item cible On, les autres Off (règle OneOfMany)
+                items = [{"name": it.name, "value": it.name == item} for it in pv.items]
+                log.info("[%s] home: sending %s bi-item %s", self.name, home_prop, items)
+                await self.send_switch(home_prop, items)
+            else:
+                log.info("[%s] home: sending %s.%s=On (fallback)", self.name, home_prop, item)
+                await self.send_switch(home_prop, [{"name": item, "value": True}])
             self._start_move_poll()
         else:
             log.warning("[%s] home: no HOME property found in %s",
@@ -567,16 +619,17 @@ class Mount(BaseDevice):
             while True:
                 poll_count += 1
                 # During GOTO: detect slew completion by coordinate stabilization
+                # OnStep met ~3s pour un slew 47° — éviter de clearer à 0.3s au départ
                 if self.slewing and self._target_ra is not None:
                     ra_diff = abs(self.ra_hours - self._prev_ra) * 15
                     dec_diff = abs(self.dec_deg - self._prev_dec)
-                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 2:
+                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 10:
                         stable_count += 1
                     else:
                         stable_count = 0
                     self._prev_ra = self.ra_hours
                     self._prev_dec = self.dec_deg
-                    if stable_count >= 3:
+                    if stable_count >= 5:
                         self.slewing = False
                         self._target_ra = None
                         self._target_dec = None
@@ -584,18 +637,35 @@ class Mount(BaseDevice):
                         self._stop_move_poll()
                         return
                 # During HOME: detect homing completion by coordinate stabilization
+                # OnStep peut rester Busy 30-60s au pôle — on attend que les
+                # coordonnées se stabilisent ET que l'état serveur ne soit plus Busy.
                 elif self.homing:
                     ra_diff = abs(self.ra_hours - self._prev_ra) * 15
                     dec_diff = abs(self.dec_deg - self._prev_dec)
-                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 2:
+                    # Seuil plus long que pour le slew : le HOME met du temps à démarrer
+                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 10:
                         stable_count += 1
                     else:
                         stable_count = 0
                     self._prev_ra = self.ra_hours
                     self._prev_dec = self.dec_deg
-                    if stable_count >= 3:
+                    # Vérifie l'état serveur si disponible (évite de couper trop tôt en Busy)
+                    home_state_busy = False
+                    try:
+                        hp = self._properties.get(self._resolve_prop_name("MOUNT_HOME"))
+                        if hp and (hp.state or "").lower() == "busy":
+                            home_state_busy = True
+                    except Exception:
+                        pass
+                    if stable_count >= 5 and not home_state_busy:
                         self.homing = False
                         log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        self._stop_move_poll()
+                        return
+                    # Timeout 30s : évite de bloquer l'UI à vie si HOME échoue (Alert ou driver coincé)
+                    if poll_count > 300:
+                        self.homing = False
+                        log.warning("[%s] homing timeout après 30s (state Busy=%s) — débloqué", self.name, home_state_busy)
                         self._stop_move_poll()
                         return
                 await asyncio.sleep(0.1)
