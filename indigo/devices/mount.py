@@ -287,16 +287,12 @@ class Mount(BaseDevice):
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
     async def park(self) -> None:
-        # Si on est au pôle (89.98°) le :hP# peut rester bloqué comme le :MS# — sortir du pôle d'abord
-        if abs(self.dec_deg) > 85.0:
-            log.info("[%s] park: pôle DEC %.1f° → palier 80° avant park", self.name, self.dec_deg)
-            await self._slew_to_raw(self.ra_hours, 80.0)
-            for _ in range(16):
-                await asyncio.sleep(0.5)
-                if not self.slewing:
-                    break
-            await asyncio.sleep(0.5)
-        # OnStep :hP# exige tracking OFF et pas de slew en cours — on s'aligne sur HOME qui marche
+        # Abort si Busy (park/homing/slewing) — sinon INDIGO ignore le park (mount_park_callback check !parking&&!homing)
+        if self.park_state == "Busy" or self.homing or self.slewing:
+            log.info("[%s] park: Busy/homing/slewing → abort avant park", self.name)
+            await self.abort()
+            await asyncio.sleep(0.8)
+        # OnStep :hP# exige tracking OFF
         if self.tracking:
             log.info("[%s] park: tracking ON → OFF avant park", self.name)
             await self.set_tracking(False)
@@ -329,10 +325,15 @@ class Mount(BaseDevice):
         log.warning("[%s] park: still not parked after 10s (state=%s parked=%s)", self.name, self.park_state, self.parked)
 
     async def unpark(self) -> None:
-        # Si HOME est Busy (vu à 18:39), on l'abort d'abord — sinon :hR# est ignoré
+        # Si HOME ou PARK est Busy, on l'abort d'abord — sinon :hR# est ignoré (indigo_mount_lx200.c:2774)
+        busy = False
         home_pv = self._properties.get(self._resolve_prop_name("MOUNT_HOME"))
         if home_pv and home_pv.state == "Busy":
-            log.info("[%s] unpark: HOME Busy → abort avant unpark", self.name)
+            busy = True
+        if self.park_state == "Busy":
+            busy = True
+        if busy:
+            log.info("[%s] unpark: Busy (HOME/PARK) → abort avant unpark", self.name)
             await self.abort()
             await asyncio.sleep(0.8)
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
@@ -389,73 +390,11 @@ class Mount(BaseDevice):
                 log.warning("[%s] slew_to: tracking toujours OFF après 3s, on tente quand même", self.name)
             else:
                 await asyncio.sleep(0.3)
-        # Sortie de pôle : OnStep à DEC>85° refuse le :MS# lointain (vu 89.98°→55° bloqué)
-        # Stratégie INDIGO : un slew direct est :Sr/:Sd/:MS# → si bloqué, le driver
-        # renvoie '1' et reste à 89.98°. On tente d'abord un palier intermédiaire
-        # à 80° (petit déplacement, moins de risque de limite méridienne), puis GOTO final.
-        # Si le palier échoue, fallback joystick comme avant.
-        if abs(self.dec_deg) > 85.0 and abs(dec_deg - self.dec_deg) > 10.0:
-            mid_dec = 80.0 if dec_deg < 80 else 75.0
-            log.info("[%s] slew_to: pôle DEC %.1f° → palier intermédiaire %.1f° avant cible %.1f°", self.name, self.dec_deg, mid_dec, dec_deg)
-            await self._slew_to_raw(self.ra_hours, mid_dec)
-            # Attente poll slewing (max 8s) — laisse le temps au :MS# intermédiaire
-            for _ in range(16):
-                await asyncio.sleep(0.5)
-                if not self.slewing:
-                    break
-            log.info("[%s] slew_to: après palier à RA=%.4fh DEC=%.2f° (slewing=%s)", self.name, self.ra_hours, self.dec_deg, self.slewing)
-            if abs(self.dec_deg - 89.98) < 2.0 and abs(self.dec_deg - mid_dec) > 2.0:
-                log.warning("[%s] slew_to: palier intermédiaire n'a pas bougé (resté %.1f°) → fallback joystick", self.name, self.dec_deg)
-                # Fallback joystick : SOUTH MAX 6s pour sortir du pôle
-                await self.move("SOUTH", "MAX")
-                await asyncio.sleep(6.0)
-                await self.halt_move()
-                await asyncio.sleep(0.8)
-                log.info("[%s] slew_to: après fallback joystick à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
-            # Si on a bougé, on enchaîne directement au GOTO final
-        elif abs(self.dec_deg - 87.0) < 5.0:
-            # Cas historique 87° (park) — garde l'ancien méridien/parallèle mais avec MAX
-            d_dec = dec_deg - self.dec_deg
-            if abs(d_dec) > 2.0:
-                direction = "NORTH" if d_dec > 0 else "SOUTH"
-                log.info("[%s] slew_to: pôle 87° → méridien %s %.1f°", self.name, direction, abs(d_dec))
-                await self.move(direction, "MAX")
-                await asyncio.sleep(min(6.0, abs(d_dec) * 0.20))
-                await self.halt_move()
-                await asyncio.sleep(0.8)
-            d_ra = (ra_hours - self.ra_hours) * 15.0
-            if d_ra > 180:
-                d_ra -= 360
-            if d_ra < -180:
-                d_ra += 360
-            if abs(d_ra) > 3.0:
-                for attempt, direction in enumerate([("WEST" if d_ra > 0 else "EAST"), ("EAST" if d_ra > 0 else "WEST")]):
-                    if attempt == 1:
-                        log.info("[%s] slew_to: parallèle retry %s", self.name, direction)
-                    else:
-                        log.info("[%s] slew_to: parallèle %s %.1f°", self.name, direction, abs(d_ra))
-                    before_ra = self.ra_hours
-                    await self.move(direction, "MAX")
-                    await asyncio.sleep(min(6.0, abs(d_ra) * 0.12))
-                    await self.halt_move()
-                    await asyncio.sleep(0.8)
-                    if abs(self.ra_hours - before_ra) > 0.05:
-                        break
-                    if attempt == 0:
-                        await asyncio.sleep(0.5)
-            log.info("[%s] slew_to: après méridien/parallèle à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+        # GOTO simple INDIGO : unpark/tracking puis :Sr/:Sd/:MS# direct.
+        # On laisse le driver OnStep gérer le pôle/limites (il renvoie '0' ou
+        # '1' + Alert). Les tentatives palier 80° et joystick ont montré
+        # qu'elles bloquaient le :hP# et laissaient le LED Park Busy.
         await self._slew_to_raw(ra_hours, dec_deg)
-        await asyncio.sleep(1.5)
-        if not self.slewing and abs(self.ra_hours - ra_hours) > 0.05 and abs(self.dec_deg - dec_deg) > 0.05:
-            log.warning("[%s] slew_to: :MS# bloqué (resté RA=%.4fh DEC=%.2f°) → retry méridien/parallèle", self.name, self.ra_hours, self.dec_deg)
-            # retry : on refait méridien puis parallèle
-            d_dec2 = dec_deg - self.dec_deg
-            if abs(d_dec2) > 1:
-                await self.move("NORTH" if d_dec2 > 0 else "SOUTH", "FIND")
-                await asyncio.sleep(min(3.0, abs(d_dec2) * 0.15))
-                await self.halt_move()
-                await asyncio.sleep(0.5)
-            await self._slew_to_raw(ra_hours, dec_deg)
 
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO brut: envoie les coords + trigger SLEW."""
@@ -494,8 +433,8 @@ class Mount(BaseDevice):
             if self.parked:
                 log.warning("[%s] home: still parked, annulé", self.name)
                 return
-        if self.slewing or self.homing:
-            log.info("[%s] home: slewing/homing → abort avant home", self.name)
+        if self.slewing or self.homing or self.park_state == "Busy":
+            log.info("[%s] home: Busy (slewing/homing/park) → abort avant home", self.name)
             await self.abort()
             await asyncio.sleep(0.8)
         # Si un home est déjà Busy côté serveur, l'abort précédent l'a libéré
