@@ -55,7 +55,7 @@ const MODES = {
         driverType: 'ccd'
     },
     hardware: {
-        applets: ['applet-hardware-mode'],
+        applets: ['applet-hardware-mode', 'applet-hwprops'],
         driverType: null
     }
 };

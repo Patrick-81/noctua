@@ -57,7 +57,7 @@ const PANEL_ICONS = {
     'applet-capture-settings': '📷', 'applet-capture-preview': '🖼', 'applet-sequence': '📋',
     'applet-sequencer': '📋', 'applet-stacking': '🥞', 'applet-solver': '⭐',
     'applet-target': '🎯', 'applet-framing': '🖼', 'applet-polar': '🧭',
-    'applet-pointing': '📍', 'applet-hardware-mode': '🔧', 'applet-legend': '▦', 'applet-log': '≡'
+    'applet-pointing': '📍', 'applet-hardware-mode': '🔧', 'applet-hwprops': '⚙️', 'applet-legend': '▦', 'applet-log': '≡'
 };
 const PANEL_TITLES = {
     'applet-status': 'Tableau de bord', 'applet-pilotage': 'Pilotage monture',
@@ -71,7 +71,7 @@ const PANEL_TITLES = {
     'applet-stacking': 'Live stacking', 'applet-solver': 'Plate solver',
     'applet-target': 'Cible — Centrage', 'applet-framing': 'Framing — Cadrage',
     'applet-polar': 'Mise en station polaire', 'applet-pointing': 'Pointing model',
-    'applet-hardware-mode': 'Matériel', 'applet-legend': 'Légende', 'applet-log': 'Log'
+    'applet-hardware-mode': 'Matériel', 'applet-hwprops': 'Propriétés device', 'applet-legend': 'Légende', 'applet-log': 'Log'
 };
 function getPanelTitle(id) {
     const el = document.getElementById(id);

@@ -10,23 +10,23 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#020205">
-    <link rel="stylesheet" href="/style.css?v=23">
+    <link rel="stylesheet" href="/style.css?v=26">
     <script src="/lib/d3.min.js"></script>
     <script src="/i18n.fr.js?v=20260918c"></script>
     <script src="/i18n.en.js?v=20260918c"></script>
     <script src="/i18n.js"></script>
     <script src="/theme.js"></script>
     <script src="/utils.js"></script>
-    <script src="/state.js"></script>
+    <script src="/state.js?v=20260918e"></script>
     <script src="/hub.js"></script>
-    <script src="/layout.js"></script>
+    <script src="/layout.js?v=20260918e"></script>
     <script src="/viewer.js?v=pleine7"></script>
     <script src="/api.js"></script>
     <script src="/mount.js"></script>
     <script src="/controls.js"></script>
     <script src="/ws.js"></script>
     <script src="/objects.js?v=20260918c"></script>
-    <script src="/hardware.js"></script>
+    <script src="/hardware.js?v=20260918h"></script>
     <script src="/capture.js?v=pleine7"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
@@ -221,7 +221,13 @@
                     <option value="" data-i18n="hw.select_device">— Sélectionnez un device —</option>
                 </select>
             </div>
-            <div id="hw-mode-props" class="device-panel hw-mode-props"></div>
+            <div style="font-size:0.55rem; color:#666; padding:0 8px 4px;">La liste s'ouvre dans le panneau PROPRIÉTÉS DEVICE ci-contre</div>
+        </div>
+
+        <!-- APPLET: Propriétés du device (panneau séparé, mode Matériel) -->
+        <div id="applet-hwprops" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:592px; width:520px; max-height:calc(100vh - 120px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;"><span data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</span> — <span id="hwprops-title-name"></span></span><button class="applet-close" title="Fermer">✕</button><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div id="hw-device-props" class="device-panel hw-mode-props"></div>
         </div>
 
         <!-- APPLET: Légende (toujours visible) -->
@@ -1895,6 +1901,6 @@
     </nav>
     <div id="mobile-dock" aria-label="Panneaux"></div>
 
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="/app.js?v=20260918b"></script>
 </body>
 </html>

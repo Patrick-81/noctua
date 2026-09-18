@@ -131,6 +131,44 @@ body {
 .applet-minimize.collapsed-label::after { content: '+'; }
 .applet-minimize:not(.collapsed-label)::after { content: '−'; }
 
+/* ── Close button (panneau props : masque, rouvert via ⚙️) ─────── */
+
+.applet-close {
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--accent-dim);
+    font-size: 0.65rem;
+    line-height: 1;
+    padding: 1px 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    pointer-events: auto;
+    flex-shrink: 0;
+}
+.applet-close:hover {
+    color: #ff6666;
+    border-color: #ff6666;
+    background: var(--bg-hover);
+}
+
+/* ── Panneau PROPRIÉTÉS DEVICE : scroll interne ────────────────── */
+
+#applet-hwprops {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    resize: both;
+    min-width: 320px;
+    min-height: 200px;
+}
+#applet-hwprops > #hw-device-props {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
 /* ── Collapsed state ─────────────────────────────────────────── */
 
 .glass-panel.collapsed > *:not(.applet-drag) { display: none !important; }
@@ -1236,7 +1274,7 @@ body {
     margin-bottom: 0.4rem;
     border: 1px solid rgba(0,255,204,0.08);
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
 }
 .prop-group-header {
     background: var(--accent-faint);
@@ -1261,7 +1299,7 @@ body {
 .prop-label { min-width: 100px; color: #aaa; font-size: 0.7rem; }
 .prop-ctrl { flex: 1; display: flex; align-items: center; gap: 0.25rem; }
 
-.switch-group { display: flex; gap: 2px; }
+.switch-group { display: flex; gap: 2px; flex-wrap: wrap; }
 .switch-btn {
     background: var(--bg-input);
     color: #888;

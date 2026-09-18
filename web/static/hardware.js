@@ -345,6 +345,7 @@ function renderHardwarePanel() {
                 `<span class="hw-icon">${icon}</span>` +
                 `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
                 `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? i18n('hw.connected') : i18n('hw.offline')}</span>` +
+                `<button class="btn-glass" data-action="props" data-device="${escapeAttr(name)}" title="Propriétés">⚙️</button>` +
                 `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
             list.appendChild(row);
         }
@@ -600,6 +601,7 @@ function initHardwarePanel() {
         if (!btn) return;
         const device = btn.dataset.device;
         const action = btn.dataset.action;
+        if (action === 'props') { hwOpenDeviceProps(device); return; }
         const res = await fetch(`/api/hardware/${action}`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ device }),
@@ -712,12 +714,14 @@ function renderHardwareMode() {
 
     // Device selector + properties
     const devSel = document.getElementById('hw-mode-device-select');
-    if (devSel) {
+    // Ne jamais reconstruire pendant le choix (ws:state stream à plusieurs Hz :
+    // sinon la liste se referme et la sélection est perdue — même garde que drivers).
+    if (devSel && document.activeElement !== devSel) {
         const prev = devSel.value;
         devSel.innerHTML = `<option value="">${i18n('hw.select_device')}</option>`;
         const names = Object.keys(_hwDevices);
         if (names.length && (!_hwModeDevice || !names.includes(_hwModeDevice))) {
-            _hwModeDevice = names.includes('Mount') ? 'Mount' : names[0];
+            _hwModeDevice = names.includes('Mount LX200') ? 'Mount LX200' : names[0];
         }
         for (const name of names) {
             const opt = document.createElement('option');
@@ -732,14 +736,64 @@ function renderHardwareMode() {
     renderHardwareModeProps();
 }
 
-function renderHardwareModeProps() {
-    const propsEl = document.getElementById('hw-mode-props');
+// Résout le conteneur de props : nouveau panneau séparé en priorité,
+// ancien emplacement inline en repli (HTML en cache).
+function hwPropsContainer() {
+    return document.getElementById('hw-device-props') ||
+        document.getElementById('hw-mode-props');
+}
+
+function hwOpenDeviceProps(name) {
+    if (!name) return;
+    _hwModeDevice = name;
+    const devSel = document.getElementById('hw-mode-device-select');
+    if (devSel && devSel.value !== name) {
+        const opt = [...devSel.options].find(o => o.value === name);
+        if (opt) devSel.value = name;
+    }
+    renderHardwareModeProps(true);
+    // Toujours (ré)afficher : couvre aussi le cas panneau fermé via ✕.
+    const panel = document.getElementById('applet-hwprops');
+    if (panel) {
+        panel.style.display = '';
+        panel.classList.remove('collapsed');
+    }
+}
+
+// Throttle : le WS stream à plusieurs Hz, reconstruire 36 props à chaque
+// fois fige le panneau. On ne reconstruit que si signature changée et au
+// plus toutes les 1.5 s (forçage sur action explicite).
+let _hwPropsSig = null;
+let _hwPropsLastMs = 0;
+function renderHardwareModeProps(force) {
+    // Panneau séparé (applet-hwprops) : la liste prend de la place, elle ne
+    // reste plus coincée en bas du panneau Matériel.
+    const panel = document.getElementById('applet-hwprops');
+    const propsEl = hwPropsContainer();
+    const titleEl = document.getElementById('hwprops-title-name');
     if (!propsEl) return;
     if (document.activeElement && propsEl.contains(document.activeElement)) return;
+    if (titleEl) titleEl.textContent = _hwModeDevice || '';
+    // On ne touche au display que pour masquer (jamais de forçage visible sur
+    // le stream : le layout/minimize de l'utilisateur reste maître).
+    if (panel && (!_hwModeDevice || !devices[_hwModeDevice])) panel.style.display = 'none';
     if (!_hwModeDevice || !devices[_hwModeDevice]) {
         propsEl.innerHTML = `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.select_hint')}</div>`;
         return;
     }
+    const _hwDev = devices[_hwModeDevice];
+    if (!_hwDev.props || !_hwDev.props.length) {
+        // Diagnostic visible : dit si le device est absent du store WS ou sans props.
+        propsEl.innerHTML = `<div style="color:#c84; font-size:0.65rem; padding:6px;">${i18n('hw.no_props')} [${escapeHTML(_hwModeDevice)} — ws:${_hwDev ? 'ok' : 'absent'}, props:${_hwDev && _hwDev.props ? _hwDev.props.length : '—'}]</div>`;
+        return;
+    }
+    const sig = _hwDev.props.map(p =>
+        p.name + '=' + p.state + '|' + (p.items || []).map(i => i.name + ':' + i.value).join(',')).join(';');
+    const nowMs = Date.now();
+    if (!force && sig === _hwPropsSig) return;
+    if (!force && nowMs - _hwPropsLastMs < 1500) return;
+    _hwPropsSig = sig;
+    _hwPropsLastMs = nowMs;
     const html = buildPropsHTML(_hwModeDevice);
     propsEl.innerHTML = html || `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.no_props')}</div>`;
 }
@@ -748,7 +802,19 @@ function initHardwareMode() {
     const devSel = document.getElementById('hw-mode-device-select');
     if (devSel) devSel.addEventListener('change', () => {
         _hwModeDevice = devSel.value || null;
-        renderHardwareModeProps();
+        renderHardwareModeProps(true);
+        // Action explicite : on (ré)affiche le panneau séparé.
+        const panel = document.getElementById('applet-hwprops');
+        if (panel && _hwModeDevice) {
+            panel.style.display = '';
+            panel.classList.remove('collapsed');
+        }
+    });
+    const closeBtn = document.querySelector('#applet-hwprops .applet-close');
+    if (closeBtn) closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const panel = document.getElementById('applet-hwprops');
+        if (panel) panel.style.display = 'none';
     });
 }
 
