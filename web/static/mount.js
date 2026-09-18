@@ -44,7 +44,7 @@ function renderMountPanel() {
     const homingEl = document.getElementById('status-homing');
     if (homingEl) {
         homingEl.textContent = '● HOME';
-        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : 'off');
+        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : (d.homed ? 'on' : 'off'));
     }
 
     const busy = d.park_state === 'Busy' || d.slewing || d.homing;

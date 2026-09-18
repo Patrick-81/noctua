@@ -649,6 +649,8 @@
             'ws.connected': '● Connected',
             'ws.minimize': 'Minimize / expand',
             'sky.define_target': '◎ Set target',
+            'sky.empty_sky_hint': 'Empty sky — click a displayed object',
+            'sky.pick_object': 'Pick one:',
             'app.pin': 'Pin (prevents dragging)',
             'app.unpin': 'Detach (allows dragging)',
             'preview.star_selected': '⭐ Star #{idx} ({x}, {y}) — Ready for guiding',

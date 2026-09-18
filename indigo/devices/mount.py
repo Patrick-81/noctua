@@ -85,9 +85,11 @@ class Mount(BaseDevice):
         self.parked: bool = False
         self.park_state: str = ""  # INDIGO property state: "Ok", "Busy", "Alert"
         self.homing: bool = False
+        self.homed: bool = False  # reste vrai après un home réussi (LED verte)
         # GOTO target (to detect slew completion)
         self._target_ra: float | None = None
         self._target_dec: float | None = None
+        self._slew_seq: int = 0
         self._prev_ra: float = 0.0
         self._prev_dec: float = 0.0
         # Manual move polling
@@ -229,6 +231,7 @@ class Mount(BaseDevice):
         state = (pv.state or "").lower()
         if self.homing and state != "busy":
             self.homing = False
+            self.homed = True
 
     # ── Commands ─────────────────────────────────────────────────
 
@@ -239,6 +242,8 @@ class Mount(BaseDevice):
         })
         await self.send_switch(abort_prop, [{ "name": item, "value": True }])
         self.slewing = False
+        if self.homing:
+            self.homed = False  # home interrompu = pas homed
         self.homing = False
         self._target_ra = None
         self._target_dec = None
@@ -287,11 +292,27 @@ class Mount(BaseDevice):
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
     async def park(self) -> None:
+        self.homed = False  # le park quitte la home position
         # Abort si Busy (park/homing/slewing) — sinon INDIGO ignore le park (mount_park_callback check !parking&&!homing)
         if self.park_state == "Busy" or self.homing or self.slewing:
             log.info("[%s] park: Busy/homing/slewing → abort avant park", self.name)
             await self.abort()
             await asyncio.sleep(0.8)
+        # Au pôle (89.98°) le :hP# peut rester bloqué comme le :MS# — sortir du pôle d'abord par palier 80°.
+        # Ce palier est bref (max 8s) et suivi d'un abort si encore Busy, pour ne pas laisser le LED Busy.
+        if abs(self.dec_deg) > 85.0:
+            log.info("[%s] park: pôle DEC %.1f° → palier 80° avant park", self.name, self.dec_deg)
+            await self._slew_to_raw(self.ra_hours, 80.0)
+            for _ in range(16):
+                await asyncio.sleep(0.5)
+                if not self.slewing:
+                    break
+            if self.slewing:
+                log.info("[%s] park: palier slewing toujours actif → abort", self.name)
+                await self.abort()
+                await asyncio.sleep(0.8)
+            else:
+                await asyncio.sleep(0.5)
         # OnStep :hP# exige tracking OFF
         if self.tracking:
             log.info("[%s] park: tracking ON → OFF avant park", self.name)
@@ -300,15 +321,21 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
-        # Poll jusqu'à 10s : évite de bloquer 8s fixes et détecte le vrai Busy→Ok
-        for _ in range(20):
+        # Poll jusqu'à 20s : OnStep :hP# peut mettre 5-15s à slewer vers le pôle.
+        # On attend Ok (pas Busy ni Alert) ; Alert 'Parking' est transitoire mais on ne coupe plus.
+        for _ in range(40):
             await asyncio.sleep(0.5)
-            if self.parked and self.park_state != "Busy":
-                log.info("[%s] park: success (parked True, state=%s)", self.name, self.park_state)
+            if self.parked and self.park_state == "Ok":
+                log.info("[%s] park: success (parked True, state Ok)", self.name)
                 return
-            if self.park_state == "Alert":
-                log.warning("[%s] park: Alert reçu (state=%s msg park=%s)", self.name, self.park_state, self.parked)
-                break
+            if self.parked and self.park_state not in ("Busy", "Alert"):
+                log.info("[%s] park: success parked True state=%s", self.name, self.park_state)
+                return
+        if self.parked and self.park_state == "Alert":
+            # OnStep laisse parfois Alert avec msg '' après parking — on l'accepte comme succès si parked True
+            msg = getattr(self._properties.get(self._resolve_prop_name("MOUNT_PARK")), "message", "")
+            log.warning("[%s] park: Alert persistant après 20s (msg='%s') mais parked True → accepté", self.name, msg)
+            return
         if self.parked:
             log.info("[%s] park: success Busy→%s (après poll)", self.name, self.park_state)
             return
@@ -317,12 +344,18 @@ class Mount(BaseDevice):
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            for _ in range(20):
+            for _ in range(40):
                 await asyncio.sleep(0.5)
-                if self.parked and self.park_state != "Busy":
-                    log.info("[%s] park: success after bi-item", self.name)
+                if self.parked and self.park_state == "Ok":
+                    log.info("[%s] park: success after bi-item (Ok)", self.name)
                     return
-        log.warning("[%s] park: still not parked after 10s (state=%s parked=%s)", self.name, self.park_state, self.parked)
+                if self.parked and self.park_state not in ("Busy", "Alert"):
+                    log.info("[%s] park: success after bi-item state=%s", self.name, self.park_state)
+                    return
+            if self.parked and self.park_state == "Alert":
+                log.warning("[%s] park: Alert persistant après retry mais parked True → accepté", self.name)
+                return
+        log.warning("[%s] park: still not parked after 20s (state=%s parked=%s)", self.name, self.park_state, self.parked)
 
     async def unpark(self) -> None:
         # Si HOME ou PARK est Busy, on l'abort d'abord — sinon :hR# est ignoré (indigo_mount_lx200.c:2774)
@@ -339,14 +372,18 @@ class Mount(BaseDevice):
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
         await self._send_park_switch(target)
-        for _ in range(20):
+        for _ in range(40):
             await asyncio.sleep(0.5)
-            if self.parked is False and self.park_state != "Busy":
+            if self.parked is False and self.park_state == "Ok":
+                log.info("[%s] unpark: success (parked False, state Ok)", self.name)
+                return
+            if self.parked is False and self.park_state not in ("Busy", "Alert"):
                 log.info("[%s] unpark: success (parked False, state=%s)", self.name, self.park_state)
                 return
-            if self.park_state == "Alert":
-                log.warning("[%s] unpark: Alert (state=%s)", self.name, self.park_state)
-                break
+        if not self.parked and self.park_state == "Alert":
+            msg = getattr(self._properties.get(self._resolve_prop_name("MOUNT_PARK")), "message", "")
+            log.warning("[%s] unpark: Alert persistant après 20s (msg='%s') mais parked False → accepté", self.name, msg)
+            return
         if not self.parked:
             log.info("[%s] unpark: success after poll (parked False, state=%s)", self.name, self.park_state)
             return
@@ -356,24 +393,48 @@ class Mount(BaseDevice):
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             log.info("[%s] unpark: sending bi-item %s", self.name, items)
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            for _ in range(20):
+            for _ in range(40):
                 await asyncio.sleep(0.5)
-                if not self.parked and self.park_state != "Busy":
-                    log.info("[%s] unpark: success after bi-item", self.name)
+                if not self.parked and self.park_state == "Ok":
+                    log.info("[%s] unpark: success after bi-item (Ok)", self.name)
                     return
-        log.warning("[%s] unpark: still parked after 10s (state=%s parked=%s)", self.name, self.park_state, self.parked)
+                if not self.parked and self.park_state not in ("Busy", "Alert"):
+                    log.info("[%s] unpark: success after bi-item state=%s", self.name, self.park_state)
+                    return
+            if not self.parked and self.park_state == "Alert":
+                log.warning("[%s] unpark: Alert persistant après retry mais parked False → accepté", self.name)
+                return
+        log.warning("[%s] unpark: still parked after 20s (state=%s parked=%s)", self.name, self.park_state, self.parked)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: dé-parque, tracking ON, sort du pôle, puis slew — fallback move si :MS# bloqué."""
         log.info("[%s] slew_to: demandé RA=%.4fh DEC=%.2f° (actuel RA=%.4fh DEC=%.2f° parked=%s tracking=%s park_state=%s)", self.name, ra_hours, dec_deg, self.ra_hours, self.dec_deg, self.parked, self.tracking, self.park_state)
-        if self.parked or self.park_state == "Busy":
-            log.info("[%s] slew_to: parked/busy → unpark auto avant slew", self.name)
-            await self.unpark()
-            # unpark poll déjà 10s, plus 1s de marge
-            await asyncio.sleep(1.0)
-            if self.parked or self.park_state == "Busy":
-                log.warning("[%s] slew_to: still parked/busy (%s/%s), slew annulé", self.name, self.parked, self.park_state)
+        # Garde anti-double-clic (vu 11:46:25 + 11:46:27) : même cible déjà
+        # en cours → on ignore au lieu de relancer un slew concurrent.
+        if self.slewing and self._target_ra is not None and self._target_dec is not None:
+            _dra = abs(self._target_ra - ra_hours) * 15.0
+            if _dra > 180:
+                _dra = 360 - _dra
+            if _dra < 0.05 and abs(self._target_dec - dec_deg) < 0.05:
+                log.info("[%s] slew_to: même cible déjà en cours, ignoré", self.name)
                 return
+        if self.parked or self.park_state in ("Busy", "Alert"):
+            log.info("[%s] slew_to: parked/busy/alert → unpark auto avant slew", self.name)
+            await self.unpark()
+            await asyncio.sleep(1.0)
+            if self.parked or self.park_state in ("Busy", "Alert"):
+                # Dernier recours : abort puis réessai unpark
+                log.warning("[%s] slew_to: still parked/alert (%s/%s) après unpark → abort+retry", self.name, self.parked, self.park_state)
+                await self.abort()
+                await asyncio.sleep(1.0)
+                await self.unpark()
+                await asyncio.sleep(1.0)
+            if self.parked:
+                log.warning("[%s] slew_to: still parked/busy/alert (%s/%s), slew annulé", self.name, self.parked, self.park_state)
+                return
+            # Si Alert persiste mais parked False, on tente quand même le slew (OnStep laisse Alert 'Unparking')
+            if self.park_state == "Alert":
+                log.warning("[%s] slew_to: Alert persistant mais parked False → on tente le slew", self.name)
         if self.homing:
             log.info("[%s] slew_to: homing en cours → abort avant slew", self.name)
             await self.abort()
@@ -390,29 +451,191 @@ class Mount(BaseDevice):
                 log.warning("[%s] slew_to: tracking toujours OFF après 3s, on tente quand même", self.name)
             else:
                 await asyncio.sleep(0.3)
-        # GOTO simple INDIGO : unpark/tracking puis :Sr/:Sd/:MS# direct.
-        # On laisse le driver OnStep gérer le pôle/limites (il renvoie '0' ou
-        # '1' + Alert). Les tentatives palier 80° et joystick ont montré
-        # qu'elles bloquaient le :hP# et laissaient le LED Park Busy.
+        # Sortie de pôle : OnStep à DEC>85° refuse le :MS# lointain (vu 89.98°→55° bloqué).
+        # Palier intermédiaire 80° puis GOTO final. Le park garde le protocole simple
+        # (sans palier) pour ne pas laisser le LED Busy — ce palier n'est que pour GOTO.
+        if abs(self.dec_deg) > 85.0 and abs(dec_deg - self.dec_deg) > 10.0:
+            mid_dec = 80.0 if dec_deg < 80 else 75.0
+            log.info("[%s] slew_to: pôle DEC %.1f° → palier intermédiaire %.1f° avant cible %.1f°", self.name, self.dec_deg, mid_dec, dec_deg)
+            # À 89-90° le :MS# est singulier (RA indéfini) : le slew direct échoue même pour 10°.
+            # On tente d'abord le slew, mais s'il reste à 90°, on bascule immédiatement en joystick SOUTH.
+            if abs(self.dec_deg) > 89.0:
+                log.info("[%s] slew_to: pôle 90° → joystick direct (évite :MS# singulier)", self.name)
+                await self.move("SOUTH", "MAX")
+                await asyncio.sleep(min(10.0, abs(self.dec_deg - mid_dec) * 0.60))
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+                log.info("[%s] slew_to: après joystick pôle à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+                if abs(self.dec_deg - 90.0) < 1.0:
+                    # Encore au pôle → seconde tentative FIND plus lente
+                    await self.move("SOUTH", "MAX")
+                    await asyncio.sleep(6.0)
+                    await self.halt_move()
+                    await asyncio.sleep(0.8)
+                    log.info("[%s] slew_to: après 2e joystick à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+            else:
+                await self._slew_to_raw(self.ra_hours, mid_dec)
+                for _ in range(16):
+                    await asyncio.sleep(0.5)
+                    if not self.slewing:
+                        break
+                log.info("[%s] slew_to: après palier à RA=%.4fh DEC=%.2f° (slewing=%s)", self.name, self.ra_hours, self.dec_deg, self.slewing)
+                if abs(self.dec_deg - 89.98) < 2.0 and abs(self.dec_deg - mid_dec) > 2.0:
+                    log.warning("[%s] slew_to: palier intermédiaire n'a pas bougé (resté %.1f°) → fallback joystick", self.name, self.dec_deg)
+                    await self.move("SOUTH", "MAX")
+                    await asyncio.sleep(6.0)
+                    await self.halt_move()
+                    await asyncio.sleep(0.8)
+                    log.info("[%s] slew_to: après fallback joystick à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+        elif abs(self.dec_deg - 87.0) < 5.0:
+            # Sortie de pôle 87° : nudge DEC seul vers la cible. PAS de move
+            # RA en joystick ici — au pôle le RA est singulier (pier side
+            # inversé vu gamma Cas → opposé). Le RA est géré par le :MS#.
+            d_dec = dec_deg - self.dec_deg
+            if abs(d_dec) > 2.0:
+                direction = "NORTH" if d_dec > 0 else "SOUTH"
+                log.info("[%s] slew_to: pôle 87° → méridien %s %.1f°", self.name, direction, abs(d_dec))
+                await self.move(direction, "MAX")
+                await asyncio.sleep(min(10.0, abs(d_dec) * 0.45))
+                await self.halt_move()
+                await asyncio.sleep(0.8)
+            log.info("[%s] slew_to: après méridien à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+        # Génération anti-concurrents : un watchdog d'un GOTO précédent ne
+        # doit pas joysticker pendant le nouveau slew (→ OnStep '8').
+        self._slew_seq += 1
+        seq = self._slew_seq
+        await self._slew_to_raw(ra_hours, dec_deg)
+        # Le suivi (complétion / rejet / retry) tourne en tâche de fond pour
+        # ne pas bloquer l'HTTP : le poll ne déclare "rejeté" qu'après 8s
+        # stables loin de la cible (le flip met plusieurs s à démarrer).
+        try:
+            asyncio.get_running_loop().create_task(
+                self._slew_watchdog(ra_hours, dec_deg, seq))
+        except RuntimeError:
+            pass
+
+    async def _slew_watchdog(self, ra_hours: float, dec_deg: float, seq: int) -> None:
+        """Attend la fin du slew puis retry si :MS# rejeté (fond, non bloquant)."""
+        for _ in range(20):
+            await asyncio.sleep(0.5)
+            if not self.slewing:
+                break
+        if seq != self._slew_seq:
+            log.info("[%s] watchdog: nouveau GOTO depuis, retry annulé", self.name)
+            return
+        if self.slewing:
+            return  # slew en cours (flip long) : le poll suit
+        d_ra_chk = abs(self.ra_hours - ra_hours) * 15.0
+        if d_ra_chk > 180:
+            d_ra_chk = 360 - d_ra_chk
+        d_dec_chk = abs(self.dec_deg - dec_deg)
+        if d_ra_chk < 0.05 and d_dec_chk < 0.05:
+            log.info("[%s] slew_to: sur cible RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+        else:
+            log.warning("[%s] slew_to: :MS# rejeté (resté RA=%.4fh DEC=%.2f°) → retry", self.name, self.ra_hours, self.dec_deg)
+            await self._slew_retry_small(ra_hours, dec_deg)
+
+    async def _slew_retry_small(self, ra_hours: float, dec_deg: float) -> None:
+        """Retry après :MS# rejeté : joystick DEC seul si petit résidu, jamais de RA large.
+
+        Un grand écart RA (>30°) = traversée du méridien (flip monture
+        allemande, vu 12.4h→0.9h gamma Cas) : le joystick EAST/WEST ne peut
+        pas flipper et partait à l'opposé. On re-tente juste le :MS#
+        (c'est lui qui flippe) — sinon on laisse la main (/api/mount/flip).
+        """
+        d_dec2 = dec_deg - self.dec_deg
+        if abs(d_dec2) > 1:
+            await self.move("NORTH" if d_dec2 > 0 else "SOUTH", "MAX")
+            await asyncio.sleep(min(8.0, abs(d_dec2) * 0.45))
+            await self.halt_move()
+            await asyncio.sleep(0.8)
+        d_ra2 = (ra_hours - self.ra_hours) * 15.0
+        if d_ra2 > 180:
+            d_ra2 -= 360
+        if d_ra2 < -180:
+            d_ra2 += 360
+        if abs(d_ra2) > 30.0:
+            log.warning("[%s] slew_to retry: ΔRA=%.1f° large → pas de joystick RA (flip requis), re-:MS# direct", self.name, abs(d_ra2))
+        elif abs(d_ra2) > 3.0:
+            await self.move("WEST" if d_ra2 > 0 else "EAST", "MAX")
+            await asyncio.sleep(min(8.0, abs(d_ra2) * 0.30))
+            await self.halt_move()
+            await asyncio.sleep(0.8)
         await self._slew_to_raw(ra_hours, dec_deg)
 
+    async def _ensure_motion_stopped(self, timeout: float = 10.0) -> bool:
+        """Attend l'arrêt complet du mouvement avant un :MS#.
+
+        OnStep refuse le :MS# avec '8' (Already in motion) si le joystick
+        précédent (ex. sortie de pôle) décélère encore. On attend coords
+        stables 2 s + état serveur non Busy.
+        """
+        prev_ra, prev_dec = self.ra_hours, self.dec_deg
+        stable = 0
+        waited = 0.0
+        while waited < timeout:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+            dra = abs(self.ra_hours - prev_ra) * 15.0
+            dd = abs(self.dec_deg - prev_dec)
+            prev_ra, prev_dec = self.ra_hours, self.dec_deg
+            busy = False
+            try:
+                cp = self._properties.get(self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES"))
+                if cp and (cp.state or "").lower() == "busy":
+                    busy = True
+            except Exception:
+                pass
+            if dra < 0.005 and dd < 0.005 and not busy and not self.homing:
+                stable += 1
+                if stable >= 4:
+                    return True
+            else:
+                stable = 0
+        log.warning("[%s] slew: mouvement toujours actif après %.0fs, on tente quand même", self.name, timeout)
+        return False
+
     async def _slew_to_raw(self, ra_hours: float, dec_deg: float) -> None:
-        """GOTO brut: envoie les coords + trigger SLEW."""
+        """GOTO brut: stoppe, arme le trigger PUIS envoie les coords.
+
+        Ordre imposé par le driver (indigo_mount_lx200.c
+        mount_eq_coords_callback) : il lit l'item ON_COORDINATES_SET au
+        moment où les coords arrivent. Coords d'abord + trigger après =
+        branche no-op (ni slew, ni erreur, coords Ok) — exactement le
+        symptôme vu sur Mount LX200 OnStep (TRACK/SYNC, pas de SLEW).
+        Et :MS# pendant un mouvement → OnStep '8' (Already in motion).
+        """
+        # 0. Laisser retomber tout mouvement (joystick/abort précédent)
+        # AVANT de poser les flags (sinon le poll hérité conclut trop tôt).
+        await self._ensure_motion_stopped()
+        self.homed = False  # tout slew quitte la home position
         self.slewing = True
         self._target_ra = ra_hours
         self._target_dec = dec_deg
         self._prev_ra = self.ra_hours
         self._prev_dec = self.dec_deg
+        # 1. Armer le trigger (SLEW, sinon TRACK) en bi-item OneOfMany.
+        slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
+        if slew_prop in self._properties:
+            pv = self._properties[slew_prop]
+            names = [it.name for it in pv.items]
+            on = "SLEW" if "SLEW" in names else ("TRACK" if "TRACK" in names else None)
+            if on is None:
+                log.warning("[%s] slew: pas de trigger SLEW/TRACK dans %s (%s) — slew non déclenché", self.name, slew_prop, names)
+            else:
+                log.info("[%s] slew: trigger %s.%s=On avant coords", self.name, slew_prop, on)
+                if len(names) >= 2:
+                    await self.send_switch(slew_prop, [{"name": on, "value": True}] + [{"name": n, "value": False} for n in names if n != on])
+                else:
+                    await self.send_switch(slew_prop, [{"name": on, "value": True}])
+                await asyncio.sleep(0.3)
+        # 2. Coords : le driver tire :Sr/:Sd/:MS# à leur arrivée.
         coords_prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
         items = [
             {"name": "RA", "value": ra_hours},
             {"name": "DEC", "value": dec_deg},
         ]
         await self.send_number(coords_prop, items)
-
-        slew_prop = self._resolve_prop_name("MOUNT_ON_COORDINATES_SET")
-        if slew_prop in self._properties:
-            await self.send_switch(slew_prop, [{"name": "SLEW", "value": True}])
 
         self._start_move_poll()
 
@@ -426,6 +649,7 @@ class Mount(BaseDevice):
         """
         log.info("[%s] home: demandé (parked=%s tracking=%s slewing=%s homing=%s)",
                  self.name, self.parked, self.tracking, self.slewing, self.homing)
+        self.homed = False
         if self.parked:
             log.info("[%s] home: parked → unpark auto avant home", self.name)
             await self.unpark()
@@ -534,6 +758,7 @@ class Mount(BaseDevice):
 
     async def move(self, direction: str, rate: str = "CENTERING") -> None:
         """Start a manual move. direction: N/S/E/W or NORTH/SOUTH/EAST/WEST"""
+        self.homed = False  # joystick = sortie de home
         # Rate doit être positionné avant le move (INDIGO MOUNT_SLEW_RATE)
         try:
             await self.set_slew_rate(rate)
@@ -594,22 +819,64 @@ class Mount(BaseDevice):
             poll_count = 0
             while True:
                 poll_count += 1
-                # During GOTO: detect slew completion by coordinate stabilization
-                # OnStep met ~3s pour un slew 47° — éviter de clearer à 0.3s au départ
+                # During GOTO: detect slew completion by coordinate approach,
+                # NOT by mere stabilization. OnStep met plusieurs secondes à
+                # démarrer (surtout pour un flip) : ne pas conclure avant 5s,
+                # et ne jamais déclarer "complete" loin de la cible.
                 if self.slewing and self._target_ra is not None:
                     ra_diff = abs(self.ra_hours - self._prev_ra) * 15
                     dec_diff = abs(self.dec_deg - self._prev_dec)
-                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 10:
+                    if ra_diff < 0.01 and dec_diff < 0.01 and poll_count > 50:
                         stable_count += 1
                     else:
                         stable_count = 0
                     self._prev_ra = self.ra_hours
                     self._prev_dec = self.dec_deg
-                    if stable_count >= 5:
+                    t_ra_diff = abs(self.ra_hours - self._target_ra) * 15
+                    # Wrap RA au plus court (0.9h vs 12.4h = 172°, pas 348°)
+                    if t_ra_diff > 180:
+                        t_ra_diff = 360 - t_ra_diff
+                    t_dec_diff = abs(self.dec_deg - self._target_dec)
+                    on_target = t_ra_diff < 0.05 and t_dec_diff < 0.05
+                    if on_target and stable_count >= 10:
                         self.slewing = False
                         self._target_ra = None
                         self._target_dec = None
                         log.info("[%s] slew complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        self._stop_move_poll()
+                        return
+                    if not on_target and stable_count >= 10:
+                        # Stable mais loin : vérifier l'état serveur avant de
+                        # conclure. Si Busy, le slew est encore en cours.
+                        busy = False
+                        try:
+                            cp = self._properties.get(self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES"))
+                            if cp and (cp.state or "").lower() == "busy":
+                                busy = True
+                        except Exception:
+                            pass
+                        if busy:
+                            stable_count = 0  # on attend la suite du slew
+                        elif poll_count > 80:
+                            self.slewing = False
+                            # Remonte le motif driver (ex. OnStep 'Below horizon'
+                            # ou limite méridien) : c'est lui qui dit pourquoi.
+                            try:
+                                cp2 = self._properties.get(self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES"))
+                                cstate = cp2.state if cp2 else "?"
+                                cmsg = (getattr(cp2, "message", "") or "")[:120]
+                            except Exception:
+                                cstate, cmsg = "?", ""
+                            log.warning("[%s] slew rejeté/bloqué (stable loin cible: ΔRA=%.2f° ΔDEC=%.2f° coords=%s msg='%s')", self.name, t_ra_diff, t_dec_diff, cstate, cmsg)
+                            self._target_ra = None
+                            self._target_dec = None
+                            self._stop_move_poll()
+                            return
+                    if poll_count > 600:
+                        self.slewing = False
+                        self._target_ra = None
+                        self._target_dec = None
+                        log.warning("[%s] slew timeout après 60s — débloqué", self.name)
                         self._stop_move_poll()
                         return
                 # During HOME: detect homing completion by coordinate stabilization
@@ -635,6 +902,7 @@ class Mount(BaseDevice):
                         pass
                     if stable_count >= 5 and not home_state_busy:
                         self.homing = False
+                        self.homed = True
                         log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
                         self._stop_move_poll()
                         return
@@ -693,6 +961,7 @@ class Mount(BaseDevice):
             "parked": self.parked,
             "park_state": self.park_state,
             "homing": self.homing,
+            "homed": self.homed,
             "properties": list(self._properties.keys()),
             "props": self._serialize_properties(),
         }

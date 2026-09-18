@@ -142,6 +142,9 @@ export class SkyEngine {
     // ═══════════════════════════════════════════════════════════
 
     init() {
+        // Tampon de build (console F12) : vérifie que le navigateur a le code frais.
+        window.__skyBuild = '20260918c-sel2';
+        console.info('[skymap] build', window.__skyBuild);
         this._width = window.innerWidth;
         this._height = window.innerHeight;
         this._scale = Math.min(this._width, this._height) * 0.42;
@@ -237,12 +240,13 @@ export class SkyEngine {
         const base = this._dataBaseUrl;
         const load = (path) => fetch(base + path).then(r => r.json()).catch(() => null);
 
-        const [stars, consts, mw, dsos, planets] = await Promise.all([
+        const [stars, consts, mw, dsos, planets, brightStars] = await Promise.all([
             load('stars.8.json'),
             load('constellations.lines.json'),
             load('mw.json'),
             load('dsos.6.bright.json'),
             load('planets.json'),
+            fetch('/catalogs/stars.json').then(r => r.json()).catch(() => null),
         ]);
 
         this._starsData = stars;
@@ -253,6 +257,7 @@ export class SkyEngine {
         this._milkywayData = mw;
         this._dsosData = dsos;
         this._planetsData = planets;
+        this._brightStars = brightStars && brightStars.objects ? brightStars.objects : null;
         this._mapReady = true;
         this.render();
     }
@@ -631,6 +636,44 @@ export class SkyEngine {
                 }
             }
             ctx.fill();
+
+            // 8b. Noms d'étoiles brillantes (Mizar, Vega, etc.) — à partir de /catalogs/stars.json
+            if (this.layers.stars && this._brightStars && this._brightStars.length) {
+                const cRA = -this._currentRotation[0];
+                const cDec = -this._currentRotation[1];
+                const sc = this._scale, tx = w / 2, ty = h / 2;
+                // N'affiche que les étoiles brillantes (mag <= 2.5) ou toutes celles avec nom si magnitude non filtrée
+                // et visibles dans l'hémisphère (clip)
+                ctx.fillStyle = "rgba(180, 220, 255, 0.95)";
+                ctx.font = "12px monospace";
+                ctx.textAlign = "left";
+                ctx.textBaseline = "bottom";
+                let labeled = 0;
+                for (const s of this._brightStars) {
+                    if (s.mag > 3.5) continue; // stars.json est déjà mag<=3.5, on garde les plus brillantes lisibles
+                    if (s.mag > this._maxMagnitude) continue;
+                    const ra = s.ra_deg, dec = s.dec_deg;
+                    if (!this._celestialClip([ra, dec])) continue;
+                    const pt = this._projection([ra, dec]);
+                    if (!pt) continue;
+                    // Évite l'encombrement : n'affiche que si étoile assez grande à l'écran
+                    // (échelle > 120px ou mag très brillante)
+                    const isBright = s.mag < 2.0;
+                    const isMedium = s.mag < 2.8;
+                    if (!isBright && !isMedium) continue;
+                    // Anti-chevauchement simple : saute si trop proche du bord
+                    if (pt[0] < 10 || pt[0] > w - 40 || pt[1] < 10 || pt[1] > h - 10) continue;
+                    const name = s.id || s.names?.[0] || "";
+                    if (!name) continue;
+                    // Petit halo pour lisibilité
+                    ctx.strokeStyle = "rgba(0,0,0,0.7)";
+                    ctx.lineWidth = 3;
+                    ctx.strokeText(name, pt[0] + 6, pt[1] - 4);
+                    ctx.fillText(name, pt[0] + 6, pt[1] - 4);
+                    labeled++;
+                    if (labeled > 60) break; // plafond anti-encombrement
+                }
+            }
         }
 
         // 9. Labels méridiens
@@ -840,16 +883,10 @@ export class SkyEngine {
                     ctx.font = "bold 14px monospace";
                     ctx.textAlign = "left";
                     ctx.textBaseline = "bottom";
-                    // Annule le miroir horizontal du canvas pour le texte
-                    ctx.save();
-                    const isMirrored = this._projection === this._mirroredProjection;
-                    if (isMirrored) {
-                        ctx.scale(-1, 1);
-                        ctx.fillText("TELESCOPE", -(pt[0] + 16), pt[1] - 4);
-                    } else {
-                        ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
-                    }
-                    ctx.restore();
+                    // _wrapMirrored ne miroir que les coordonnées projetées,
+                    // pas le raster du canvas : le texte se dessine normalement.
+                    // (Le scale(-1,1) d'avant miroitait les glyphes : «ƎꟼOƆƧƎ⅃ƎT».)
+                    ctx.fillText("TELESCOPE", pt[0] + 16, pt[1] - 4);
                 }
             }
         }
@@ -1292,56 +1329,108 @@ export class SkyEngine {
     }
 
     _showContextMenu(clientX, clientY, px, py) {
-        const hit = this._hitTest(px, py);
+        // Champ bondé (ex. gamma Cas + Sh2 185 à 0.36°) : on liste les
+        // candidats affichés au lieu du « plus proche gagne au hasard ».
+        const hits = this._hitTestAll(px, py);
         const menu = this._menuEl;
         if (!menu) return;
         menu.innerHTML = '';
 
-        let raDeg, decDeg;
-
-        if (hit) {
-            raDeg = hit.ra;
-            decDeg = hit.dec;
-
+        if (hits.length > 1) {
             const title = document.createElement('div');
             title.className = 'obj-menu-title';
-            title.textContent = hit.name || hit.id;
+            title.textContent = `${hits.length} objets proches`;
             menu.appendChild(title);
 
-            if (hit.catalog || hit.type) {
-                const sub = document.createElement('div');
-                sub.className = 'obj-menu-sub';
-                sub.textContent = [hit.catalog, hit.type].filter(Boolean).join(' — ');
-                menu.appendChild(sub);
+            const sub = document.createElement('div');
+            sub.className = 'obj-menu-sub';
+            sub.textContent = this._i18n('sky.pick_object') || 'Choisissez :';
+            menu.appendChild(sub);
+
+            for (const { obj } of hits.slice(0, 8)) {
+                const btn = document.createElement('button');
+                btn.className = 'obj-menu-btn';
+                const mg = parseFloat(obj.mag);
+                btn.textContent = `${obj.name || obj.id || ''}${obj.catalog ? ' · ' + obj.catalog : ''}${!isNaN(mg) && mg < 900 ? ' · ' + mg.toFixed(1) : ''}`;
+                btn.addEventListener('click', () => this._showObjectMenu(obj, clientX, clientY));
+                menu.appendChild(btn);
+            }
+            if (hits.length > 8) {
+                const more = document.createElement('div');
+                more.className = 'obj-menu-sub';
+                more.textContent = `… et ${hits.length - 8} autres (zoomez pour préciser)`;
+                menu.appendChild(more);
             }
 
-            if (hit.mag != null) {
-                const mag = document.createElement('div');
-                mag.className = 'obj-menu-sub';
-                mag.textContent = `Magnitude: ${hit.mag.toFixed(1)}`;
-                menu.appendChild(mag);
-            }
+            menu.style.display = 'block';
+            menu.style.left = clientX + 'px';
+            menu.style.top = clientY + 'px';
+
+            requestAnimationFrame(() => {
+                const mr = menu.getBoundingClientRect();
+                if (mr.right > window.innerWidth) menu.style.left = (clientX - mr.width) + 'px';
+                if (mr.bottom > window.innerHeight) menu.style.top = (clientY - mr.height) + 'px';
+            });
+            return;
+        }
+
+        const hit = hits.length ? hits[0].obj : null;
+
+        if (hit) {
+            this._showObjectMenu(hit, clientX, clientY);
+            return;
         } else {
-            let coords = null;
-            try {
-                const ugamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
-                const ucG = Math.cos(ugamma);
-                const usG = Math.sin(ugamma);
-                const udx = px - this._width / 2;
-                const udy = py - this._height / 2;
-                coords = this._projection.invert([
-                    this._width / 2 + udx * ucG + udy * usG,
-                    this._height / 2 - udx * usG + udy * ucG
-                ]);
-            } catch(e) {}
-            if (!coords || !isFinite(coords[0]) || !isFinite(coords[1])) return;
-            raDeg = coords[0];
-            decDeg = coords[1];
-
+            // Ciel vide : info seule, PAS de GOTO — les coordonnées inversées
+            // hors objet sont inexploitables (ex. DEC mirroring au pôle).
             const title = document.createElement('div');
             title.className = 'obj-menu-title';
             title.textContent = this._i18n('sky.empty_sky') || 'Ciel vide';
             menu.appendChild(title);
+
+            const note = document.createElement('div');
+            note.className = 'obj-menu-sub';
+            note.textContent = this._i18n('sky.empty_sky_hint') || 'Cliquez sur un objet affiché';
+            menu.appendChild(note);
+
+            menu.style.display = 'block';
+            menu.style.left = clientX + 'px';
+            menu.style.top = clientY + 'px';
+
+            requestAnimationFrame(() => {
+                const mr = menu.getBoundingClientRect();
+                if (mr.right > window.innerWidth) menu.style.left = (clientX - mr.width) + 'px';
+                if (mr.bottom > window.innerHeight) menu.style.top = (clientY - mr.height) + 'px';
+            });
+            return;
+        }
+    }
+
+    // Menu d'un objet avéré : coordonnées catalogue + GOTO + définir cible.
+    _showObjectMenu(hit, clientX, clientY) {
+        const menu = this._menuEl;
+        if (!menu) return;
+        menu.innerHTML = '';
+
+        const raDeg = hit.ra;
+        const decDeg = hit.dec;
+
+        const title = document.createElement('div');
+        title.className = 'obj-menu-title';
+        title.textContent = hit.name || hit.id;
+        menu.appendChild(title);
+
+        if (hit.catalog || hit.type) {
+            const sub = document.createElement('div');
+            sub.className = 'obj-menu-sub';
+            sub.textContent = [hit.catalog, hit.type].filter(Boolean).join(' — ');
+            menu.appendChild(sub);
+        }
+
+        if (hit.mag != null && !isNaN(parseFloat(hit.mag)) && parseFloat(hit.mag) < 900) {
+            const mag = document.createElement('div');
+            mag.className = 'obj-menu-sub';
+            mag.textContent = `Magnitude: ${parseFloat(hit.mag).toFixed(1)}`;
+            menu.appendChild(mag);
         }
 
         const raH = ((raDeg % 360) + 360) % 360 / 15;
@@ -1392,7 +1481,39 @@ export class SkyEngine {
         if (this._menuEl) this._menuEl.style.display = 'none';
     }
 
-    _hitTest(px, py) {
+    // Un objet n'est sélectionnable que s'il est réellement affiché :
+    // couche + catalogue actifs, magnitude sous le seuil, devant le globe.
+    // (Mêmes règles que le rendu : layers/capuchons/mag + _celestialClip.)
+    _objectSelectable(obj) {
+        if (obj == null || !isFinite(obj.ra) || !isFinite(obj.dec)) return false;
+        const mag = parseFloat(obj.mag);
+        if (!isNaN(mag) && mag > this._maxMagnitude) return false;
+        const cat = String(obj.catalog || '');
+        if (cat === 'Star' || cat === 'BSC') {
+            if (!this.layers.stars) return false;
+        } else {
+            if (!this.layers.dsos) return false;
+            const id = String(obj.id || '').toUpperCase();
+            let ok = this.catalogs.other;
+            if (/^M\d/.test(id)) ok = this.catalogs.messier;
+            else if (/^NGC/.test(id)) ok = this.catalogs.ngc;
+            else if (/^IC/.test(id)) ok = this.catalogs.ic;
+            else if (/^SH/.test(id)) ok = this.catalogs.sh2;
+            else if (/^LDN/.test(id)) ok = this.catalogs.ldn;
+            else if (/^CED/.test(id)) ok = this.catalogs.ced;
+            else if (/^VDB/.test(id)) ok = this.catalogs.vdb;
+            else if (/^LBN/.test(id)) ok = this.catalogs.lbn;
+            else if (/^RCW/.test(id)) ok = this.catalogs.rcw;
+            else if (/^SNR/.test(id)) ok = this.catalogs.snr;
+            if (!ok) return false;
+        }
+        if (!this._celestialClip([obj.ra, obj.dec])) return false;
+        return true;
+    }
+
+    // Tous les objets affichés dans le rayon, triés par distance croissante.
+    // (Champ bondé : gamma Cas + Sh2 185… le menu laisse choisir.)
+    _hitTestAll(px, py, hitRadius = 20) {
         // Un-rotate mouse coordinates by parallactic angle
         const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
         const cosG = Math.cos(gamma);
@@ -1402,23 +1523,23 @@ export class SkyEngine {
         px = this._width / 2 + hdx * cosG + hdy * sinG;
         py = this._height / 2 - hdx * sinG + hdy * cosG;
 
-        const hitRadius = 20;
-        let best = null, bestDist = hitRadius;
+        const found = [];
 
         for (const obj of this._objects) {
-            const coords = [obj.ra, obj.dec];
+            // Clic limité aux objets affichés : ni derrière le globe, ni
+            // filtrés (couche/catalogue/magnitude), ni hors écran.
+            if (!this._objectSelectable(obj)) continue;
             let pt;
-            try { pt = this._projection(coords); } catch(e) { continue; }
+            try { pt = this._projection([obj.ra, obj.dec]); } catch(e) { continue; }
             if (!pt || isNaN(pt[0]) || isNaN(pt[1])) continue;
+            if (pt[0] < -50 || pt[0] > this._width + 50 || pt[1] < -50 || pt[1] > this._height + 50) continue;
             const dx = px - pt[0];
             const dy = py - pt[1];
             const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist < bestDist) {
-                bestDist = dist;
-                best = obj;
-            }
+            if (dist < hitRadius) found.push({ obj, dist });
         }
-        return best;
+        found.sort((a, b) => a.dist - b.dist);
+        return found;
     }
 
     // ═══════════════════════════════════════════════════════════

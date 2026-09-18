@@ -190,6 +190,12 @@ def test_home():
     check(homing, "homing → True pendant home")
     done = wait_until(lambda: mount_state().get("homing") is False, timeout=8)
     check(done, "homing → False (home terminé)")
+    check(mount_state().get("homed") is True, "homed → True après home (LED verte)")
+    r = api_post("/api/mount/slew", {"ra_hours": 11.0, "dec_deg": 67.0})
+    check(r.get("ok") is True, "slew après home → ok")
+    wait_until(lambda: mount_state().get("slewing") is True, timeout=5)
+    wait_until(lambda: mount_state().get("slewing") is False, timeout=8)
+    check(mount_state().get("homed") is False, "homed → False après slew (sortie de home)")
 
 
 def read_settled(timeout=8, window=0.35, reads=3):

@@ -203,14 +203,34 @@ def visibility_24h(ra_hours: float, dec_deg: float, lat_deg: float,
         rise_epoch = transit_epoch - ha_rs * 3600.0
         set_epoch = transit_epoch + ha_rs * 3600.0
 
-    # Observability window: contiguous above min_alt_deg.
+    # Observability window: the CONTIGUOUS run above min_alt_deg that
+    # contains now, else the next upcoming run (a first..last span would
+    # wrongly merge two days across the night gap, e.g. 13:43 → 13:43+1d).
     best_night: dict | None = None
-    above = [p for p in curve if p["alt_deg"] >= min_alt_deg]
-    if above:
+    runs: list[list[dict]] = []
+    cur: list[dict] = []
+    for p in curve:
+        if p["alt_deg"] >= min_alt_deg:
+            cur.append(p)
+        elif cur:
+            runs.append(cur)
+            cur = []
+    if cur:
+        runs.append(cur)
+    if runs:
+        containing = [r for r in runs if r[0]["epoch"] <= start_epoch <= r[-1]["epoch"]]
+        upcoming = [r for r in runs if r[0]["epoch"] > start_epoch]
+        if containing:
+            pick = containing[0]
+        elif upcoming:
+            pick = upcoming[0]
+        else:
+            pick = max(runs, key=lambda r: max(p["alt_deg"] for p in r))
+        pick_pts = pick
         best_night = {
-            "start_epoch": above[0]["epoch"],
-            "end_epoch": above[-1]["epoch"],
-            "max_alt_deg": max(p["alt_deg"] for p in above),
+            "start_epoch": pick_pts[0]["epoch"],
+            "end_epoch": pick_pts[-1]["epoch"],
+            "max_alt_deg": max(p["alt_deg"] for p in pick_pts),
         }
 
     return {

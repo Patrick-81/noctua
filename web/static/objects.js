@@ -138,10 +138,22 @@ async function loadObjectCatalogs() {
         ]);
 
         const known = new Set();
+        const posSeen = [];
         const add = (o) => {
             const id = String(o.id || '').toUpperCase();
             if (known.has(id)) return;
             known.add(id);
+            // Déduplique les doublons inter-catalogues (ex. GammaCas = HR 264 :
+            // mêmes coords, autre nom) : à ~2′ près + mag cohérente, on garde
+            // le premier (ordre Messier/NGC/Star avant BSC/DSO).
+            const mag = parseFloat(o.mag);
+            for (const q of posSeen) {
+                const dra = (o.ra - q.ra) * Math.cos(q.dec * Math.PI / 180);
+                if (Math.hypot(dra, o.dec - q.dec) > 0.03) continue;
+                const dm = Math.abs(mag - q.mag);
+                if (isNaN(dm) || dm < 1.0) return;
+            }
+            posSeen.push({ ra: o.ra, dec: o.dec, mag });
             objects.push(o);
         };
         const cleanId = (s) => String(s || '').replace(/\s+/g, '');

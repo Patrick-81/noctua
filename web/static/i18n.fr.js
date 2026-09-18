@@ -671,6 +671,8 @@
             'ws.connected': '● Connecté',
             'ws.minimize': 'Réduire / étendre',
             'sky.define_target': '◎ Définir cible',
+            'sky.empty_sky_hint': 'Ciel vide — cliquez sur un objet affiché',
+            'sky.pick_object': 'Choisissez :',
             'app.pin': 'Épingler (empêche le déplacement)',
             'app.unpin': 'Détacher (autoriser le déplacement)',
             'preview.star_selected': '⭐ Étoile #{idx} ({x}, {y}) — Prêt pour guidage',
