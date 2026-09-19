@@ -1227,12 +1227,22 @@ export class SkyEngine {
     }
 
     _setupDrag() {
-        const drag = d3.behavior.drag().on("drag", () => {
+        // Manipulation contrainte : rotation écran horizontale (azimut) et
+        // verticale (altitude) uniquement, jamais de roulis.
+        // - gamma figé au début du geste (avant : recalculé à chaque pixel,
+        //   la direction tournait pendant le geste → trajectoires erratiques) ;
+        // - pas horizontal atténué en cos(alt) vers le zénith (l'azimut y est
+        //   indéfini : sans ça, 1 px près du pôle catapulte le centre).
+        const drag = d3.behavior.drag()
+            .on("dragstart", () => {
+                this._dragGamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+            })
+            .on("drag", () => {
             const sensitivity = 0.25 * ((Math.min(this._width, this._height) * 0.42) / this._scale);
             const lst = this._lstDegrees(this._getObsDate(), this.siteLng);
 
             // Un-rotate screen drag by parallactic angle to get true horizontal/vertical
-            const gamma = (this._parallacticAngleDeg || 0) * Math.PI / 180;
+            const gamma = this._dragGamma ?? (this._parallacticAngleDeg || 0) * Math.PI / 180;
             const cosG = Math.cos(gamma);
             const sinG = Math.sin(gamma);
             const sdx = d3.event.dx;
@@ -1248,18 +1258,22 @@ export class SkyEngine {
             let newAz = current.az;
             let newAlt = current.alt;
 
+            // Vers le zénith, l'azimut perd son sens : on y réduit le pas
+            // horizontal (→ 0 au zénith) au lieu de catapulter le centre.
+            const cosAlt = Math.max(0, Math.cos(current.alt * Math.PI / 180));
+
             if (this._lockRA) {
                 // Zenith lock: only altitude (vertical)
                 if (!this._lockDEC) newAlt += vDrag * sensitivity;
             } else if (this._lockDEC) {
                 // E/O lock: only azimuth (horizontal)
-                newAz += hDrag * sensitivity;
+                newAz += hDrag * sensitivity * cosAlt;
             } else {
-                newAz += hDrag * sensitivity;
+                newAz += hDrag * sensitivity * cosAlt;
                 newAlt += vDrag * sensitivity;
             }
 
-            newAlt = Math.max(-90, Math.min(90, newAlt));
+            newAlt = Math.max(-89.5, Math.min(89.5, newAlt));
             newAz = ((newAz % 360) + 360) % 360;
 
             // Convert back to RA/DEC and update offsets

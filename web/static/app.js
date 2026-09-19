@@ -2,7 +2,7 @@
 // Noctua — App principal (applets flottants)
 // ═══════════════════════════════════════════════════════════════
 
-import { SkyEngine } from '/sky-engine.js?v=20260918c';
+import { SkyEngine } from '/sky-engine.js?v=20260918d';
 
 // ── Mode Manager ──────────────────────────────────────────────
 
