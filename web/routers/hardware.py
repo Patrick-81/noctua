@@ -1,11 +1,70 @@
 """Hardware panel, profiles, filter wheel, generic property routes."""
 
+import glob
+import os
+import re
+import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .common import SanitizedJSONResponse, log
 
 if TYPE_CHECKING:
     from ..server import WebServer
+
+
+def _scan_serial_ports() -> list[dict]:
+    """List serial nodes (ttyUSB/ttyACM) with stable by-id path, udev info, holders."""
+    ports: list[dict] = []
+    by_id_dir = Path("/dev/serial/by-id")
+    links_by_target: dict[str, list[str]] = {}
+    if by_id_dir.is_dir():
+        for link in by_id_dir.iterdir():
+            try:
+                target = str(link.resolve())
+                links_by_target.setdefault(target, []).append(str(link))
+            except OSError:
+                continue
+
+    for pattern in ("/dev/ttyUSB*", "/dev/ttyACM*"):
+        for path in sorted(glob.glob(pattern)):
+            if not os.path.exists(path):
+                continue
+            by_id = sorted(links_by_target.get(path, []))
+            description = ""
+            try:
+                r = subprocess.run(
+                    ["udevadm", "info", "-q", "property", "-n", path],
+                    capture_output=True, text=True, timeout=2,
+                )
+                props = dict(
+                    line.split("=", 1)
+                    for line in r.stdout.splitlines()
+                    if "=" in line
+                )
+                parts = [props.get("ID_VENDOR", ""), props.get("ID_MODEL", "")]
+                description = " ".join(p for p in parts if p).replace("_", " ")
+            except (FileNotFoundError, subprocess.SubprocessError, OSError):
+                pass
+            holders: list[int] = []
+            try:
+                r = subprocess.run(
+                    ["fuser", path], capture_output=True, text=True, timeout=1,
+                )
+                for tok in r.stdout.split():
+                    if tok.strip().isdigit():
+                        holders.append(int(tok))
+            except (FileNotFoundError, subprocess.SubprocessError, OSError):
+                pass
+            ports.append({
+                "path": path,
+                "by_id": by_id,
+                "preferred": by_id[0] if by_id else path,
+                "description": description,
+                "busy": bool(holders),
+                "holders": holders,
+            })
+    return ports
 
 
 def register(app, server: "WebServer") -> None:
@@ -135,6 +194,35 @@ def register(app, server: "WebServer") -> None:
             for name, dev in server.registry.all_devices().items()
         }
         return {"devices": devices, "profiles": server.profiles.list_profiles()}
+
+    @app.get("/api/serial/ports")
+    async def list_serial_ports():
+        """Scan host serial nodes and report active-profile endpoint health.
+
+        Returns discovered ports (preferred stable by-id path first) plus
+        ``profile`` showing whether the active profile's mount_endpoint still
+        exists after USB re-enumeration (ttyUSB0 → ttyUSB1 → …).
+        """
+        ports = _scan_serial_ports()
+        known_paths = {p["path"] for p in ports}
+        known_paths.update(p for p in ports for p in p.get("by_id", []))
+        profile_info: dict = {"name": None, "mount_endpoint": None, "exists": None}
+        try:
+            active = server.profiles.list_profiles().get("active")
+            prof = server.profiles.get(active) if active else None
+            if prof:
+                endpoint = prof.get("mount_endpoint") or ""
+                profile_info["name"] = active
+                profile_info["mount_endpoint"] = endpoint or None
+                if endpoint and re.match(r"^/dev/", endpoint):
+                    profile_info["exists"] = os.path.exists(endpoint)
+                    profile_info["in_scan"] = endpoint in known_paths
+        except Exception as e:  # noqa: BLE001
+            log.warning("Serial ports profile check failed: %s", e)
+        return SanitizedJSONResponse({
+            "ports": ports,
+            "profile": profile_info,
+        })
 
     @app.post("/api/hardware/connect")
     async def hardware_connect(body: dict):

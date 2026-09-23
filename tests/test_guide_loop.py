@@ -233,6 +233,51 @@ def test_loop_capture_error_retries():
     assert any("frame ignorée" in m for _, m in record["logs"])
 
 
+def test_loop_stops_after_max_capture_fails():
+    """Caméra jamais prête → arrêt net après MAX_CAPTURE_FAILS (pas d'infini)."""
+    from indigo.devices.guide_loop import MAX_CAPTURE_FAILS
+
+    guide = Guide()
+    guide.start()
+    record = fresh_record()
+    calls = {"n": 0}
+
+    async def capture_frame(duration, timeout):
+        calls["n"] += 1
+        raise RuntimeError("caméra guide non prête")
+
+    async def measure(img):
+        raise AssertionError("unreachable")
+
+    async def pulse(direction, ms):
+        raise AssertionError("unreachable")
+
+    async def set_rate(rate):
+        pass
+
+    def broadcast(payload):
+        record["broadcasts"].append(payload)
+
+    async def log(level, msg):
+        record["logs"].append((level, msg))
+
+    async def sleep(s):
+        await asyncio.sleep(0)
+
+    hooks = {"capture_frame": capture_frame, "measure": measure,
+             "pulse": pulse, "set_rate": set_rate, "broadcast": broadcast,
+             "log": log, "sleep": sleep}
+
+    async def main():
+        session = GuideLoopSession(guide, "Guide Camera", hooks)
+        await asyncio.wait_for(session.run(), timeout=5)
+
+    asyncio.new_event_loop().run_until_complete(main())
+    assert guide.state == GuideState.STOPPED
+    assert calls["n"] == MAX_CAPTURE_FAILS
+    assert any("arrêt" in m and "échecs" in m for _, m in record["logs"])
+
+
 def test_update_config_hot_retune():
     guide = Guide()
     guide.start(exposure_sec=1.0, aggressiveness=0.8)

@@ -405,6 +405,21 @@ function initConnectionBar() {
         if (data.connected) refreshDriverList();
     }).catch(() => {});
 
+    // Populate serial-port datalist (shared with hardware panel)
+    if (typeof hwScanSerialPorts === 'function') {
+        hwScanSerialPorts({ force: true, silent: true }).catch(() => {});
+        // Refresh when serial row becomes visible
+        const serialRow = document.getElementById('conn-row-serial');
+        if (serialRow && 'MutationObserver' in window) {
+            const mo = new MutationObserver(() => {
+                if (serialRow.style.display !== 'none' && typeof hwScanSerialPorts === 'function') {
+                    hwScanSerialPorts({ silent: true }).catch(() => {});
+                }
+            });
+            mo.observe(serialRow, { attributes: true, attributeFilter: ['style'] });
+        }
+    }
+
     // Poll connection status + drivers every 3s
     setInterval(async () => {
         try {

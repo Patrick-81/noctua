@@ -128,3 +128,43 @@ def test_manual_disconnect_stays_disconnected(record_schedules):
     # User disconnects: server confirms Off.
     reg._on_set("4", connection_pv("Off", VectorType.SWITCH))
     assert reg.get("Main Camera").connected is False
+
+
+def test_guider_companion_not_upgraded_to_camera():
+    """INDIGO « Foo (guider) » = interface GUIDER_*, jamais un CCD.
+
+    Régression terrain : « SVBONY SV305PRO (guider) » était upgradé en
+    Camera via le mot-clé « svbony », sans CCD_EXPOSURE → boucle guidage
+    en « non prête » infinie.
+    """
+    from indigo.devices.camera import Camera
+
+    reg, client = make_registry()
+    pv = connection_pv("On", VectorType.SWITCH)
+    pv.device = "SVBONY SV305PRO (guider)"
+    reg._on_def("1", pv)
+    dev = reg.get("SVBONY SV305PRO (guider)")
+    assert dev is not None
+    assert not isinstance(dev, Camera)
+
+    # Une prop GUIDER_* ne doit pas non plus le transformer en Camera.
+    gpv = PropertyVector(
+        device="SVBONY SV305PRO (guider)",
+        name="GUIDER_GUIDE_RA",
+        vector_type=VectorType.SWITCH,
+        state="Ok",
+    )
+    gpv.items.append(Item(name="EAST", value=0.0))
+    reg._on_def("2", gpv)
+    assert not isinstance(reg.get("SVBONY SV305PRO (guider)"), Camera)
+
+
+def test_real_camera_still_upgraded_by_name():
+    """Une vraie caméra sans props CCD reçues yet reste un Camera via le nom."""
+    from indigo.devices.camera import Camera
+
+    reg, client = make_registry()
+    pv = connection_pv("On", VectorType.SWITCH)
+    pv.device = "SVBONY SV305PRO"
+    reg._on_def("1", pv)
+    assert isinstance(reg.get("SVBONY SV305PRO"), Camera)

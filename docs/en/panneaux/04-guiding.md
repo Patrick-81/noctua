@@ -36,6 +36,7 @@ Then:
 
 * **Exposure** (0.1–30 s): 1 s default; longer = SNR ↑ but latency ↑.
 * **Binning** 1×1 / 2×2 / 4×4.
+* **Test / focusing**: `📷 Capture` takes a single frame (applies exposure + binning, image in Preview); `🔁 Loop` repeats exposures to tune focus **without** starting guiding (no mount corrections). `⏹ Stop loop` stops it. A running loop is cut before `▶ Start`.
 * **Aggressiveness** 0.8, **RA/DEC gains** 1.0, **Max pulse** 2000 ms, **Tolerance** 10″ (± audible alert).
 
 ## Dithering (from Sequencer)

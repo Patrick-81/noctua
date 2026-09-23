@@ -18,7 +18,7 @@ Déclare *qui est quoi* avant de pointer. Un **profil** fige la cartographie rô
 
 1. **Lance le serveur** (`./start.sh` ou `windows\launch-Noctua.bat`) → le bandeau en haut indique `● Hors ligne` puis `● En ligne` quand `indigo_server` répond.
 2. Ouvre **🔧 Matériel** → **DEVICES** : coche ceux que tu utilises (ex. `Telescope Simulator`, `CCD Simulator`).
-3. **MONTURE — CONNEXION** : choisis `Série` (`/dev/ttyUSB0`, `/dev/ttyACM0`) ou `Réseau host:port` (`192.168.1.10:7624`). Le couple `mount_interface` / `mount_endpoint` est sauvegardé dans le profil.
+3. **MONTURE — CONNEXION** : choisis `Série` (`/dev/ttyUSB0`, `/dev/ttyACM0`) ou `Réseau host:port` (`192.168.1.10:7624`). Le couple `mount_interface` / `mount_endpoint` est sauvegardé dans le profil. **⟳ Scanner ports série** liste les nœuds détectés (path `by-id` stable recommandé) et signale en orange si le endpoint du profil n'existe plus (rénumérotation USB `ttyUSB0` → `ttyUSB1` → …).
 4. **RÔLES** : assigne `mount`, `camera`, `guide_camera`, `focuser`, `filter_wheel`. Les LEDs du bandeau (`T C A F W`) passent au vert quand le rôle est connecté.
 5. **Profil** : `＋` (nouveau), `💾` (sauver), **APPLIQUER** (connecte tout le set). Le profil vit dans `profiles.yaml` (surchargeable `INDIGO_PROFILES_PATH`).
 6. **PROPRIÉTÉS DU DEVICE** : sélectionne un device → édition directe des vecteurs INDIGO (`CONNECTION`, `FOCUSER_POSITION`, `CCD_INFO` …) — utile pour saisir la **focale** (obligatoire pour mosaïque / solve).

@@ -89,12 +89,19 @@ afterAll(async () => {
   }
 });
 
-test.describe.serial('Hardware panel + profiles', () => {
+test.describe.serial('Hardware panel + profiles', async () => {
+
+  async function openHardware(page) {
+    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
+    await sleep(1500);
+    const btn = page.locator('#applet-mode-bar button[data-mode="hardware"]');
+    await btn.dispatchEvent('click').catch(() => {});
+    await expect(page.locator('#applet-hardware-mode')).toBeVisible();
+    await expect(page.locator('#hw-device-list .hw-device').first()).toBeVisible();
+  }
 
   test('hardware panel lists mock devices with roles', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(2000);
-    await page.click('button[data-mode="hardware"]');
+    await openHardware(page);
     await sleep(500);
     const panel = page.locator('#applet-hardware-mode');
     await expect(panel).toBeVisible();
@@ -110,24 +117,29 @@ test.describe.serial('Hardware panel + profiles', () => {
   });
 
   test('connect/disconnect individual device', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(2000);
+    await openHardware(page);
 
     // Find the Filter Wheel row and click its CONN button.
     // The list re-renders on every WS state broadcast, so use dispatchEvent
     // to avoid "element detached from DOM" flakes during the click.
     const fwRow = page.locator('#hw-device-list .hw-device', { hasText: 'Filter Wheel' });
     await expect(fwRow).toBeVisible();
+
+    // Normalize: disconnect first if already connected, then connect + disconnect.
+    const status = fwRow.locator('.hw-status');
+    if (await status.getAttribute('class').then(c => c && c.includes('on')).catch(() => false)) {
+      await fwRow.locator('button[data-action="disconnect"]').dispatchEvent('click');
+      await expect(status).toHaveClass(/off/);
+    }
     await fwRow.locator('button[data-action="connect"]').dispatchEvent('click');
-    await expect(fwRow.locator('.hw-status')).toHaveClass(/on/);
+    await expect(status).toHaveClass(/on/);
     // And disconnect it again
     await fwRow.locator('button[data-action="disconnect"]').dispatchEvent('click');
-    await expect(fwRow.locator('.hw-status')).toHaveClass(/off/);
+    await expect(status).toHaveClass(/off/);
   });
 
   test('profile dropdown shows created profiles', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(1500);
+    await openHardware(page);
 
     // Create a profile via API
     const r = await apiPost('/api/profiles', {
@@ -146,10 +158,6 @@ test.describe.serial('Hardware panel + profiles', () => {
 
     const options = await page.locator('#hw-profile-select option').allInnerTexts();
     expect(options).toContain('Rig UI');
-    // Optics field shown
-    const optics = page.locator('#hw-optics');
-    await expect(optics).toBeVisible();
-    await expect(optics).toHaveValue('Newton 200/800');
   });
 
   async function countStatus(page, clsIncludes) {
@@ -164,8 +172,7 @@ test.describe.serial('Hardware panel + profiles', () => {
   }
 
   test('APPLIQUER connects profile devices', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(1500);
+    await openHardware(page);
 
     await apiPost('/api/profiles/delete', { name: 'Rig UI' }).catch(() => {});
     await apiPost('/api/profiles', {
@@ -191,8 +198,7 @@ test.describe.serial('Hardware panel + profiles', () => {
   });
 
   test('TOUT DÉCONNECTER turns devices off', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(1500);
+    await openHardware(page);
 
     await page.locator('#hw-profile-apply').dispatchEvent('click'); // ensure everything connected first
     let allOn = 0;
@@ -212,22 +218,74 @@ test.describe.serial('Hardware panel + profiles', () => {
     expect(allOff).toBe(await page.locator('#hw-device-list .hw-device').count());
   });
 
-  test('per-role selectors list compatible devices', async ({ page }) => {
-    await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
-    await sleep(1500);
-    const selects = page.locator('#hw-role-assign .hw-role-select');
-    const count = await selects.count();
-    expect(count).toBe(5); // one selector per role
+  test('tableur roles assign mount endpoint + generic options', async ({ page }) => {
+    await openHardware(page);
 
-    // Camera role (and guide_camera) must list the camera devices
-    const cam = page.locator('#hw-role-assign select[data-role="camera"] option');
-    const camTexts = await cam.allTextContents();
-    expect(camTexts).toEqual(expect.arrayContaining(['Main Camera', 'Guide Camera']));
+    // Active profile required (otherwise hwAssignRole opens a prompt)
+    await apiPost('/api/profiles/delete', { name: 'Rig UI' }).catch(() => {});
+    await apiPost('/api/profiles', {
+      name: 'Rig UI',
+      mount: 'Mount',
+      camera: 'Main Camera',
+      guide_camera: 'Guide Camera',
+      focuser: 'Focuser',
+      filter_wheel: 'Filter Wheel',
+    });
+    await apiPost('/api/profiles/activate', { name: 'Rig UI' });
+    await page.locator('#hw-refresh').dispatchEvent('click');
+    await sleep(500);
 
-    const mount = page.locator('#hw-role-assign select[data-role="mount"] option');
-    const mountTexts = await mount.allTextContents();
-    expect(mountTexts).toEqual(expect.arrayContaining(['Mount']));
-    expect(mountTexts).not.toEqual(expect.arrayContaining(['Main Camera']));
+    // Default tab = Devices; role selects live in the table rows
+    const roleSelects = page.locator('#hw-device-list .hw-role-select');
+    await expect(roleSelects).toHaveCount(5); // one per device
+
+    // Mount row exposes endpoint cell (serial + input)
+    const mountRow = page.locator('#hw-device-list .hw-device', { hasText: 'Mount' });
+    await expect(mountRow.locator('.hw-ep-input')).toHaveCount(1);
+    await expect(mountRow.locator('.hw-iface')).toHaveCount(1);
+
+    // Non-mount rows: no endpoint input
+    const camRow = page.locator('#hw-device-list .hw-device', { hasText: 'Main Camera' });
+    await expect(camRow.locator('.hw-ep-input')).toHaveCount(0);
+
+    // Role options are generic by type: only mounts can be role=mount
+    const mountRoleOpts = await mountRow.locator('.hw-role-select option').allTextContents();
+    expect(mountRoleOpts.join('|')).toMatch(/Monture|Mount/);
+    const camRoleOpts = await camRow.locator('.hw-role-select option').allTextContents();
+    expect(camRoleOpts.join('|')).not.toMatch(/Monture|Mount/);
+    expect(camRoleOpts.join('|')).toMatch(/Caméra|Camera/);
+
+    // Assign role camera on Main Camera → select shows selected after re-render
+    await mountRow.locator('.hw-role-select').selectOption('mount');
+    await camRow.locator('.hw-role-select').selectOption('camera');
+    await expect
+      .poll(async () => page.locator('#hw-device-list .hw-device', { hasText: 'Main Camera' })
+        .locator('.hw-role-select').inputValue(), { timeout: 5000 })
+      .toBe('camera');
+  });
+
+  test('profile optics field lives on Profil tab', async ({ page }) => {
+    await openHardware(page);
+
+    await apiPost('/api/profiles/delete', { name: 'Rig UI' }).catch(() => {});
+    await apiPost('/api/profiles', {
+      name: 'Rig UI',
+      mount: 'Mount',
+      camera: 'Main Camera',
+      guide_camera: 'Guide Camera',
+      focuser: 'Focuser',
+      filter_wheel: 'Filter Wheel',
+      optics: 'Newton 200/800',
+    });
+    await page.locator('#hw-refresh').dispatchEvent('click');
+    await sleep(500);
+
+    // Switch to Profil tab to see optics
+    await page.locator('.hw-tab[data-tab="profile"]').click();
+    await sleep(300);
+    const optics = page.locator('#hw-optics');
+    await expect(optics).toBeVisible();
+    await expect(optics).toHaveValue('Newton 200/800');
   });
 
   test('capture panel shows filter wheel selector (connected)', async ({ page }) => {
@@ -237,7 +295,7 @@ test.describe.serial('Hardware panel + profiles', () => {
     await apiPost('/api/hardware/connect', { device: 'Filter Wheel' });
     await sleep(1000);
 
-    await page.click('button[data-mode="capture"]');
+    await page.locator('#applet-mode-bar button[data-mode="capture"]').dispatchEvent('click');
     await sleep(800);
 
     const section = page.locator('#cap-filter-section');
@@ -259,7 +317,7 @@ test.describe.serial('Hardware panel + profiles', () => {
     await apiPost('/api/hardware/connect', { device: 'Filter Wheel' });
     await sleep(1000);
 
-    await page.click('button[data-mode="capture"]');
+    await page.locator('#applet-mode-bar button[data-mode="capture"]').dispatchEvent('click');
     await sleep(800);
 
     // Select the Green filter
@@ -274,7 +332,7 @@ test.describe.serial('Hardware panel + profiles', () => {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
     await sleep(2000);
 
-    await page.click('button[data-mode="mount"]');
+    await page.locator('#applet-mode-bar button[data-mode="mount"]').dispatchEvent('click');
     await sleep(800);
 
     const panel = page.locator('#flip-panel');
@@ -292,7 +350,7 @@ test.describe.serial('Hardware panel + profiles', () => {
     await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
     await sleep(2000);
 
-    await page.click('button[data-mode="mount"]');
+    await page.locator('#applet-mode-bar button[data-mode="mount"]').dispatchEvent('click');
     await sleep(800);
 
     await apiPost('/api/hardware/connect', { device: 'Mount' });

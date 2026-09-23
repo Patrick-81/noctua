@@ -376,6 +376,11 @@ class DeviceRegistry:
                 return real
 
         name_lower = name.lower()
+        # Compagnons INDIGO « Foo (guider) » : interface GUIDER_GUIDE_*,
+        # jamais un CCD. Ne pas les upgrader en Camera via le nom
+        # (ex. « SVBONY SV305PRO (guider) » contient « svbony »).
+        if name_lower.endswith("(guider)") or " (guider)" in name_lower:
+            return dev
         camera_keywords = ['svbony', 'asi', 'qhy', 'zwo', 'sbig', 'atik',
                            'toup', 'playerone', ' Mallin', 'fli', 'omegon',
                            'ogma', 'bresser', 'bresser', 'rising', 'ptp',

@@ -1,5 +1,85 @@
 # Checkpoint — Noctua (autoguidage + contrôle INDIGO)
 
+## Session 2026-09-23 (suite 2) — Capture unitaire + loop test dans Paramètres guidage (branche `fresh-capture`)
+
+### Feature
+- Panneau **AUTOGUIDAGE → Paramètres** : section **Test / mise au point** après Binning — `📷 Capture` (pose unitaire) + `🔁 Loop` / `⏹ Stop loop` (boucle de poses pour la mise au point **sans** démarrer le guidage, ni corrections monture).
+- `_guideCapHandler` (`guide.js`) applique désormais le **binning** via `POST /api/camera/expose {binning}` (nouveau champ optionnel, `Camera.set_binning` avant expose — pattern Flat Wizard).
+- Loop frontend : `_guideTestLoopToggle` / `_guideStopTestLoop` — relit exposition à chaque itération, attend pose+0.5 s pour l’image WS, coupe via `/api/camera/abort` au stop. **Coupée automatiquement** avant `▶ Lancer` (`_guideStart`) et au `⏹ Stop` guidage.
+- i18n FR/EN : `guide.test*`, `log.guide.loop_*`. Cache-bust `guide.js` + `i18n.*` `?v=20260923c`.
+- Docs : `docs/panneaux/04-guidage.md` + `docs/en/panneaux/04-guiding.md` (section Paramètres).
+
+### Tests
+- `tests/guide-validation.spec.js` : nouveau test « paramètres : capture unitaire + loop test (toggle) » + helper `expandGuidingPanels` (desktop dense escamote les 6 panneaux guidage au `switchMode` — forcer `display` + retrait `collapsed` après mode click et après reload calibration).
+- Résultats : Playwright `guide-validation` **3/3 ✓**, `hardware-ui` **11/11 ✓**, pytest **299 ✓**, `mount_flow` **53 ✓**, `guide_flow` **38 ✓**, `guide_loop_flow` **15 ✓**, `hardware_flow` **50 ✓**, `hub` **39 ✓**, `node --check` OK.
+
+### Terrain (avant commit `fresh-capture`)
+- Mode Guidage → Paramètres → Caméra SV305PRO → pose 1 s / binning 2×2 → `📷 Capture` (image dans Aperçu + étoiles) → `🔁 Loop` ( poses continues, bouton → Stop) → `⏹ Stop` → `▶ Lancer` (loop coupée, guidage OK).
+
+## Session 2026-09-23 (suite) — Scan ports série + profil stale `ttyUSB1` (branche `fresh-capture`)
+
+### Constat terrain
+- Seul `/dev/ttyUSB2` existe (CP2102) ; profil actif `setup 150` → `mount_endpoint: /dev/ttyUSB1` **stale** (rénumérotation USB ttyUSB0→1→2).
+- Noctua n'ouvre aucun tty (client TCP INDIGO) — il **pousse un chemin périmé** via `DEVICE_PORT` avant CONNECT.
+- `indigo_worker` détient des FD `(deleted)` sur les anciens nœuds.
+
+### Feature
+- `GET /api/serial/ports` (`web/routers/hardware.py` : `_scan_serial_ports` + route) : scan `/dev/ttyUSB*` + `/dev/ttyACM*`, symlink `by-id` (path **stable** recommandé `preferred`), description udev, holders `fuser` (`busy`), + santé `profile.mount_endpoint` (`exists`).
+- UI : `<datalist id="serial-port-list">` partagé sur `#indigo-serial` (bandeau) et `#hw-mount-endpoint` (panneau Matériel) ; bouton **⟳ Scanner ports série** (`hw-scan-serial`) avec choix numéroté + écriture du `preferred` ; hint `hw-serial-hint` orange si profil stale / vert si OK.
+- `hwScanSerialPorts({force,silent})` dans `hardware.js` (cache 3 s) — appelé au boot, au refresh Matériel, à l'entrée du mode Matériel, et quand la ligne série du bandeau devient visible.
+- i18n FR/EN : `conn.serial_*`, `hw.scan_serial`, `hw.serial_*`. Cache-bust `?v=20260923a`.
+
+### Validation
+- `pytest` **296 ✓** (+4 `tests/test_serial_ports.py`), `test_mount_flow` **53/53 ✓**, `test_hardware_flow` **50/50 ✓** (dont `/api/serial/ports`), `test_hub` **39 ✓**, `node --check` JS OK.
+
+### Terrain
+- Ouvrir Matériel → Scanner → pick `by-id` stable → APPLIQUER → connect monture ; vérifier `SEND:…` et pilotage joystick.
+- Optionnel : mettre `profiles.yaml` `mount_endpoint` sur le symlink `by-id` après validation UI.
+
+## Session 2026-09-23 — BUG joystick : rate CENTERING écrasait les items (branche `fresh-capture`)
+
+### Diagnostic
+- Chemin : `controls.js startSlew` → `mountMove` (`mount.js`) → `POST /api/mount/move` → `Mount.move()`.
+- **Bug racine** : la route appelait `set_slew_rate(rate_UI)` puis `m.move(direction)` avec le défaut `rate="CENTERING"`. `set_slew_rate` comparait **strictement** `it.name == rate_name` : items INDIGO `Guide/Centering/Find/Max` ne matchent pas `"CENTERING"` → **tous les items partaient à Off**, aucun rate actif → monture immobile (pseudo-park, unpark « non effectif »).
+- Garde anti-parké frontend (`mount.js:215` / `controls.js:122`) OK après unpark (ws:state vérifié) — pas la cause.
+- `TELESCOPE_MOTION_NS/WE` absents de `MOUNT_PROPERTIES` (upgrade device INDI legacy) — ajoutés.
+- Logs UI `move/halt` étaient en niveau `debug` (masqué par défaut) → **impossible de diagnostiquer** sans cocher debug.
+
+### Fix (non commité, avec le reste de `fresh-capture`)
+- `set_slew_rate` : match **case-insensitive** ; si aucun item ne matche → **ne rien envoyer** (on garde le rate courant) + `log.warning`.
+- `move(direction, rate=None)` : applique le rate **seulement si fourni** ; plus de défaut `CENTERING` qui écrase.
+- Route `/api/mount/move` : un seul appel `m.move(direction, rate)` (plus de double `set_slew_rate`).
+- `MOUNT_PROPERTIES` : + `TELESCOPE_MOTION_NS`, `TELESCOPE_MOTION_WE`.
+- Logs `indigo.mount` **INFO** sur `move` (prop résolue + items envoyés + `prop_found`) et `set_slew_rate`.
+- UI `mountMove`/`mountHaltMove` : `addLog` en **info** (visible sans filtre debug).
+
+### Validation
+- Unité `set_slew_rate` : `CENTERING`→Centering=On, `Find`→Find=On, `NOPE`→no-send ; `move(NORTH)` sans rate n'envoie que `MOUNT_MOTION_NS`.
+- `python tests/test_mount_flow.py` : **53/53 ✓** (1er run 1 flaky NORTH, 2e OK).
+- `pytest tests/ -q` : **292 ✓** ; `node tests/test_hub.js` **39 ✓** ; polar JS **53 ✓** ; `node --check` tous les JS ✓.
+
+### Terrain (prochaine session)
+- Relancer serveur + appui joystick : s'attendre à log UI `move north rate=Find` + backend `move NORTH → MOUNT_MOTION_* items=… prop_found=True` + `SEND: …MOTION…`.
+- Si `prop_found=False` : nom de prop réel LX200 à capturer dans les defs (`/api/mount` → `properties`).
+
+## Session 2026-09-22 — États monture : park/unpark OK terrain, bug joystick (branche `fresh-capture`, non commité)
+
+### Contexte
+- Branche `fresh-capture` : 8 fichiers modifiés (~+406/-125) — rework park/unpark/home (`indigo/devices/mount.py`), génération `connect()` anti-sockets orphelines (`indigo/client.py`), `disconnect()` systématique avant changement host (`web/routers/mount.py`), UI PARK/HOME toujours actifs + confirm SET PARK/HOME (`mount.js`/`controls.js`/i18n).
+- Test RisingCam écarté ; chantier = **gestion des états monture**.
+
+### Diagnostic "monture parquée non vue" → faux diagnostic, backend sain
+- Monture parquée via frontend INDIGO (Noctua arrêté — le frontend ne connecte pas si le port est pris).
+- Au redémarrage Noctua : `/api/devices` → `MOUNT_PARK PARKED=True/UNPARKED=False Ok` ; `/api/mount` → `parked:true, park_state:Ok` ; log `park: False -> True state=->Ok items=[('PARKED', True), ('UNPARKED', False)]`.
+- Affichage UI confirmé : LED PARK + bouton UNPARK. Chaîne `state_dict → WS state (push immédiat à la connexion, `ws_test.py:32`) → `ws.js` → `renderMountPanel()` OK.
+
+### Preuve unpark terrain (Mount LX200 réel, 23:19:40)
+- `POST /api/mount/unpark` → `sending MOUNT_PARK bi PARKED Off / UNPARKED On` → `True -> False Ok->Busy` → `Busy->Busy msg='Unparking'` → `Busy->Ok` → `unpark: success (parked False, state Ok)`.
+
+### Reste
+- **BUG joystick inopérant** (inscrit TODO_LIST) : après unpark réussi, aucun mouvement → effectivité physique du unpark non vérifiable. Pistes : garde anti-parké `mountMove` (`mount.js:215`), nom prop mouvement, `set_slew_rate`, `_resolve_prop_name` sur LX200 réel.
+- À reprendre demain : logs `indigo.mount` + `SEND:` sur appui joystick, puis `test_mount_flow.py` gate + commit `fresh-capture`.
+
 ## Session 2026-08-22 — Hub : état partagé + requêtes/réponses, payload capteur, fix parsing INDIGO
 
 ### Feature — Hub étendu (`web/static/hub.js`)

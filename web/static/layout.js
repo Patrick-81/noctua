@@ -71,7 +71,7 @@ const PANEL_TITLES = {
     'applet-stacking': 'Live stacking', 'applet-solver': 'Plate solver',
     'applet-target': 'Cible — Centrage', 'applet-framing': 'Framing — Cadrage',
     'applet-polar': 'Mise en station polaire', 'applet-pointing': 'Pointing model',
-    'applet-hardware-mode': 'Matériel', 'applet-hwprops': 'Propriétés device', 'applet-legend': 'Légende', 'applet-log': 'Log'
+    'applet-hardware-mode': 'Devices', 'applet-hwprops': 'Propriétés device', 'applet-legend': 'Légende', 'applet-log': 'Log'
 };
 function getPanelTitle(id) {
     const el = document.getElementById(id);

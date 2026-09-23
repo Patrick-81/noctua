@@ -30,6 +30,8 @@ def register(app, server: "WebServer") -> None:
             return {"error": "no camera"}
         if not c.is_ready:
             return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
+        if body.get("binning"):
+            await c.set_binning(int(body["binning"]), int(body["binning"]))
         await c.expose(body["duration"], body.get("frame_type", "LIGHT"))
         return {"ok": True}
 

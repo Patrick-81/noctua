@@ -12,21 +12,21 @@
     <meta name="theme-color" content="#020205">
     <link rel="stylesheet" href="/style.css?v=26">
     <script src="/lib/d3.min.js"></script>
-    <script src="/i18n.fr.js?v=20260918c"></script>
-    <script src="/i18n.en.js?v=20260918c"></script>
+    <script src="/i18n.fr.js?v=20260923c"></script>
+    <script src="/i18n.en.js?v=20260923c"></script>
     <script src="/i18n.js"></script>
     <script src="/theme.js"></script>
     <script src="/utils.js"></script>
     <script src="/state.js?v=20260918e"></script>
     <script src="/hub.js"></script>
-    <script src="/layout.js?v=20260918e"></script>
+    <script src="/layout.js?v=20260923b"></script>
     <script src="/viewer.js?v=pleine7"></script>
     <script src="/api.js"></script>
-    <script src="/mount.js"></script>
-    <script src="/controls.js"></script>
+    <script src="/mount.js?v=20260919b"></script>
+    <script src="/controls.js?v=20260918i"></script>
     <script src="/ws.js"></script>
     <script src="/objects.js?v=20260918c"></script>
-    <script src="/hardware.js?v=20260918h"></script>
+    <script src="/hardware.js?v=20260923b"></script>
     <script src="/capture.js?v=pleine7"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
@@ -36,7 +36,7 @@
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
     <script src="/focuser.js"></script>
-    <script src="/guide.js"></script>
+    <script src="/guide.js?v=20260923c"></script>
     <script src="/dashboard.js"></script>
     <script src="/calibration.js"></script>
     <script src="/session.js"></script>
@@ -71,9 +71,9 @@
 
         <!-- APPLET: Sélecteur de mode (toujours visible) -->
         <div id="applet-mode-bar" class="glass-panel applet">
-            <button class="mode-btn active" data-mode="hardware" title="Matériel & propriétés" data-i18n-title="mode.hardware.title">
+            <button class="mode-btn active" data-mode="hardware" title="Devices" data-i18n-title="mode.hardware.title">
                 <span class="mode-icon">🔧</span>
-                <span class="mode-label" data-i18n="mode.hardware">Matériel</span>
+                <span class="mode-label" data-i18n="mode.hardware">Devices</span>
             </button>
             <button class="mode-btn" data-mode="mount" title="Pilotage Monture" data-i18n-title="mode.mount.title">
                 <span class="mode-icon">🔭</span>
@@ -147,7 +147,8 @@
             <div id="conn-row-serial" style="display:none;">
                 <span style="color:#444;">|</span>
                 <span style="color:#666; font-size:0.6rem;" data-i18n="conn.port_label">Port:</span>
-                <input id="indigo-serial" placeholder="/dev/ttyUSB0" style="width:110px;">
+                <input id="indigo-serial" placeholder="/dev/ttyUSB0" style="width:110px;" list="serial-port-list" data-i18n-placeholder="conn.serial_ph" title="Port série détecté — choix ou saisie libre" data-i18n-title="conn.serial_hint">
+                <datalist id="serial-port-list"></datalist>
                 <button id="btn-indigo-apply-port" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.apply">APPLIQUER</button>
             </div>
             <div id="conn-row-location">
@@ -162,9 +163,9 @@
         </div>
         <div id="mobile-stack">
 
-        <!-- APPLET MODE: MATÉRIEL (grand panneau, mode dédié) -->
-        <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:560px; max-height:calc(100vh - 120px);">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="hw.title">🔧 MATÉRIEL — devices & propriétés</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+        <!-- APPLET MODE: DEVICES (tableur + onglets, type Ekos) -->
+        <div id="applet-hardware-mode" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:16px; width:600px; max-height:calc(100vh - 120px);">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="hw.title">🔧 DEVICES</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
             <div class="hw-row">
                 <span class="hw-label" data-i18n="hw.profile">Profil:</span>
                 <select id="hw-profile-select" title="Profil actif"></select>
@@ -173,55 +174,56 @@
                 <button id="hw-profile-delete" class="btn-glass danger" style="font-size:0.6rem;" title="Supprimer le profil actif" data-i18n-title="hw.delete_profile">🗑</button>
                 <button id="hw-profile-apply" class="btn-glass success" style="font-size:0.6rem;" title="Appliquer : connecter tous les devices du profil" data-i18n="hw.apply_profile">APPLIQUER</button>
             </div>
-            <div class="hw-section-title" data-i18n="hw.drivers">1️⃣ DRIVERS — CHOIX → CHARGER</div>
-            <div style="font-size:0.55rem; color:#666; padding:0 8px 4px;">Liste groupée par classe, puis ⬇ Charger (attach)</div>
-            <div class="hw-row">
-                <span class="hw-label" data-i18n="hw.driver">Driver:</span>
-                <select id="hw-driver-select" style="flex:1;"></select>
-                <button id="hw-driver-attach" class="btn-glass warning" style="font-size:0.6rem;" data-i18n="hw.driver_load">⬇ Charger</button>
-                <button id="hw-driver-detach" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.driver_unload">⬆ Décharger</button>
-                <button id="hw-drivers-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
+            <div class="hw-tabs" id="hw-tabs" role="tablist">
+                <button type="button" class="hw-tab active" data-tab="devices" data-i18n="hw.tab_devices" role="tab" aria-selected="true">Devices</button>
+                <button type="button" class="hw-tab" data-tab="drivers" data-i18n="hw.tab_drivers" role="tab" aria-selected="false">Drivers</button>
+                <button type="button" class="hw-tab" data-tab="profile" data-i18n="hw.tab_profile" role="tab" aria-selected="false">Profil</button>
             </div>
-            <div class="hw-row">
-                <span id="hw-driver-selected" style="flex:1; font-size:0.58rem; color:#00ffcc;">—</span>
-            </div>
-            <div class="hw-section-title" data-i18n="hw.devices">2️⃣ DEVICES — CONNEXION INDIVIDUELLE / GLOBALE</div>
-            <div id="hw-device-list" class="hw-device-list"></div>
-            <div class="hw-row" style="margin-top:6px;">
-                <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;" data-i18n="hw.connect_all">Tout connecter</button>
-                <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.disconnect_all">Tout déconnecter</button>
-                <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
-                <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
-            </div>
-            <div class="hw-section-title" data-i18n="hw.roles">3️⃣ RÔLES — CHOIX PAR USAGE + CONNEXION</div>
-            <div style="font-size:0.55rem; color:#666; padding:0 8px 4px;">Ex. Caméra principale vs guide : 2 drivers → 2 rôles → CONN par rôle ou global</div>
-            <div id="hw-role-assign" class="hw-role-assign"></div>
-            <div class="hw-section-title">MONTURE — CONNEXION</div>
-            <div id="hw-mount-conn" class="hw-mount-conn" style="padding:4px 8px; display:flex; flex-direction:column; gap:6px;">
-                <div class="hw-row" style="padding:0;">
-                    <span class="hw-label">Interface:</span>
-                    <select id="hw-mount-interface" style="flex:1;">
-                        <option value="serial">Série</option>
-                        <option value="network">Réseau host:port</option>
-                    </select>
+
+            <!-- Onglet Devices : tableur (rôles + endpoint inline, générique) -->
+            <div id="hw-tab-devices" class="hw-tab-panel active" role="tabpanel">
+                <div class="hw-row" style="padding-top:4px;">
+                    <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;" data-i18n="hw.connect_all">Tout connecter</button>
+                    <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.disconnect_all">Tout déconnecter</button>
+                    <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
+                    <button id="hw-scan-serial" class="btn-glass" style="font-size:0.6rem;" data-i18n="hw.scan_serial">⟳ Ports</button>
+                    <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
                 </div>
-                <div class="hw-row" style="padding:0;">
-                    <span class="hw-label" id="hw-mount-endpoint-label">Port:</span>
-                    <input id="hw-mount-endpoint" placeholder="/dev/ttyUSB0 ou 192.168.1.10:7624" style="flex:1;" title="Série: /dev/ttyUSB0 • Réseau: host:port">
+                <div id="hw-serial-hint" class="hw-serial-hint"></div>
+                <div class="hw-table-head" aria-hidden="true">
+                    <span data-i18n="hw.col_role">Rôle</span>
+                    <span data-i18n="hw.col_device">Device</span>
+                    <span data-i18n="hw.col_status">État</span>
+                    <span data-i18n="hw.col_endpoint">Endpoint</span>
+                    <span></span>
+                    <span></span>
                 </div>
-                <div style="font-size:0.55rem; color:#666;">Sauvegardé dans le profil • appliqué à la connexion</div>
+                <div id="hw-device-list" class="hw-device-list hw-table-body"></div>
             </div>
-            <div class="hw-row">
-                <span class="hw-label" data-i18n="hw.optics">Optique:</span>
-                <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
+
+            <!-- Onglet Drivers : chargement INDIGO -->
+            <div id="hw-tab-drivers" class="hw-tab-panel" role="tabpanel" hidden>
+                <div style="font-size:0.55rem; color:#666; padding:8px 8px 4px;" data-i18n="hw.drivers_hint">Liste groupée par classe → ⬇ Charger (attach) / ⬆ Décharger.</div>
+                <div class="hw-row">
+                    <span class="hw-label" data-i18n="hw.driver">Driver:</span>
+                    <select id="hw-driver-select" style="flex:1;"></select>
+                    <button id="hw-driver-attach" class="btn-glass warning" style="font-size:0.6rem;" data-i18n="hw.driver_load">⬇ Charger</button>
+                    <button id="hw-driver-detach" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.driver_unload">⬆ Décharger</button>
+                    <button id="hw-drivers-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
+                </div>
+                <div class="hw-row">
+                    <span id="hw-driver-selected" style="flex:1; font-size:0.58rem; color:#00ffcc;">—</span>
+                </div>
             </div>
-            <div class="hw-section-title" data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</div>
-            <div class="hw-row">
-                <select id="hw-mode-device-select" class="hw-mode-device-select" style="flex:1;">
-                    <option value="" data-i18n="hw.select_device">— Sélectionnez un device —</option>
-                </select>
+
+            <!-- Onglet Profil : optiques + notes (rôles/endpoint = tableur) -->
+            <div id="hw-tab-profile" class="hw-tab-panel" role="tabpanel" hidden>
+                <div class="hw-row" style="padding-top:8px;">
+                    <span class="hw-label" data-i18n="hw.optics">Optique:</span>
+                    <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
+                </div>
+                <div style="font-size:0.55rem; color:#666; padding:4px 8px 8px;" data-i18n="hw.profile_hint">Rôles et endpoint monture se règlent dans l'onglet Devices (une ligne = un device). Profil = cartographie persistante.</div>
             </div>
-            <div style="font-size:0.55rem; color:#666; padding:0 8px 4px;">La liste s'ouvre dans le panneau PROPRIÉTÉS DEVICE ci-contre</div>
         </div>
 
         <!-- APPLET: Propriétés du device (panneau séparé, mode Matériel) -->
@@ -636,6 +638,13 @@
                             <option value="2">2×2</option>
                             <option value="4">4×4</option>
                         </select>
+                    </div>
+                </div>
+                <div class="cap-section">
+                    <div class="cap-label" data-i18n="guide.test">Test / mise au point</div>
+                    <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px;">
+                        <button id="guide-test-capture-btn" class="btn-glass" style="font-size:0.65rem;" data-i18n="guide.test_capture">📷 Capture</button>
+                        <button id="guide-test-loop-btn" class="btn-glass" style="font-size:0.65rem;" data-i18n="guide.test_loop">🔁 Loop</button>
                     </div>
                 </div>
                 <div class="cap-section">
@@ -1889,7 +1898,7 @@
     </div>
 
     <nav id="bottom-nav" aria-label="Navigation modes">
-        <button class="bnav-btn active" data-mode="hardware" title="Matériel"><span class="bnav-icon">🔧</span><span class="bnav-label">Matériel</span></button>
+        <button class="bnav-btn active" data-mode="hardware" title="Devices"><span class="bnav-icon">🔧</span><span class="bnav-label">Devices</span></button>
         <button class="bnav-btn" data-mode="mount" title="Monture"><span class="bnav-icon">🔭</span><span class="bnav-label">Monture</span></button>
         <button class="bnav-btn" data-mode="focuser" title="Focuser"><span class="bnav-icon">🔍</span><span class="bnav-label">Focuser</span></button>
         <button class="bnav-btn" data-mode="guiding" title="Guidage"><span class="bnav-icon">🎯</span><span class="bnav-label">Guidage</span></button>

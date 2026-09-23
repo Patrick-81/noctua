@@ -58,6 +58,7 @@ class IndigoClient:
         self._probe_count = 0
         self._recv_buffer = b""
         self._connecting = False
+        self._connect_gen = 0  # epoch: chaque connect() invalide les précédents
 
         # Stats
         self._def_count = 0
@@ -82,13 +83,30 @@ class IndigoClient:
     # ── Connection lifecycle ──────────────────────────────────────
 
     async def connect(self) -> None:
-        """Connect to the INDIGO server with auto-reconnect."""
+        """Connect to the INDIGO server with auto-reconnect.
+
+        Une seule génération active à la fois : chaque appel invalide les
+        tâches connect() précédentes (changement d'IP/host en cours de
+        retry), sinon deux sockets/threads se partagent _sock/_recv_buffer
+        et les envois/réponses se perdent (park/unpark sans réponse).
+        """
         if self._connecting:
             log.warning("connect() already in progress, ignoring duplicate call")
             return
         self._connecting = True
+        self._connect_gen += 1
+        gen = self._connect_gen
+        # Ferme une socket orpheline d'une génération précédente pour
+        # réveiller son thread de lecture (qui sort via le contrôle gen).
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
         self._loop = asyncio.get_running_loop()
-        while self._reconnect_try < MAX_RECONNECT:
+        while self._reconnect_try < MAX_RECONNECT and gen == self._connect_gen:
+            sock: socket.socket | None = None
             try:
                 log.info("Connecting to %s:%d ...", self._host, self._port)
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -109,14 +127,15 @@ class IndigoClient:
                 log.info("Sent getProperties handshake")
 
                 # Start receive loop in a thread (blocking recv)
-                recv_thread = threading.Thread(target=self._recv_thread, daemon=True)
+                recv_thread = threading.Thread(
+                    target=self._recv_thread, args=(sock, gen), daemon=True)
                 recv_thread.start()
 
                 # Start probe loop
                 probe_task = asyncio.create_task(self._probe_loop())
 
-                # Wait until disconnected
-                while self._connected:
+                # Wait until disconnected (ou génération remplacée)
+                while self._connected and gen == self._connect_gen:
                     await asyncio.sleep(0.5)
 
                 probe_task.cancel()
@@ -130,15 +149,29 @@ class IndigoClient:
             except Exception as e:
                 log.error("Unexpected error: %s", e, exc_info=True)
             finally:
-                self._connected = False
-                if self._sock:
-                    try:
-                        self._sock.close()
-                    except Exception:
-                        pass
-                    self._sock = None
-                if self.on_connected:
-                    self.on_connected(False)
+                if gen == self._connect_gen:
+                    self._connected = False
+                    # Ne ferme que NOTRE socket (une génération plus récente
+                    # a déjà pu installer la sienne).
+                    if sock is not None and self._sock is sock:
+                        try:
+                            self._sock.close()
+                        except Exception:
+                            pass
+                        self._sock = None
+                    if self.on_connected:
+                        self.on_connected(False)
+                else:
+                    # Supplanté : ferme juste notre socket si orpheline.
+                    if sock is not None and self._sock is not sock:
+                        try:
+                            sock.close()
+                        except Exception:
+                            pass
+
+            if gen != self._connect_gen:
+                log.info("connect(): superseded by newer generation, stopping")
+                break
 
             # Reconnect with backoff
             self._reconnect_try += 1
@@ -147,14 +180,17 @@ class IndigoClient:
                      delay, self._reconnect_try, MAX_RECONNECT)
             # Sleep in small steps so we can break early if disconnect() is called
             elapsed = 0.0
-            while elapsed < delay and self._reconnect_try < MAX_RECONNECT:
+            while (elapsed < delay and self._reconnect_try < MAX_RECONNECT
+                   and gen == self._connect_gen):
                 await asyncio.sleep(min(0.5, delay - elapsed))
                 elapsed += 0.5
 
-        log.warning("Max reconnect attempts reached, giving up.")
+        if gen == self._connect_gen:
+            log.warning("Max reconnect attempts reached, giving up.")
         self._connecting = False
 
     async def disconnect(self) -> None:
+        self._connect_gen += 1  # invalide toute tâche connect() en cours
         self._reconnect_try = MAX_RECONNECT
         self._connected = False
         self._connecting = False
@@ -163,6 +199,8 @@ class IndigoClient:
                 self._sock.close()
             except Exception:
                 pass
+            finally:
+                self._sock = None
 
     # ── Sending ───────────────────────────────────────────────────
 
@@ -176,8 +214,12 @@ class IndigoClient:
             try:
                 self._sock.sendall((msg + "\n").encode())
             except Exception as e:
+                # Ne touche PAS à _connected ici : le thread de réception
+                # est seul propriétaire du flag. Un send stale (socket
+                # d'une génération supplantée) ne doit pas tuer la
+                # connexion fraîche — sinon park/home/slew deviennent
+                # aléatoires après un changement d'host/reconnect.
                 log.warning("Send error: %s", e)
-                self._connected = False
 
     async def send_get_properties(self, device: str | None = None,
                                   prop_name: str | None = None) -> None:
@@ -219,14 +261,19 @@ class IndigoClient:
 
     # ── Receiving (blocking thread) ───────────────────────────────
 
-    def _recv_thread(self) -> None:
-        """Blocking receive loop — runs in a daemon thread."""
-        while self._connected:
+    def _recv_thread(self, sock: socket.socket, gen: int) -> None:
+        """Blocking receive loop — runs in a daemon thread.
+
+        Lié à (sock, gen) : un thread d'une génération supplantée sort
+        dès qu'il se réveille (socket fermée par la nouvelle génération).
+        """
+        while self._connected and gen == self._connect_gen:
             try:
-                data = self._sock.recv(65536)
+                data = sock.recv(65536)
                 if not data:
                     log.warning("Connection closed by server")
-                    self._connected = False
+                    if gen == self._connect_gen:
+                        self._connected = False
                     break
                 self._recv_buffer += data
                 try:
@@ -245,7 +292,8 @@ class IndigoClient:
                         log.debug("Receive error (expected on close): %s", e)
                     else:
                         log.warning("Receive error: %s", e)
-                self._connected = False
+                if gen == self._connect_gen:
+                    self._connected = False
                 break
 
     def _process_buffer(self) -> None:

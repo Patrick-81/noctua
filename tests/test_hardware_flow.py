@@ -102,6 +102,19 @@ def test_hardware_lists_devices():
     check(types.get("Mount") == "mount", f"Mount type=mount (got {types.get('Mount')})")
 
 
+def test_serial_ports_scan():
+    print("\n=== Test: /api/serial/ports ===")
+    r = api_get("/api/serial/ports")
+    check("ports" in r and "profile" in r, f"response has ports+profile (got keys {list(r.keys())})")
+    check(isinstance(r.get("ports"), list), "ports is a list")
+    for p in r.get("ports", []):
+        check(p.get("path", "").startswith("/dev/"), f"port path absolute: {p.get('path')}")
+        check("preferred" in p and "busy" in p, f"port has preferred+busy: {p.get('path')}")
+    prof = r.get("profile") or {}
+    check("name" in prof and "mount_endpoint" in prof and "exists" in prof,
+          f"profile keys present (got {list(prof.keys())})")
+
+
 def _connected_map():
     r = api_get("/api/hardware")
     return {d["name"]: d["connected"] for d in r.get("devices", {}).values()}
@@ -296,6 +309,7 @@ def main():
 
     try:
         test_hardware_lists_devices()
+        test_serial_ports_scan()
         test_profile_crud()
         test_apply_connects_profile_devices()
         test_per_device_connect_disconnect()

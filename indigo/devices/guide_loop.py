@@ -52,6 +52,10 @@ FRESH_IMAGE_TIMEOUT_SEC = 30.0
 #: Frames sans étoile avant un rappel log (la boucle continue).
 STARLESS_LOG_EVERY = 5
 
+#: Échecs de capture consécutifs avant arrêt de la session (ex. caméra
+#: « non prête » qui ne le sera jamais — pas de boucle infinie).
+MAX_CAPTURE_FAILS = 15
+
 
 def map_pulses(step: dict) -> list[tuple[str, int]]:
     """Traduit un statut ``step_result`` en impulsions monture.
@@ -89,6 +93,7 @@ class GuideLoopSession:
         self.camera_name = camera_name
         self.hooks = hooks
         self.starless_streak = 0
+        self.capture_fail_streak = 0
 
     async def _log(self, level: str, msg: str) -> None:
         fn = self.hooks.get("log")
@@ -119,12 +124,23 @@ class GuideLoopSession:
                     break
                 try:
                     await self._one_frame()
+                    self.capture_fail_streak = 0
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:  # noqa: BLE001
                     # Jamais de mort sur erreur transitoire (parité frontend
-                    # qui ignorait les frames en échec).
+                    # qui ignorait les frames en échec) — sauf échecs
+                    # consécutifs (caméra jamais prête) → arrêt net.
+                    self.capture_fail_streak += 1
                     await self._log("warning", f"guide : frame ignorée ({e})")
+                    if self.capture_fail_streak >= MAX_CAPTURE_FAILS:
+                        await self._log(
+                            "error",
+                            f"guide : arrêt — {self.capture_fail_streak} échecs "
+                            f"capture consécutifs ({e})",
+                        )
+                        self.guide.stop()
+                        break
                     await sleep(RETRY_DELAY_SEC)
         except asyncio.CancelledError:
             raise

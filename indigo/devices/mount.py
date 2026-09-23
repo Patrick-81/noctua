@@ -50,6 +50,8 @@ MOUNT_PROPERTIES = {
     "TELESCOPE_ABORT_MOTION",
     "TELESCOPE_SLEW_RATE",
     "TELESCOPE_HOME",
+    "TELESCOPE_MOTION_NS",
+    "TELESCOPE_MOTION_WE",
 }
 
 
@@ -86,6 +88,9 @@ class Mount(BaseDevice):
         self.park_state: str = ""  # INDIGO property state: "Ok", "Busy", "Alert"
         self.homing: bool = False
         self.homed: bool = False  # reste vrai après un home réussi (LED verte)
+        self._home_busy_seen: bool = False  # Busy vu pendant le home en cours
+        self._home_start_ra: float = 0.0
+        self._home_start_dec: float = 0.0
         # GOTO target (to detect slew completion)
         self._target_ra: float | None = None
         self._target_dec: float | None = None
@@ -94,6 +99,10 @@ class Mount(BaseDevice):
         self._prev_dec: float = 0.0
         # Manual move polling
         self._move_poll_task: asyncio.Task | None = None
+        # Garde anti-concurrents park/unpark/home : deux POST simultanés
+        # (double-clic UI, slew auto + bouton) entrelaçaient les envois et
+        # les polls lisait/écrivait parked/homed en course → aléatoire.
+        self._mount_op: str | None = None
 
     # ── Name resolution ──────────────────────────────────────────
 
@@ -165,7 +174,7 @@ class Mount(BaseDevice):
             self._parse_horizontal(pv)
         elif name in ("MOUNT_HOME", "TELESCOPE_HOME"):
             self._parse_home(pv)
-            log.info("[%s] home state=%s", self.name, pv.state)
+            log.info("[%s] home state=%s msg='%s'", self.name, pv.state, getattr(pv, "message", "") or "")
 
     def _parse_coordinates(self, pv: PropertyVector) -> None:
         ra_item = pv.get_item("RA")
@@ -214,6 +223,12 @@ class Mount(BaseDevice):
             log.debug("[%s] park=%s state=%s", self.name, new_parked, new_state)
         self.park_state = new_state
         self.parked = new_parked
+        # Un mount parké ne suit pas physiquement : OnStep coupe le suivi
+        # au :hP# sans pousser MOUNT_TRACKING. Sans ça, TRACK+PARK restent
+        # allumés ensemble côté UI alors que la monture est immobile.
+        if new_parked and self.tracking:
+            log.info("[%s] park: parked → tracking False (le park coupe le suivi)", self.name)
+            self.tracking = False
 
     def _parse_horizontal(self, pv: PropertyVector) -> None:
         az_item = pv.get_item("AZ")
@@ -229,9 +244,30 @@ class Mount(BaseDevice):
 
     def _parse_home(self, pv: PropertyVector) -> None:
         state = (pv.state or "").lower()
-        if self.homing and state != "busy":
+        if not self.homing:
+            return
+        if state == "busy":
+            self._home_busy_seen = True
+            return
+        if state == "alert":
+            self.homing = False
+            self.homed = False
+            msg = getattr(pv, "message", "") or ""
+            log.warning("[%s] home: Alert driver msg='%s' — home non confirmé", self.name, msg)
+            return
+        # Ok (ou état vide) : ne valider que si le driver a réellement agi
+        # (Busy vu) ou si la monture a bougé. Un Ok immédiat sans Busy ni
+        # mouvement = commande ignorée (ex. :hC# refusé car parking/homing
+        # ou mouvement en cours) — laisser le poll déclarer l'échec au lieu
+        # d'allumer la LED verte à tort (symptôme "home ne réagit plus"
+        # suivi d'un faux succès).
+        moved_ra = abs(self.ra_hours - self._home_start_ra) * 15.0
+        moved_dec = abs(self.dec_deg - self._home_start_dec)
+        if self._home_busy_seen or moved_ra > 0.05 or moved_dec > 0.05:
             self.homing = False
             self.homed = True
+        else:
+            log.debug("[%s] home: Ok sans Busy ni mouvement — en attente du poll", self.name)
 
     # ── Commands ─────────────────────────────────────────────────
 
@@ -244,6 +280,7 @@ class Mount(BaseDevice):
         self.slewing = False
         if self.homing:
             self.homed = False  # home interrompu = pas homed
+            self._home_busy_seen = False
         self.homing = False
         self._target_ra = None
         self._target_dec = None
@@ -291,120 +328,253 @@ class Mount(BaseDevice):
             return
         log.warning("[%s] park: no PARK property with item %s in %s", self.name, target_item, list(self._properties.keys()))
 
+    def _coords_busy(self) -> bool:
+        """True si le driver signale des coordonnées en mouvement (slew/park en cours)."""
+        try:
+            cp = self._properties.get(self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES"))
+            return bool(cp and (cp.state or "").lower() == "busy")
+        except Exception:
+            return False
+
+    def _coords_stable_step(self, prev: tuple[float, float]) -> tuple[bool, tuple[float, float]]:
+        """Un pas de stabilité coords (seuils _ensure_motion_stopped)."""
+        dra = abs(self.ra_hours - prev[0]) * 15.0
+        dd = abs(self.dec_deg - prev[1])
+        cur = (self.ra_hours, self.dec_deg)
+        return (dra < 0.005 and dd < 0.005, cur)
+
+    async def _park_poll(self, timeout_s: float = 20.0) -> str:
+        """Poll après envoi du :hP#. Retourne 'ok' | 'refused' | 'timeout'.
+
+        'refused' = le driver a répondu puis est revenu à UNPARKED/Ok
+        (vu 12:05:17 : Busy/Parking puis revert immédiat) — inutile
+        d'attendre tout le timeout, il faut settle puis réessayer.
+        'refused' aussi si après ~4s le driver est idle (state Ok, jamais
+        Busy, parked inchangé) : la commande a été ignorée (:hP# pendant
+        un mouvement ou tracking inadapté) — retry immédiat au lieu de
+        bloquer l'HTTP 20s.
+        """
+        seen_parking = self.parked
+        initial_parked = self.parked
+        steps = int(timeout_s / 0.5)
+        stable = 0
+        prev = (self.ra_hours, self.dec_deg)
+        for i in range(steps):
+            await asyncio.sleep(0.5)
+            if self.parked and self.park_state == "Ok":
+                log.info("[%s] park: success (parked True, state Ok)", self.name)
+                return "ok"
+            if self.parked and self.park_state not in ("Busy", "Alert"):
+                log.info("[%s] park: success parked True state=%s", self.name, self.park_state)
+                return "ok"
+            if self.parked:
+                seen_parking = True
+            if seen_parking and not self.parked and self.park_state == "Ok":
+                log.warning("[%s] park: refusé par le driver (revert UNPARKED/Ok après Parking)", self.name)
+                return "refused"
+            if (i >= 7 and self.parked == initial_parked and not seen_parking
+                    and (self.park_state or "Ok") == "Ok"):
+                log.warning("[%s] park: driver idle après 4s (state Ok, sans Busy) — commande ignorée ?", self.name)
+                return "refused"
+            # Accept précoce : OnStep ne repasse jamais à Ok après :hP#
+            # (Alert 'Parking' puis Alert '' persistant, vu Mount LX200).
+            # PARKED acquis + coords immobiles + coords non Busy = le slew
+            # de parking physique est terminé → inutile d'attendre 20s.
+            ok_step, prev = self._coords_stable_step(prev)
+            if (self.parked and self.park_state == "Alert"
+                    and ok_step and not self._coords_busy()):
+                stable += 1
+                if stable >= 12:  # 6 s immobile sous Alert
+                    log.info("[%s] park: success (parked True, Alert persistant + coords stables)", self.name)
+                    return "ok"
+            else:
+                stable = 0
+        if self.parked and self.park_state == "Alert":
+            # OnStep laisse parfois Alert avec msg '' après parking — on l'accepte comme succès si parked True
+            msg = getattr(self._properties.get(self._resolve_prop_name("MOUNT_PARK")), "message", "")
+            log.warning("[%s] park: Alert persistant après %.0fs (msg='%s') mais parked True → accepté", self.name, timeout_s, msg)
+            return "ok"
+        if self.parked:
+            log.info("[%s] park: success Busy→%s (après poll)", self.name, self.park_state)
+            return "ok"
+        return "timeout"
+
+    async def _wait_mount_op(self, waiter: str, timeout: float = 30.0) -> bool:
+        """Attend la fin d'une op park/unpark/home en cours.
+
+        Retourne True si libre. Évite qu'un HOME/SLEW cliqué pendant un
+        unpark (20 s sous Alert persistant avant le fix) soit silencieusement
+        ignoré — symptôme "home ne fonctionne plus".
+        """
+        waited = 0.0
+        while self._mount_op is not None and waited < timeout:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+        if self._mount_op is not None:
+            log.warning("[%s] %s: op %s toujours active après %.0fs — ignoré",
+                        self.name, waiter, self._mount_op, timeout)
+            return False
+        return True
+
     async def park(self) -> None:
+        if not await self._wait_mount_op("park"):
+            return
+        if self.parked and self.park_state != "Busy":
+            log.info("[%s] park: déjà parké (state=%s) — rien à faire", self.name, self.park_state)
+            return
+        self._mount_op = "park"
+        try:
+            await self._park_impl()
+        finally:
+            self._mount_op = None
+
+    async def _park_impl(self) -> None:
         self.homed = False  # le park quitte la home position
         # Abort si Busy (park/homing/slewing) — sinon INDIGO ignore le park (mount_park_callback check !parking&&!homing)
         if self.park_state == "Busy" or self.homing or self.slewing:
             log.info("[%s] park: Busy/homing/slewing → abort avant park", self.name)
             await self.abort()
-            await asyncio.sleep(0.8)
-        # Au pôle (89.98°) le :hP# peut rester bloqué comme le :MS# — sortir du pôle d'abord par palier 80°.
-        # Ce palier est bref (max 8s) et suivi d'un abort si encore Busy, pour ne pas laisser le LED Busy.
+            await self._ensure_motion_stopped()
+        # Sortie de pôle au JOYSTICK (pas de :MS# : singulier à DEC 90°, et
+        # l'abort d'un palier :MS# laisse un mouvement résiduel qui fait
+        # rejeter le :hP# — revert PARKED→UNPARKED vu le 12:05:17).
         if abs(self.dec_deg) > 85.0:
-            log.info("[%s] park: pôle DEC %.1f° → palier 80° avant park", self.name, self.dec_deg)
-            await self._slew_to_raw(self.ra_hours, 80.0)
-            for _ in range(16):
-                await asyncio.sleep(0.5)
-                if not self.slewing:
-                    break
-            if self.slewing:
-                log.info("[%s] park: palier slewing toujours actif → abort", self.name)
-                await self.abort()
-                await asyncio.sleep(0.8)
-            else:
-                await asyncio.sleep(0.5)
-        # OnStep :hP# exige tracking OFF
-        if self.tracking:
-            log.info("[%s] park: tracking ON → OFF avant park", self.name)
-            await self.set_tracking(False)
-            await asyncio.sleep(0.8)
+            log.info("[%s] park: pôle DEC %.1f° → joystick SOUTH avant park", self.name, self.dec_deg)
+            await self.move("SOUTH", "MAX")
+            await asyncio.sleep(min(10.0, abs(self.dec_deg - 80.0) * 0.9))
+            await self.halt_move()
+            await self._ensure_motion_stopped()
+            log.info("[%s] park: après sortie pôle à RA=%.4fh DEC=%.2f°", self.name, self.ra_hours, self.dec_deg)
+        # Tracking : on ne le touche PLUS avant park. Le park via frontend
+        # INDIGO (qui ne modifie pas le tracking, typiquement ON) passe,
+        # tandis que notre passage forcé à OFF était suivi d'un NACK
+        # systématique (:hP# revert UNPARKED en 1s). Hypothèse : OnStep ou le
+        # driver exige le suivi actif pour accepter le park. Le retry
+        # ci-dessous force tracking ON si le premier envoi est refusé.
+        log.info("[%s] park: envoi avec tracking=%s (inchangé)", self.name, self.tracking)
+        await self._ensure_motion_stopped(timeout=5.0)
         pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         target = "PARKED" if pv and any(it.name == "PARKED" for it in pv.items) else "PARK"
         await self._send_park_switch(target)
         # Poll jusqu'à 20s : OnStep :hP# peut mettre 5-15s à slewer vers le pôle.
-        # On attend Ok (pas Busy ni Alert) ; Alert 'Parking' est transitoire mais on ne coupe plus.
-        for _ in range(40):
-            await asyncio.sleep(0.5)
-            if self.parked and self.park_state == "Ok":
-                log.info("[%s] park: success (parked True, state Ok)", self.name)
-                return
-            if self.parked and self.park_state not in ("Busy", "Alert"):
-                log.info("[%s] park: success parked True state=%s", self.name, self.park_state)
-                return
-        if self.parked and self.park_state == "Alert":
-            # OnStep laisse parfois Alert avec msg '' après parking — on l'accepte comme succès si parked True
-            msg = getattr(self._properties.get(self._resolve_prop_name("MOUNT_PARK")), "message", "")
-            log.warning("[%s] park: Alert persistant après 20s (msg='%s') mais parked True → accepté", self.name, msg)
+        res = await self._park_poll(20.0)
+        if res == "ok":
             return
-        if self.parked:
-            log.info("[%s] park: success Busy→%s (après poll)", self.name, self.park_state)
-            return
-        log.info("[%s] park: still not parked=%s after poll, retry bi-item", self.name, self.parked)
+        log.info("[%s] park: %s, settle + retry bi-item", self.name, res)
+        await self._ensure_motion_stopped(timeout=5.0)
+        if not self.tracking:
+            log.info("[%s] park retry: tracking OFF → ON (le frontend park avec suivi actif)", self.name)
+            await self.set_tracking(True)
+            await asyncio.sleep(2.0)
+            await self._ensure_motion_stopped(timeout=5.0)
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            for _ in range(40):
-                await asyncio.sleep(0.5)
-                if self.parked and self.park_state == "Ok":
-                    log.info("[%s] park: success after bi-item (Ok)", self.name)
-                    return
-                if self.parked and self.park_state not in ("Busy", "Alert"):
-                    log.info("[%s] park: success after bi-item state=%s", self.name, self.park_state)
-                    return
-            if self.parked and self.park_state == "Alert":
-                log.warning("[%s] park: Alert persistant après retry mais parked True → accepté", self.name)
+            res2 = await self._park_poll(20.0)
+            if res2 == "ok":
+                log.info("[%s] park: success après retry (tracking=%s)", self.name, self.tracking)
                 return
-        log.warning("[%s] park: still not parked after 20s (state=%s parked=%s)", self.name, self.park_state, self.parked)
+            res = res2
+        log.warning("[%s] park: échec (%s puis retry) — state=%s parked=%s tracking=%s (le park passe via frontend INDIGO : comparer état tracking/payload)",
+                    self.name, res, self.park_state, self.parked, self.tracking)
 
     async def unpark(self) -> None:
-        # Si HOME ou PARK est Busy, on l'abort d'abord — sinon :hR# est ignoré (indigo_mount_lx200.c:2774)
-        busy = False
-        home_pv = self._properties.get(self._resolve_prop_name("MOUNT_HOME"))
-        if home_pv and home_pv.state == "Busy":
-            busy = True
-        if self.park_state == "Busy":
-            busy = True
-        if busy:
-            log.info("[%s] unpark: Busy (HOME/PARK) → abort avant unpark", self.name)
-            await self.abort()
-            await asyncio.sleep(0.8)
-        pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
-        target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
-        await self._send_park_switch(target)
-        for _ in range(40):
+        if not await self._wait_mount_op("unpark"):
+            return
+        if self.parked is False and self.park_state != "Busy":
+            log.info("[%s] unpark: déjà déparké (state=%s) — rien à faire", self.name, self.park_state)
+            return
+        self._mount_op = "unpark"
+        try:
+            await self._unpark_impl()
+        finally:
+            self._mount_op = None
+
+    async def _unpark_poll(self, timeout_s: float = 20.0) -> str:
+        """Poll après envoi du :hR#. Retourne 'ok' | 'refused' | 'timeout'.
+
+        'refused' si après ~4s le driver est idle (parked True, state Ok,
+        jamais Busy) : le :hR# a été ignoré — retry bi-item immédiat au
+        lieu de bloquer l'HTTP 20s. Accept précoce comme _park_poll :
+        OnStep reste en Alert persistant ('Unparking' puis '') avec
+        parked False correct — 3 s de coords stables suffisent (pas de
+        slew physique au déparcage).
+        """
+        stable = 0
+        prev = (self.ra_hours, self.dec_deg)
+        for i in range(int(timeout_s / 0.5)):
             await asyncio.sleep(0.5)
             if self.parked is False and self.park_state == "Ok":
                 log.info("[%s] unpark: success (parked False, state Ok)", self.name)
-                return
+                return "ok"
             if self.parked is False and self.park_state not in ("Busy", "Alert"):
                 log.info("[%s] unpark: success (parked False, state=%s)", self.name, self.park_state)
-                return
+                return "ok"
+            if i >= 7 and self.parked is True and (self.park_state or "Ok") == "Ok":
+                log.warning("[%s] unpark: driver idle après 4s (toujours parked/Ok) — commande ignorée ?", self.name)
+                return "refused"
+            ok_step, prev = self._coords_stable_step(prev)
+            if (self.parked is False and self.park_state == "Alert"
+                    and ok_step and not self._coords_busy()):
+                stable += 1
+                if stable >= 6:  # 3 s immobile sous Alert
+                    log.info("[%s] unpark: success (parked False, Alert persistant + coords stables)", self.name)
+                    return "ok"
+            else:
+                stable = 0
         if not self.parked and self.park_state == "Alert":
             msg = getattr(self._properties.get(self._resolve_prop_name("MOUNT_PARK")), "message", "")
-            log.warning("[%s] unpark: Alert persistant après 20s (msg='%s') mais parked False → accepté", self.name, msg)
-            return
+            log.warning("[%s] unpark: Alert persistant après %.0fs (msg='%s') mais parked False → accepté", self.name, timeout_s, msg)
+            return "ok"
         if not self.parked:
             log.info("[%s] unpark: success after poll (parked False, state=%s)", self.name, self.park_state)
+            return "ok"
+        return "timeout"
+
+    async def _unpark_impl(self) -> None:
+        # :hR# ignoré si HOME/PARK Busy (indigo_mount_lx200.c:2774) MAIS
+        # AUSSI pendant un slew/homing ou un mouvement joystick résiduel :
+        # OnStep refuse alors sans répondre → "unpark ne fonctionne plus",
+        # aléatoire selon l'état précédent. Abort large + settle systématique.
+        busy = False
+        home_pv = self._properties.get(self._resolve_prop_name("MOUNT_HOME"))
+        if home_pv and (home_pv.state or "").lower() == "busy":
+            busy = True
+        if self.park_state == "Busy":
+            busy = True
+        if self.slewing or self.homing:
+            busy = True
+        try:
+            cp = self._properties.get(self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES"))
+            if cp and (cp.state or "").lower() == "busy":
+                busy = True
+        except Exception:
+            pass
+        if busy:
+            log.info("[%s] unpark: Busy (HOME/PARK/slew/homing/coords) → abort avant unpark", self.name)
+            await self.abort()
+            await self._ensure_motion_stopped(timeout=5.0)
+        else:
+            await self._ensure_motion_stopped(timeout=5.0)
+        pv = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
+        target = "UNPARKED" if pv and any(it.name == "UNPARKED" for it in pv.items) else "UNPARK"
+        await self._send_park_switch(target)
+        res = await self._unpark_poll(20.0)
+        if res == "ok":
             return
-        log.info("[%s] unpark: still parked after poll, retry bi-item", self.name)
+        log.info("[%s] unpark: %s, settle + retry bi-item", self.name, res)
+        await self._ensure_motion_stopped(timeout=5.0)
         pv2 = self._properties.get(self._resolve_prop_name("MOUNT_PARK"))
         if pv2 and len(pv2.items) >= 2:
             items = [{"name": it.name, "value": it.name == target} for it in pv2.items]
             log.info("[%s] unpark: sending bi-item %s", self.name, items)
             await self.send_switch(self._resolve_prop_name("MOUNT_PARK"), items)
-            for _ in range(40):
-                await asyncio.sleep(0.5)
-                if not self.parked and self.park_state == "Ok":
-                    log.info("[%s] unpark: success after bi-item (Ok)", self.name)
-                    return
-                if not self.parked and self.park_state not in ("Busy", "Alert"):
-                    log.info("[%s] unpark: success after bi-item state=%s", self.name, self.park_state)
-                    return
-            if not self.parked and self.park_state == "Alert":
-                log.warning("[%s] unpark: Alert persistant après retry mais parked False → accepté", self.name)
+            res2 = await self._unpark_poll(20.0)
+            if res2 == "ok":
                 return
-        log.warning("[%s] unpark: still parked after 20s (state=%s parked=%s)", self.name, self.park_state, self.parked)
+            res = res2
+        log.warning("[%s] unpark: échec (%s puis retry) — state=%s parked=%s", self.name, res, self.park_state, self.parked)
 
     async def slew_to(self, ra_hours: float, dec_deg: float) -> None:
         """GOTO: dé-parque, tracking ON, sort du pôle, puis slew — fallback move si :MS# bloqué."""
@@ -452,8 +622,8 @@ class Mount(BaseDevice):
             else:
                 await asyncio.sleep(0.3)
         # Sortie de pôle : OnStep à DEC>85° refuse le :MS# lointain (vu 89.98°→55° bloqué).
-        # Palier intermédiaire 80° puis GOTO final. Le park garde le protocole simple
-        # (sans palier) pour ne pas laisser le LED Busy — ce palier n'est que pour GOTO.
+        # Palier intermédiaire 80° puis GOTO final. (Le park a sa propre
+        # sortie de pôle au joystick dans park() — le :MS# y est proscrit.)
         if abs(self.dec_deg) > 85.0 and abs(dec_deg - self.dec_deg) > 10.0:
             mid_dec = 80.0 if dec_deg < 80 else 75.0
             log.info("[%s] slew_to: pôle DEC %.1f° → palier intermédiaire %.1f° avant cible %.1f°", self.name, self.dec_deg, mid_dec, dec_deg)
@@ -647,12 +817,27 @@ class Mount(BaseDevice):
         Tries INDIGO v2.0 (MOUNT_HOME / HOME) then INDI legacy
         (TELESCOPE_HOME / GO, FIND, SET).
         """
+        if self.homing:
+            log.info("[%s] home: homing déjà en cours, ignoré", self.name)
+            return
+        if not await self._wait_mount_op("home"):
+            return
+        self._mount_op = "home"
+        try:
+            await self._home_impl()
+        finally:
+            self._mount_op = None
+
+    async def _home_impl(self) -> None:
+        """Corps du home (voir home() pour la garde anti-concurrents)."""
         log.info("[%s] home: demandé (parked=%s tracking=%s slewing=%s homing=%s)",
                  self.name, self.parked, self.tracking, self.slewing, self.homing)
         self.homed = False
         if self.parked:
             log.info("[%s] home: parked → unpark auto avant home", self.name)
-            await self.unpark()
+            # Appel direct à l'impl : home() détient déjà _mount_op,
+            # unpark() public refuserait (garde anti-concurrents).
+            await self._unpark_impl()
             await asyncio.sleep(1.0)
             if self.parked:
                 log.warning("[%s] home: still parked, annulé", self.name)
@@ -661,6 +846,12 @@ class Mount(BaseDevice):
             log.info("[%s] home: Busy (slewing/homing/park) → abort avant home", self.name)
             await self.abort()
             await asyncio.sleep(0.8)
+        # NOTE (2026-09-22) : on a essayé de forcer tracking ON avant HOME
+        # (hypothèse : OnStep :hC# exige le suivi, comme :hP#). Testé sur le
+        # terrain : refus identique avec tracking OFF ou déjà ON → le
+        # tracking n'est PAS le discriminant. On ne touche donc plus au
+        # tracking ici (code historique qui fonctionnait quand
+        # l'environnement le permettait) ; le refus vient du driver/contrôleur.
         # Si un home est déjà Busy côté serveur, l'abort précédent l'a libéré
         home_prop = self._resolve_prop_name("MOUNT_HOME")
         pv = self._properties.get(home_prop)
@@ -673,8 +864,14 @@ class Mount(BaseDevice):
                     break
         if pv is not None:
             self.homing = True
+            self._home_busy_seen = False
+            self._home_start_ra = self.ra_hours
+            self._home_start_dec = self.dec_deg
             self._prev_ra = self.ra_hours
             self._prev_dec = self.dec_deg
+            log.info("[%s] home: prop %s rule=%s state=%s items=%s", self.name, home_prop,
+                     getattr(pv, "rule", "?"), pv.state,
+                     [(it.name, it.value) for it in pv.items])
             item = "GO"
             for candidate in ("HOME", "GO", "FIND", "SET"):
                 if pv.get_item(candidate):
@@ -756,15 +953,20 @@ class Mount(BaseDevice):
         ]
         await self.send_switch(track_prop, items)
 
-    async def move(self, direction: str, rate: str = "CENTERING") -> None:
-        """Start a manual move. direction: N/S/E/W or NORTH/SOUTH/EAST/WEST"""
+    async def move(self, direction: str, rate: str | None = None) -> None:
+        """Start a manual move. direction: N/S/E/W or NORTH/SOUTH/EAST/WEST.
+
+        ``rate`` est appliqué seulement s'il est fourni — ne plus écraser le
+        rate déjà posé par la route HTTP avec un défaut « CENTERING » qui
+        ne matche aucun item (joystick silencieux terrain).
+        """
         self.homed = False  # joystick = sortie de home
-        # Rate doit être positionné avant le move (INDIGO MOUNT_SLEW_RATE)
-        try:
-            await self.set_slew_rate(rate)
-            await asyncio.sleep(0.2)
-        except Exception:
-            pass
+        if rate:
+            try:
+                await self.set_slew_rate(rate)
+                await asyncio.sleep(0.2)
+            except Exception as e:  # noqa: BLE001
+                log.warning("[%s] move: set_slew_rate(%s) failed: %s", self.name, rate, e)
         _DIR_MAP = {"NORTH": "N", "SOUTH": "S", "EAST": "E", "WEST": "W"}
         d = _DIR_MAP.get(direction.upper(), direction.upper())
         if d in ("N", "S"):
@@ -778,9 +980,12 @@ class Mount(BaseDevice):
                 off = "SOUTH" if d == "N" else "NORTH"
             # AtMostOne : envoyer les deux items explicitement
             if pv and len(pv.items) >= 2:
-                await self.send_switch(motion_prop, [{"name": on, "value": True}, {"name": off, "value": False}])
+                payload = [{"name": on, "value": True}, {"name": off, "value": False}]
             else:
-                await self.send_switch(motion_prop, [{"name": on, "value": True}])
+                payload = [{"name": on, "value": True}]
+            log.info("[%s] move %s → %s items=%s (prop_found=%s)",
+                     self.name, direction, motion_prop, payload, pv is not None)
+            await self.send_switch(motion_prop, payload)
         elif d in ("E", "W"):
             motion_prop = self._resolve_prop_name("MOUNT_MOTION_RA")
             pv = self._properties.get(motion_prop)
@@ -791,9 +996,15 @@ class Mount(BaseDevice):
                 on = "EAST" if d == "E" else "WEST"
                 off = "WEST" if d == "E" else "EAST"
             if pv and len(pv.items) >= 2:
-                await self.send_switch(motion_prop, [{"name": on, "value": True}, {"name": off, "value": False}])
+                payload = [{"name": on, "value": True}, {"name": off, "value": False}]
             else:
-                await self.send_switch(motion_prop, [{"name": on, "value": True}])
+                payload = [{"name": on, "value": True}]
+            log.info("[%s] move %s → %s items=%s (prop_found=%s)",
+                     self.name, direction, motion_prop, payload, pv is not None)
+            await self.send_switch(motion_prop, payload)
+        else:
+            log.warning("[%s] move: unknown direction %r", self.name, direction)
+            return
         # Poll coordinates during the move
         self._start_move_poll()
 
@@ -901,17 +1112,34 @@ class Mount(BaseDevice):
                     except Exception:
                         pass
                     if stable_count >= 5 and not home_state_busy:
-                        self.homing = False
-                        self.homed = True
-                        log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        moved_ra = abs(self.ra_hours - self._home_start_ra) * 15.0
+                        moved_dec = abs(self.dec_deg - self._home_start_dec)
+                        if self._home_busy_seen or moved_ra > 0.05 or moved_dec > 0.05:
+                            self.homing = False
+                            self.homed = True
+                            log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
+                        else:
+                            # Coords stables, jamais Busy, aucun mouvement :
+                            # le driver a ignoré la commande — ne pas allumer la LED.
+                            self.homing = False
+                            self.homed = False
+                            log.warning("[%s] home: stable sans Busy ni mouvement — commande probablement ignorée par le driver", self.name)
                         self._stop_move_poll()
                         return
-                    # Timeout 30s : évite de bloquer l'UI à vie si HOME échoue (Alert ou driver coincé)
-                    if poll_count > 300:
+                    # Timeout 100s : OnStep met ~75s pour homes (Busy 12:01:08 → Ok 12:02:23).
+                    # Évite de bloquer l'UI à vie si HOME échoue (Alert ou driver coincé).
+                    if poll_count > 1000:
                         self.homing = False
-                        log.warning("[%s] homing timeout après 30s (state Busy=%s) — débloqué", self.name, home_state_busy)
+                        self._home_busy_seen = False
+                        log.warning("[%s] homing timeout après 100s (state Busy=%s) — débloqué", self.name, home_state_busy)
                         self._stop_move_poll()
                         return
+                else:
+                    # Ni slew ni homing (ex. _parse_home a conclu, ou abort
+                    # externe) : rien à surveiller, sortie propre au lieu
+                    # de boucler à vie.
+                    self._stop_move_poll()
+                    return
                 await asyncio.sleep(0.1)
         except asyncio.CancelledError:
             pass
@@ -932,18 +1160,33 @@ class Mount(BaseDevice):
     async def _poll_coords(self) -> None:
         """Request fresh coordinates from INDIGO after a move."""
         try:
-            await self.client.send_get_properties(self.name, "EQUATORIAL_EOD_COORD")
+            prop = self._resolve_prop_name("MOUNT_EQUATORIAL_COORDINATES")
+            await self.client.send_get_properties(self.name, prop)
         except Exception:
             pass
 
     async def set_slew_rate(self, rate_name: str) -> None:
-        """Set slew rate by item name (e.g. 'Guide', 'Centering', 'Find', 'Max')."""
+        """Set slew rate by item name (e.g. 'Guide', 'Centering', 'Find', 'Max').
+
+        Matching is case-insensitive: INDIGO LX200 exposes GUIDE/CENTERING/FIND/MAX
+        while the UI sends Find/Centering — a strict compare turned every item Off
+        and the mount never moved.
+        """
         slew_prop = self._resolve_prop_name("MOUNT_SLEW_RATE")
-        if slew_prop in self._properties:
-            pv = self._properties[slew_prop]
-            # Set the desired rate ON, all others OFF
-            items = [{"name": it.name, "value": it.name == rate_name} for it in pv.items]
-            await self.send_switch(slew_prop, items)
+        if slew_prop not in self._properties:
+            log.debug("[%s] set_slew_rate: no %s in %s", self.name, slew_prop, list(self._properties))
+            return
+        pv = self._properties[slew_prop]
+        want = (rate_name or "").strip().lower()
+        matched = any(it.name.lower() == want for it in pv.items)
+        if not matched:
+            log.warning("[%s] set_slew_rate: no item matching %r in %s — keeping current rate",
+                        self.name, rate_name, [it.name for it in pv.items])
+            return
+        items = [{"name": it.name, "value": it.name.lower() == want} for it in pv.items]
+        log.info("[%s] set_slew_rate: %s → %s", self.name, slew_prop,
+                 next((it["name"] for it in items if it["value"]), "?"))
+        await self.send_switch(slew_prop, items)
 
     # ── State ────────────────────────────────────────────────────
 
