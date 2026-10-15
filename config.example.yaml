@@ -3,6 +3,10 @@
 indigo:
   host: 127.0.0.1        # adresse du serveur INDIGO (modifiez selon votre réseau)
   port: 7624
+  # blob_mode: Also (défaut, inline base64, compatible INDI+INDIGO) ou URL
+  # (INDIGO v2 : le serveur garde l'image, Noctua la télécharge en HTTP —
+  # comme le panneau indigo_server, parfois bien plus rapide côté driver).
+  blob_mode: Also
 web:
   host: 0.0.0.0             # interface d'écoute (0.0.0.0 = LAN local)
   port: 8080

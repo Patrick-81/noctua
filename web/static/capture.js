@@ -130,6 +130,7 @@ function initCapturePanel() {
             _captureRunning = false;
             _captureAborted = true;
             apiPost('/api/camera/abort', { device: findCamera()?.name });
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
             updateCaptureProgress();
         });
     }
@@ -326,13 +327,16 @@ async function startSequence(count, delay) {
             }
         }
         addLog('info', 'capture', i18nFmt('log.capture.pose', { i: i + 1, count, exposure, type: _captureFrameType, filter: filter ? ` [${filter}]` : '' }));
-        apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType });
+        const _pv = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette') ? 'vignette' : 'pleine';
+        apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType, preview: _pv });
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
         // ligne défilante en haut du panneau aperçu pendant chargement
         document.getElementById('applet-capture-preview')?.classList.add('cap-preview-loading');
-        await waitExposureDone(cam.name, exposure * 1000 + 5000);
+        // Marge readout large : un gros capteur en USB2 (ex. 77 Mo) peut
+        // mettre plus d'une minute entre la fin de pose et le BLOB.
+        await waitExposureDone(cam.name, exposure * 1000 + 120000);
         stopCountdown();
         // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
         await _fetchLastImageIfNeeded(cam.name);
@@ -396,6 +400,11 @@ async function _fetchLastImageIfNeeded(camName) {
             if (age2 < 2000) return;
             addLog('info', 'capture', `Rapatriement HTTP ${j.variant||''} (fallback WS)`);
             handleCameraImage(j.data, j.format, j.variant);
+        } else {
+            // Pas d'image côté serveur non plus : sortir du mode chargement
+            // au lieu de laisser le spinner en suspens sans résultat.
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+            addLog('warning', 'capture', `Aucune image reçue pour ${camName} (pose + fallback HTTP sans résultat) — voir log serveur EXPOSE/BLOB`);
         }
     } catch (e) {}
 }

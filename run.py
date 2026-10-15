@@ -113,7 +113,8 @@ def main():
                     templates_path=templates_path,
                     telescope_config=telescope_cfg, sequence_config=sequence_cfg,
                     exposure_config=exposure_cfg,
-                    masters_config=config.get("masters", {}))
+                    masters_config=config.get("masters", {}),
+                    blob_mode=str(indigo_cfg.get("blob_mode", "Also")))
 
     # Run everything
     async def run_all():
@@ -130,7 +131,24 @@ def main():
             access_log=False,
         )
         server = uvicorn.Server(config)
-        await server.serve()
+        try:
+            await server.serve()
+        finally:
+            # Arrêt propre : annule la boucle de connexion et ferme la
+            # socket INDIGO — sinon un client fantôme (enableBLOB, etc.)
+            # subsiste côté indigo_server et la caméra semble « tenue ».
+            indigo_task.cancel()
+            try:
+                await indigo_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as e:  # noqa: BLE001
+                log.warning("indigo task end: %s", e)
+            try:
+                await client.disconnect()
+            except Exception as e:  # noqa: BLE001
+                log.warning("indigo disconnect: %s", e)
+            log.info("Disconnected from INDIGO server.")
 
     try:
         asyncio.run(run_all())

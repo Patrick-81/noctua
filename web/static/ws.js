@@ -67,7 +67,7 @@ function connectWS() {
         } else if (msg.type === 'log') {
             Hub.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
         } else if (msg.type === 'image') {
-            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
+            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data, variant: msg.variant }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
             Hub.emit('solver:result', { result: msg.result }, { source: 'solver' });
         } else if (msg.type === 'stacking') {

@@ -45,8 +45,14 @@ class WebServer:
                  config_path: Path | None = None, ui_path: Path | None = None,
                  profiles_path: Path | None = None, telescope_config: dict | None = None,
                  sequence_config: dict | None = None, exposure_config: dict | None = None,
-                 templates_path: Path | None = None, masters_config: dict | None = None):
+                 templates_path: Path | None = None, masters_config: dict | None = None,
+                 blob_mode: str = "Also"):
         self.registry = registry
+        # Mode de livraison BLOB : Also (inline base64, compatible INDI+INDIGO,
+        # défaut sûr) ou URL (INDIGO v2, le serveur garde l'image, le client
+        # la télécharge en HTTP — comme le panneau indigo_server).
+        _bm = (blob_mode or "Also").upper()
+        self.blob_mode = _bm if _bm in ("ALSO", "URL") else "ALSO"
         self.site = site_config or {}
         self.telescope = dict(telescope_config or {})
         self.sequence_cfg = dict(sequence_config or {})
@@ -83,6 +89,13 @@ class WebServer:
         self._camera_images: dict[str, bytes] = {}  # device_name → last image bytes
         self._last_thumb: bytes | None = None
         self._last_thumb_device: str = ""
+        # Variant d'aperçu demandé par l'UI (vignette|pleine|both|None) —
+        # positionné par /api/camera/expose {preview}, lu par _on_camera_image
+        # pour ne fabriquer que le JPEG utile.
+        self._preview_variant: str | None = None
+        # Tâche de fond de la pleine résolution en cours (annulée si une
+        # image plus récente arrive — seul le dernier aperçu compte).
+        self._pleine_task: asyncio.Task | None = None
         # Unifie les 2 listes WS (server + weblog) pour éviter la divergence qui causait ws=0
         # côté image alors que les logs passaient encore.
         self._ws_clients = weblog_handler._clients  # alias partagé
@@ -167,16 +180,30 @@ class WebServer:
         blob_enabled_dev: set[str] = set()     # cameras we sent device-level <enableBLOB> for
         format_set: set[str] = set()           # cameras we set CCD_IMAGE_FORMAT for
         retry_count: dict[str, int] = {}       # per-camera getProperties retry count
+        last_connect: int = -1                # compteur de connexion vu (détecte les reconnects)
+
+        def _reset():
+            blob_requested.clear()
+            blob_enabled.clear()
+            blob_enabled_dev.clear()
+            format_set.clear()
+            retry_count.clear()
 
         while True:
             await asyncio.sleep(2)
             if not self.registry.client.connected:
-                blob_requested.clear()
-                blob_enabled.clear()
-                blob_enabled_dev.clear()
-                format_set.clear()
-                retry_count.clear()
+                _reset()
+                last_connect = -1
                 continue
+
+            # Nouvelle connexion (reconnect, même rapide et jamais vu
+            # déconnecté) : le serveur suit enableBLOB PAR CONNEXION, donc
+            # tout est à renvoyer, sinon expose OK mais aucun BLOB.
+            cur_connect = getattr(self.registry.client, "_connect_count", 0)
+            if cur_connect != last_connect:
+                last_connect = cur_connect
+                _reset()
+                log.info("New INDIGO connection (#%d) — re-requesting BLOB setup", cur_connect)
 
             for name, dev in self.registry.all_devices().items():
                 if not hasattr(dev, 'on_image'):
@@ -197,28 +224,62 @@ class WebServer:
                         device=name, prop_name="CCD_IMAGE")
 
                 # Step 2a: Send property-level <enableBLOB> if we know the blob prop name
-                # URL = indigo v2 (léger, pas de base64) — mieux pour 6224×4168
+                # Mode configuré (indigo.blob_mode) : Also = inline base64,
+                # compatible INDI + INDIGO ; URL = INDIGO v2 (comme le panneau
+                # indigo_server — le driver peut y être bien plus rapide).
+                _bmode = getattr(self, "blob_mode", "Also")
                 if dev.blob_prop_name and name not in blob_enabled:
                     blob_enabled.add(name)
                     await self.registry.client.send_enable_blob(
-                        device=name, prop_name=dev.blob_prop_name, mode="URL")
+                        device=name, prop_name=dev.blob_prop_name, mode=_bmode)
+                    log.info("enableBLOB %s for %s.%s", _bmode, name, dev.blob_prop_name)
 
                 # Step 2b: Send device-level <enableBLOB> as fallback
                 if name not in blob_enabled_dev:
                     blob_enabled_dev.add(name)
                     await self.registry.client.send_enable_blob(
-                        device=name, mode="URL")
+                        device=name, mode=_bmode)
+                    log.info("enableBLOB %s (device-level) for %s", _bmode, name)
 
-                # Step 2c: Désactiver CCD_PREVIEW (vignette 1024) — on veut JPEG pleine résolution via FITS
+                # Step 2c: Forcer l'upload côté client (INDI UPLOAD_MODE) —
+                # certains drivers restent en LOCAL/DIRECT et n'envoient
+                # jamais le BLOB sur le bus.
+                try:
+                    for _up_name in ("UPLOAD_MODE", "CCD_UPLOAD", "UPLOAD_SETTINGS"):
+                        _up_pv = dev.get_prop(_up_name)
+                        if _up_pv is None:
+                            continue
+                        _names = {it.name for it in _up_pv.items}
+                        if "UPLOAD_CLIENT" in _names:
+                            _on = next((it for it in _up_pv.items if it.name == "UPLOAD_CLIENT"), None)
+                            if _on is not None and not _on.value:
+                                await dev.send_switch(_up_name, [
+                                    {"name": it.name, "value": it.name == "UPLOAD_CLIENT"}
+                                    for it in _up_pv.items])
+                                log.info("Set %s=UPLOAD_CLIENT for %s", _up_name, name)
+                            break
+                        if "CLIENT" in _names:
+                            _on = next((it for it in _up_pv.items if it.name == "CLIENT"), None)
+                            if _on is not None and not _on.value:
+                                await dev.send_switch(_up_name, [
+                                    {"name": it.name, "value": it.name == "CLIENT"}
+                                    for it in _up_pv.items])
+                                log.info("Set %s=CLIENT for %s", _up_name, name)
+                            break
+                except Exception:  # noqa: BLE001
+                    pass
+
+                # Step 2d: Garder CCD_PREVIEW activé — son JPEG (~400 Ko en
+                # ~7s) est l'aperçu rapide, bien avant le FITS complet.
+                # (Tentative best-effort : noms d'items variables selon driver.)
                 preview_pv = dev.get_prop("CCD_PREVIEW")
                 if preview_pv:
                     try:
-                        # Si ENABLED est On, on le coupe (on passe en DISABLED)
                         enabled_on = any(it.name == "ENABLED" and it.value for it in preview_pv.items)
-                        if enabled_on:
-                            items = [{"name": it.name, "value": it.name == "DISABLED"} for it in preview_pv.items]
+                        if not enabled_on and any(it.name == "ENABLED" for it in preview_pv.items):
+                            items = [{"name": it.name, "value": it.name == "ENABLED"} for it in preview_pv.items]
                             await dev.send_switch("CCD_PREVIEW", items)
-                            log.info("Disabled CCD_PREVIEW for %s (pleine résolution via FITS)", name)
+                            log.info("Enabled CCD_PREVIEW for %s (preview JPEG rapide)", name)
                     except Exception:  # noqa: BLE001
                         pass
 
@@ -227,6 +288,8 @@ class WebServer:
                     fmt_pv = dev.get_prop("CCD_IMAGE_FORMAT")
                     if fmt_pv:
                         format_set.add(name)
+                        log.info("CCD_IMAGE_FORMAT for %s: %s",
+                                 name, [(it.name, bool(it.value)) for it in fmt_pv.items])
                         fits_on = any(
                             item.name == "FITS" and item.value
                             for item in fmt_pv.items
@@ -234,7 +297,7 @@ class WebServer:
                         if not fits_on:
                             items = [
                                 {"name": item.name,
-                                 "value": item.name == "FITS"}
+                                  "value": item.name == "FITS"}
                                 for item in fmt_pv.items
                             ]
                             await dev.send_switch("CCD_IMAGE_FORMAT", items)
@@ -634,10 +697,20 @@ class WebServer:
                 arr = _np.frombuffer(raw, dtype=">f4")
             else:
                 arr = _np.frombuffer(raw, dtype=">i2")
+            # Sous-échantillonne AVANT la moyenne des plans RGB : en vignette
+            # (scale=6) on traite 36× moins d'éléments. Le median/percentile
+            # reste représentatif pour l'étirement.
+            scale = max(1, int(max(w, h) / max_side))
             if planes == 3:
                 try:
-                    arr = arr.reshape((planes, h, w)) if arr.size == planes * h * w else arr.reshape((h, w, planes))
-                    arr = arr.mean(axis=0) if arr.shape[0] == 3 else arr.mean(axis=2) if arr.shape[2] == 3 else arr[0]
+                    if arr.size == planes * h * w:
+                        rgb = arr.reshape((planes, h, w))
+                        arr = (rgb[:, ::scale, ::scale].mean(axis=0) if scale > 1
+                               else rgb.mean(axis=0))
+                    else:
+                        rgb = arr.reshape((h, w, planes))
+                        arr = (rgb[::scale, ::scale, :].mean(axis=2) if scale > 1
+                               else rgb.mean(axis=2))
                 except Exception:
                     return None
             else:
@@ -645,11 +718,8 @@ class WebServer:
                     arr = arr.reshape((h, w))
                 except Exception:
                     return None
-            # Réduction AVANT conversion float pour limiter le pic mémoire
-            # (26 Mpx → ~0.7 Mpx). Le median/percentile reste représentatif.
-            scale = max(1, int(max(w, h) / max_side))
-            if scale > 1:
-                arr = arr[::scale, ::scale]
+                if scale > 1:
+                    arr = arr[::scale, ::scale]
             flat = arr.ravel()
             step = max(1, flat.size // 200_000)
             sample = flat[::step].astype(_np.float32)
@@ -674,6 +744,16 @@ class WebServer:
     async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64
+        import time as _time
+        t_inline = _time.monotonic()
+        # Budget de bout en bout : depuis EXPOSE START (driver/USB/SDK) —
+        # c'est cette ligne qui dira où partent les secondes.
+        t_expose = None
+        try:
+            _cam = self.registry.get_camera(device_name)
+            t_expose = getattr(_cam, "_last_expose_start", None)
+        except Exception:  # noqa: BLE001
+            pass
         if not fmt and url:
             if url.lower().endswith(".jpeg") or url.lower().endswith(".jpg"):
                 fmt = "jpg"
@@ -708,67 +788,91 @@ class WebServer:
             self._last_image_device = device_name
             self._camera_images[device_name] = data
         log.info("Camera image INLINE from %s: %d bytes fmt=%s ws=%d", device_name, len(data), fmt, len(self._ws_clients))
+        if t_expose:
+            import time as _t2
+            log.info("BUDGET %s: EXPOSE→BLOB %.1fs (driver/USB/SDK, avant Noctua)",
+                     device_name, t_inline - t_expose)
+        if not is_jpeg and len(data) >= 2880 and data[:6].startswith(b"SIMPLE"):
+            try:
+                import re as _re
+                _hdr = data[:2880].decode("ascii", errors="ignore")
+                def _hi(k):
+                    _m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", _hdr)
+                    try: return int(float(_m.group(1))) if _m else -1
+                    except Exception: return -1
+                log.info("FITS geometry %s: NAXIS1=%d NAXIS2=%d NAXIS3=%d BITPIX=%d",
+                         device_name, _hi("NAXIS1"), _hi("NAXIS2"), _hi("NAXIS3"), _hi("BITPIX"))
+            except Exception:  # noqa: BLE001
+                pass
         if not self._ws_clients:
             log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
         # >2 Mo FITS → JPEG vignette + pleine résolution (évite 77 Mo FITS sur WS)
         if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
-            # vignette 1024 (rapide, 3 Ko) + pleine 8192 (détaillée)
+            # Vignette 1024 synchrone (rapide, aperçu immédiat) ; pleine
+            # 8192 en tâche de fond (ne retarde ni le transfert — FITS déjà
+            # stocké plus haut — ni la vignette). Seule la plus récente
+            # compte → la précédente encore en cours est annulée.
+            # Toujours les deux, quel que soit le mode UI : la vignette
+            # garantit un aperçu, la pleine suit sans rien bloquer.
             thumb_vignette = None
-            thumb_pleine = None
             try:
                 thumb_vignette = await asyncio.to_thread(self._jpeg_thumb, data, 1024)
             except Exception as e:  # noqa: BLE001
                 log.warning("vignette thread failed: %s", e)
-            try:
-                thumb_pleine = await asyncio.to_thread(self._jpeg_thumb, data, 8192)
-            except Exception as e:  # noqa: BLE001
-                log.warning("pleine thread failed: %s", e)
-            loop = asyncio.get_running_loop()
-            # Broadcast vignette d'abord (rapide)
             if thumb_vignette:
-                b64v = base64.b64encode(thumb_vignette).decode("ascii")
-                payload_v = json.dumps({
-                    "type": "image",
-                    "device": device_name,
-                    "format": "jpg",
-                    "variant": "vignette",
-                    "data": b64v,
-                })
-                async def _safe_send_v(ws):
-                    try: await ws.send_text(payload_v)
-                    except Exception: self._safe_remove_client(ws)
-                for ws in self._ws_clients[:]:
-                    loop.create_task(_safe_send_v(ws))
-                log.info("Broadcast JPEG vignette %d KB for %s (orig %d KB)", len(thumb_vignette)//1024, device_name, len(data)//1024)
+                self._push_jpg(device_name, thumb_vignette, "vignette")
+                import time as _t3
+                _dt_v = _t3.monotonic() - t_inline
+                log.info("Broadcast JPEG vignette %d KB for %s (src FITS %d KB)", len(thumb_vignette)//1024, device_name, len(data)//1024)
+                log.info("BUDGET %s: BLOB→vignette %.1fs (CPU Noctua)", device_name, _dt_v)
                 self._last_thumb = thumb_vignette
                 self._last_thumb_device = device_name
                 self._last_thumb_vignette = thumb_vignette
-            if thumb_pleine:
-                b64p = base64.b64encode(thumb_pleine).decode("ascii")
-                payload_p = json.dumps({
-                    "type": "image",
-                    "device": device_name,
-                    "format": "jpg",
-                    "variant": "pleine",
-                    "data": b64p,
-                })
-                async def _safe_send_p(ws):
-                    try: await ws.send_text(payload_p)
-                    except Exception: self._safe_remove_client(ws)
-                for ws in self._ws_clients[:]:
-                    loop.create_task(_safe_send_p(ws))
-                log.info("Broadcast JPEG pleine résolution %d KB for %s (orig %d KB)", len(thumb_pleine)//1024, device_name, len(data)//1024)
-                self._last_thumb_pleine = thumb_pleine
-                self._last_thumb_pleine_device = device_name
-                # garde aussi la pleine comme _last_thumb pour compatibilité HTTP fallback
-                # ( mais on garde vignette comme _last_thumb pour thumb=1 )
-                if not thumb_vignette:
-                    self._last_thumb = thumb_pleine
+            _old = getattr(self, "_pleine_task", None)
+            if _old is not None and not _old.done():
+                _old.cancel()
+            self._pleine_task = asyncio.get_running_loop().create_task(
+                self._build_and_broadcast_pleine(device_name, data))
+            return
+        if is_jpeg:
+            # Preview JPEG du driver (ex. CCD_PREVIEW_IMAGE, ~7s après la
+            # pose) : diffusé aussitôt avec un variant déduit des dimensions.
+            # C'est lui qui donne une image en quelques secondes, bien avant
+            # le FITS complet — ne pas le laisser au filtrage à l'aveugle.
+            variant = None
+            try:
+                _dims = await asyncio.to_thread(self._jpg_dims, data)
+            except Exception:  # noqa: BLE001
+                _dims = None
+            if _dims:
+                variant = "vignette" if _dims[0] < 1500 else "pleine"
+                log.info("Preview JPEG %s: %dx%d → variant %s (%d KB)",
+                         device_name, _dims[0], _dims[1], variant, len(data)//1024)
+            if variant == "pleine":
+                # Preview plein format du driver (ex. 6224×4168 en 400 Ko) :
+                # en dérive une vignette immédiate, sinon le mode vignette
+                # n'affiche rien avant le FITS (~70s). L'original part en
+                # pleine ; la vignette FITS refinera les deux plus tard.
+                try:
+                    _pv = await asyncio.to_thread(self._jpeg_thumb, data, 1024)
+                except Exception as e:  # noqa: BLE001
+                    _pv = None
+                    log.warning("preview vignette failed for %s: %s", device_name, e)
+                if _pv:
+                    self._push_jpg(device_name, _pv, "vignette")
+                    log.info("Preview JPEG %s: vignette dérivée %d KB",
+                             device_name, len(_pv)//1024)
+                    self._last_thumb = _pv
                     self._last_thumb_device = device_name
-            if thumb_vignette or thumb_pleine:
+                    self._last_thumb_vignette = _pv
+                self._push_jpg(device_name, data, "pleine")
+                self._last_thumb_pleine = data
+                self._last_thumb_pleine_device = device_name
                 return
-            else:
-                log.warning("thumb failed for %s (%d KB) — fallback full broadcast", device_name, len(data)//1024)
+            if variant:
+                self._push_jpg(device_name, data, variant)
+                return
+            # Dimensions illisibles : diffusion brute sans variant (legacy).
         b64 = base64.b64encode(data).decode("ascii")
         payload = json.dumps({
             "type": "image",
@@ -786,6 +890,64 @@ class WebServer:
 
         for ws in self._ws_clients[:]:
             loop.create_task(_safe_send(ws))
+
+    @staticmethod
+    def _jpg_dims(data: bytes):
+        """Dimensions d'un JPEG sans le décoder (lecture d'entête)."""
+        try:
+            import io as _io
+            from PIL import Image as _PIL
+            with _PIL.open(_io.BytesIO(data)) as img:
+                return (int(img.width), int(img.height))
+        except Exception:
+            return None
+
+    def _push_jpg(self, device_name: str, jpg: bytes, variant: str) -> None:
+        """Diffuse un JPEG (vignette/pleine) à tous les clients WS."""
+        payload = json.dumps({
+            "type": "image",
+            "device": device_name,
+            "format": "jpg",
+            "variant": variant,
+            "data": base64.b64encode(jpg).decode("ascii"),
+        })
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        for ws in self._ws_clients[:]:
+            loop.create_task(self._send_jpg(ws, payload))
+
+    async def _send_jpg(self, ws, payload: str) -> None:
+        try:
+            await ws.send_text(payload)
+        except Exception:
+            self._safe_remove_client(ws)
+
+    async def _build_and_broadcast_pleine(self, device_name: str, data: bytes) -> None:
+        """Fabrique le JPEG pleine résolution en fond et le diffuse.
+
+        N'est jamais sur le chemin critique : le FITS est déjà stocké et
+        la vignette déjà diffusée quand cette tâche tourne.
+        """
+        try:
+            thumb = await asyncio.to_thread(self._jpeg_thumb, data, 8192)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            log.warning("pleine thread failed: %s", e)
+            return
+        if not thumb:
+            log.warning("pleine thumb empty for %s — skipped", device_name)
+            return
+        self._push_jpg(device_name, thumb, "pleine")
+        log.info("Broadcast JPEG pleine résolution %d KB for %s (src FITS %d KB) [fond]",
+                 len(thumb)//1024, device_name, len(data)//1024)
+        self._last_thumb_pleine = thumb
+        self._last_thumb_pleine_device = device_name
+        if not getattr(self, "_last_thumb_vignette", None):
+            self._last_thumb = thumb
+            self._last_thumb_device = device_name
 
     async def _fetch_and_broadcast(self, device_name: str, url: str, fmt: str) -> None:
         """Fetch a BLOB image from its URL and broadcast to WebSocket clients."""

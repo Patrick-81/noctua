@@ -231,17 +231,23 @@ function handleCameraImage(b64Data, fmt, variant) {
     const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
     const varNorm = String(variant||'').toLowerCase();
     function _renderAndFetch(b64, f) {
-        clearOffsetOverlay();
-        clearFocusOverlay();
-        const raw = atob(b64);
-        const bytes = new Uint8Array(raw.length);
-        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-        _lastWsImageAt = Date.now();
-        console.log(`handleCameraImage: affichée ${f} ${variant||''} ${Math.round(b64.length*0.75/1024)}Ko`);
-        if (captureViewer) captureViewer.render(bytes, f);
-        document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
-        document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
-        setTimeout(()=> fetchStatsWithRetry(3), 700);
+        try {
+            clearOffsetOverlay();
+            clearFocusOverlay();
+            const raw = atob(b64);
+            const bytes = new Uint8Array(raw.length);
+            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+            _lastWsImageAt = Date.now();
+            console.log(`handleCameraImage: affichée ${f} ${variant||''} ${Math.round(b64.length*0.75/1024)}Ko`);
+            if (captureViewer) captureViewer.render(bytes, f);
+        } catch (e) {
+            console.warn('handleCameraImage render failed', e);
+            if (typeof addLog === 'function') addLog('warning', 'capture', `Affichage image impossible: ${e.message}`);
+        } finally {
+            document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+            setTimeout(()=> fetchStatsWithRetry(3), 700);
+        }
     }
     function fetchStatsWithRetry(retry) {
         function fetchStats(rem) {

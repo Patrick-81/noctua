@@ -105,7 +105,10 @@ class Camera(BaseDevice):
                 elif pv.state == "Ok":
                     self.exposure_time = 0.0
                     self.exposing = False
-            log.debug("[%s] exposure=%.1fs (state=%s)", self.name, self.exposure_time, pv.state)
+            if pv.state in ("Busy", "Ok", "Alert"):
+                log.info("[%s] exposure state=%s exposing=%s t=%.1fs", self.name, pv.state, self.exposing, self.exposure_time)
+            else:
+                log.debug("[%s] exposure=%.1fs (state=%s)", self.name, self.exposure_time, pv.state)
         elif name == "CCD_BINNING":
             self._parse_binning(pv)
         elif name == "CCD_GAIN":
@@ -161,11 +164,22 @@ class Camera(BaseDevice):
                 f"(no CCD properties received from INDIGO server)"
             )
         self.frame_type = frame_type.upper()
-        log.debug("[%s] EXPOSE START: duration=%.1fs frame_type=%s blob_prop=%s",
+        import time as _time
+        self._last_expose_start = _time.monotonic()
+        log.info("[%s] EXPOSE START: duration=%.1fs frame_type=%s blob_prop=%s",
                  self.name, duration, self.frame_type, self.blob_prop_name)
-        await self.send_switch("CCD_FRAME_TYPE", [
-            {"name": self.frame_type, "value": True},
-        ])
+        # Vecteur switch COMPLET (tous les items connus, cible On) : certains
+        # drivers digèrent mal un vecteur partiel (un seul item).
+        _ft_pv = self.get_prop("CCD_FRAME_TYPE")
+        if _ft_pv is not None and _ft_pv.items:
+            await self.send_switch("CCD_FRAME_TYPE", [
+                {"name": it.name, "value": it.name == self.frame_type}
+                for it in _ft_pv.items
+            ])
+        else:
+            await self.send_switch("CCD_FRAME_TYPE", [
+                {"name": self.frame_type, "value": True},
+            ])
         item = self.get_item_name("CCD_EXPOSURE", "EXPOSURE", "CCD_EXPOSURE_VALUE", "DURATION")
         log.debug("[%s] EXPOSE: sending CCD_EXPOSURE item=%s value=%.1f", self.name, item, duration)
         await self.send_number("CCD_EXPOSURE", [
@@ -234,6 +248,13 @@ class Camera(BaseDevice):
     def on_blob_data(self, prop_name: str, item_name: str,
                      fmt: str, data: bytes) -> None:
         """Called by registry when inline binary BLOB data arrives."""
+        if "HISTOGRAM" in (prop_name or "").upper():
+            # Histogramme (ex. CCD_PREVIEW_HISTOGRAM, 2 Ko) : pas une image
+            # affichable — sinon il serait rendu comme aperçu à la place des
+            # vraies images. Abandonné ici, avant tout stockage/diffusion.
+            log.debug("[%s] BLOB HISTOGRAM %s.%s (%d bytes) — dropped",
+                      self.name, prop_name, item_name, len(data))
+            return
         log.debug("[%s] BLOB INLINE %s.%s format=%s size=%d",
                  self.name, prop_name, item_name, fmt, len(data))
         if self.on_image:

@@ -328,9 +328,9 @@ class DeviceRegistry:
                 dev.on_del(prop_name)
 
     def _on_blob(self, device_name: str, prop_name: str,
-                 item_name: str, fmt: str, data: bytes) -> None:
+                  item_name: str, fmt: str, data: bytes) -> None:
         """Handle binary BLOB data (FITS image)."""
-        log.debug("REGISTRY BLOB: device=%s prop=%s item=%s fmt=%s size=%d",
+        log.info("REGISTRY BLOB: device=%s prop=%s item=%s fmt=%s size=%d",
                  device_name, prop_name, item_name, fmt, len(data))
         dev = self._devices.get(device_name)
         if dev and isinstance(dev, Camera):
