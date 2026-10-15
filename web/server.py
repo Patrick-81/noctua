@@ -820,7 +820,7 @@ class WebServer:
             except Exception as e:  # noqa: BLE001
                 log.warning("vignette thread failed: %s", e)
             if thumb_vignette:
-                self._push_jpg(device_name, thumb_vignette, "vignette")
+                self._push_jpg(device_name, thumb_vignette, "vignette", "final")
                 import time as _t3
                 _dt_v = _t3.monotonic() - t_inline
                 log.info("Broadcast JPEG vignette %d KB for %s (src FITS %d KB)", len(thumb_vignette)//1024, device_name, len(data)//1024)
@@ -859,18 +859,18 @@ class WebServer:
                     _pv = None
                     log.warning("preview vignette failed for %s: %s", device_name, e)
                 if _pv:
-                    self._push_jpg(device_name, _pv, "vignette")
+                    self._push_jpg(device_name, _pv, "vignette", "preview")
                     log.info("Preview JPEG %s: vignette dérivée %d KB",
                              device_name, len(_pv)//1024)
                     self._last_thumb = _pv
                     self._last_thumb_device = device_name
                     self._last_thumb_vignette = _pv
-                self._push_jpg(device_name, data, "pleine")
+                self._push_jpg(device_name, data, "pleine", "preview")
                 self._last_thumb_pleine = data
                 self._last_thumb_pleine_device = device_name
                 return
             if variant:
-                self._push_jpg(device_name, data, variant)
+                self._push_jpg(device_name, data, variant, "preview")
                 return
             # Dimensions illisibles : diffusion brute sans variant (legacy).
         b64 = base64.b64encode(data).decode("ascii")
@@ -902,13 +902,19 @@ class WebServer:
         except Exception:
             return None
 
-    def _push_jpg(self, device_name: str, jpg: bytes, variant: str) -> None:
-        """Diffuse un JPEG (vignette/pleine) à tous les clients WS."""
+    def _push_jpg(self, device_name: str, jpg: bytes, variant: str, stage: str = "final") -> None:
+        """Diffuse un JPEG (vignette/pleine) à tous les clients WS.
+
+        stage: 'preview' (JPEG driver, rapide, provisoire) ou 'final'
+        (dérivé du FITS) — l'UI l'affiche en badge pour éviter la
+        confusion quand l'image change d'aspect quelques secondes après.
+        """
         payload = json.dumps({
             "type": "image",
             "device": device_name,
             "format": "jpg",
             "variant": variant,
+            "stage": stage,
             "data": base64.b64encode(jpg).decode("ascii"),
         })
         try:

@@ -208,13 +208,14 @@ window._guideClick = _guideClick;
 
 // Consommateur ws:image : route l'image vers le viewer guide ou capture.
 Hub.subscribe('ws:image', 'preview', (env) => {
-    const { device, format, data, variant } = env.payload;
+    const { device, format, data, variant, stage } = env.payload;
+    if (device) _lastWsImageByDev[device] = Date.now();
     const guideCam = _guideCameraSelect?.value || '';
-    console.log('WS image: device=%s format=%s variant=%s guideCam=%s match=%s', device, format, variant||'', guideCam, device === guideCam);
+    console.log('WS image: device=%s format=%s variant=%s stage=%s guideCam=%s match=%s', device, format, variant||'', stage||'', guideCam, device === guideCam);
     if (guideCam && device === guideCam) {
         handleGuideImage(data, format);
     } else {
-        handleCameraImage(data, format, variant);
+        handleCameraImage(data, format, variant, stage);
     }
 });
 
@@ -225,7 +226,8 @@ let _guideLegacyCapture = null;
 let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
-function handleCameraImage(b64Data, fmt, variant) {
+var _lastWsImageByDev = {};
+function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
@@ -238,7 +240,7 @@ function handleCameraImage(b64Data, fmt, variant) {
             const bytes = new Uint8Array(raw.length);
             for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
             _lastWsImageAt = Date.now();
-            console.log(`handleCameraImage: affichée ${f} ${variant||''} ${Math.round(b64.length*0.75/1024)}Ko`);
+            console.log(`handleCameraImage: affichée ${f} ${variant||''} ${stage||''} ${Math.round(b64.length*0.75/1024)}Ko`);
             if (captureViewer) captureViewer.render(bytes, f);
         } catch (e) {
             console.warn('handleCameraImage render failed', e);
@@ -246,6 +248,12 @@ function handleCameraImage(b64Data, fmt, variant) {
         } finally {
             document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
             document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+            const badge = document.getElementById('cap-image-stage');
+            if (badge) {
+                const isPreview = String(stage || 'final') === 'preview';
+                badge.textContent = isPreview ? i18n('cap.stage_preview') : i18n('cap.stage_final');
+                badge.style.color = isPreview ? '#ffcc00' : '#44cc44';
+            }
             setTimeout(()=> fetchStatsWithRetry(3), 700);
         }
     }
@@ -518,9 +526,47 @@ let _focusHFR = 0;
 let _focusFWHM = 0;
 let _focusVisible = false;
 
+// Bahtinov overlay state (set by focuser.js, drawn with the focus overlay).
+// Coords in FITS pixels (+ fitsW for display scaling) — survives zoom/pan
+// via the same CSS transform as star circles.
+var _bhtOverlay = null;
+function setBhtOverlay(o) {
+    _bhtOverlay = o;
+    _focusVisible = true;
+    drawFocusOverlay();
+}
+function clearBhtOverlay() {
+    _bhtOverlay = null;
+}
+function drawBhtOverlay(ctx) {
+    const o = _bhtOverlay;
+    if (!o || !o.lines || !o.fitsW) return;
+    const overlay = document.getElementById('focus-overlay-canvas');
+    if (!overlay || !overlay.width) return;
+    const s = overlay.width / o.fitsW;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    o.lines.forEach((ln, i) => {
+        ctx.strokeStyle = i === o.centerIdx ? 'rgba(255,204,0,0.9)' : 'rgba(0,255,204,0.7)';
+        ctx.beginPath();
+        ctx.moveTo(ln[0] * s, ln[1] * s);
+        ctx.lineTo(ln[2] * s, ln[3] * s);
+        ctx.stroke();
+    });
+    // Intersection cross (red)
+    const ix = o.ix * s, iy = o.iy * s;
+    ctx.strokeStyle = 'rgba(255,80,80,0.95)';
+    ctx.beginPath();
+    ctx.moveTo(ix - 6, iy); ctx.lineTo(ix + 6, iy);
+    ctx.moveTo(ix, iy - 6); ctx.lineTo(ix, iy + 6);
+    ctx.stroke();
+    ctx.restore();
+}
+
 function clearFocusOverlay() {
     _focusVisible = false;
     _focusStars = [];
+    _bhtOverlay = null;
     const overlay = document.getElementById('focus-overlay-canvas');
     if (overlay) {
         const ctx = overlay.getContext('2d');
@@ -532,7 +578,7 @@ function clearFocusOverlay() {
 }
 
 function drawFocusOverlay() {
-    if (!_focusStars.length) return;
+    if (!_focusStars.length && !_bhtOverlay) return;
     const overlay = document.getElementById('focus-overlay-canvas');
     const canvas = document.getElementById('cap-preview-canvas');
     if (!overlay || !canvas) return;
@@ -571,6 +617,9 @@ function drawFocusOverlay() {
     if (info) {
         info.textContent = `HFR: ${_focusHFR.toFixed(1)}px  FWHM: ${_focusFWHM.toFixed(1)}px  ★${_focusStars.length}`;
     }
+
+    // Bahtinov spikes (same transform, FITS coords scaled to display)
+    drawBhtOverlay(ctx);
 
     // Sync transform with preview
     const t = `translate(${_previewPanX}px, ${_previewPanY}px) scale(${_previewZoom})`;

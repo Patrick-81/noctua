@@ -555,6 +555,30 @@
             </div>
         </div>
 
+        <div id="applet-manualfocus" class="glass-panel applet mode-specific" data-modes="focuser" style="display:none; bottom:16px; left:16px; width:360px;">
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;" data-i18n="mf.title">✋ MISE AU POINT MANUELLE</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div style="padding:6px 8px;">
+                <div style="font-size:0.55rem; color:#666; margin-bottom:4px;" data-i18n="mf.hint">Sans focuser motorisé : tournez la molette, Noctua mesure (HFR + Bahtinov).</div>
+                <div style="display:flex; gap:6px; align-items:center; margin-bottom:4px;">
+                    <span style="font-size:0.6rem; color:#666;" data-i18n="mf.exposure">Pose:</span>
+                    <input id="mf-exposure" type="number" class="input-glass" style="width:60px; font-size:0.65rem;" value="2" min="0.1" max="60" step="0.5">
+                    <span style="font-size:0.6rem; color:#666;">s</span>
+                </div>
+                <div style="display:flex; gap:4px; margin-bottom:4px;">
+                    <button id="mf-measure" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.65rem;" data-i18n="mf.measure">📏 Mesurer</button>
+                    <button id="mf-loop" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.65rem;" data-i18n="mf.loop">🔁 Loop</button>
+                    <button id="mf-stop" class="btn-glass warning cap-btn-sm" style="flex:1; font-size:0.65rem;" disabled data-i18n="mf.stop">⏹ Stop</button>
+                </div>
+                <div id="mf-status" style="font-size:0.6rem; color:#888; margin-bottom:4px; font-family:monospace;">—</div>
+                <div style="display:flex; gap:4px; align-items:center; margin-bottom:4px;">
+                    <button id="mf-bht-toggle" class="btn-glass cap-btn-sm" style="flex:1; font-size:0.65rem;" data-i18n="mf.bht_off">▦ Bahtinov : OFF</button>
+                    <button id="mf-bht-invert" class="btn-glass cap-btn-sm" style="flex:0; font-size:0.65rem;" title="Inverser le sens" data-i18n-title="mf.bht_invert_title">⇄</button>
+                </div>
+                <div id="mf-bht-result" style="font-size:0.65rem; color:#00ffcc; margin-bottom:4px; font-family:monospace;">—</div>
+                <div id="mf-bht-hist" style="display:flex; flex-wrap:wrap; gap:3px; font-size:0.55rem; font-family:monospace;"></div>
+            </div>
+        </div>
+
         <!-- ══════════════════════════════════════════════════════ -->
         <!-- APPLETS MODE: AUTOGUIDAGE                             -->
         <!-- ══════════════════════════════════════════════════════ -->
@@ -1038,7 +1062,7 @@
                     <canvas id="focus-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                     <canvas id="aberr-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
                 </div>
-                <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"></div>
+                <div id="cap-preview-info" style="font-size:0.6rem; color:#888; margin-top:4px;"><span id="cap-image-stage" style="font-weight:bold;"></span></div>
                 <div id="focus-metric-info" style="font-size:0.6rem; color:#00ffcc; margin-top:2px; font-family:monospace;"></div>
                 <div id="cap-adu-cursor" style="font-size:0.6rem; color:#00ffcc; font-family:monospace; min-height:0.9em; margin-top:2px; text-align:right; white-space:nowrap; overflow:hidden;"> </div>
                 <div style="display:flex; align-items:center; gap:6px; margin-top:2px;">

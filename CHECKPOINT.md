@@ -1,5 +1,34 @@
 # Checkpoint — Noctua (autoguidage + contrôle INDIGO)
 
+## Session 2026-10-15 (suite) — Badge preview/définitif + bouton capture qui se réarme (branche `fresh-capture`)
+
+### Diagnostic terrain (log RisingCam)
+- Jonglage d'images : preview driver 403 Ko (pleine) → vignette FITS → pleine FITS, trois rendus d'aspects différents sans indication → confusion.
+- Bouton EXPOSER resté désactivé jusqu'au Stop : `waitExposureDone` n'armait `started` que sur `exposure_time > 0`, or le driver signale Busy **sans durée** (`t=0.0s` en permanence) → attente du timeout plein (121 s). Retardataires pose N-1 en prime.
+
+### Fix
+- **Badge de stade** : `_push_jpg(..., stage)` (`preview` = JPEG driver provisoire, `final` = dérivé FITS) → `ws:image` → `handleCameraImage(..., stage='final')` → pastille `#cap-image-stage` (`◌ Aperçu` ambre / `● Définitif` vert, i18n `cap.stage_*`, préservée par `viewer.setInfo`).
+- **`waitExposureDone(cam, timeout, aliveFn)` réécrit et partagé** (`capture.js`, délégué par `_mfWaitImage`/`_autofocusWaitImage` + timeouts AF passés à `exp+120s`) : démarrage via flag `exposing` (pas la durée), fin = idle + image fraîche **de cette caméra** (`_lastWsImageByDev`, ignore les retardataires), caméra disparue → échec en ~5 s.
+- Tests node ad hoc (4 cas : Busy-sans-durée, jamais-démarré, caméra absente, straggler) ✓ ; pytest + flow OK (ci-dessous).
+
+## Session 2026-10-15 — MAP manuelle + aide Bahtinov (branche `fresh-capture`)
+
+### Feature — Mise au point manuelle (sans focuser motorisé)
+- Nouvel applet **✋ Mise au point manuelle** (mode Focuser, bas-gauche) : `Pose` + `📏 Mesurer` (HFR sur dernière image) + `🔁 Loop` / `⏹ Stop` (poses en boucle + mesure auto, abort à l'arrêt). Aucun ordre focuser — marche sans focuser branché. Les points alimentent le graphe HFR existant (`foc-hfr-canvas`) + overlay cercles.
+- Boucle coupée au lancement de l'autofocus V-curve (caméra partagée).
+- i18n FR/EN : clés `mf.*`. Docs `03-focuser` FR/EN.
+
+### Feature — Masque de Bahtinov
+- Backend **`indigo/devices/bahtinov.py`** : étoile brillante non saturée (ou clic ±80px, max flux), crop 257px, Radon discret (angles → 2 diagonales + scan centrale décalée), raffinement ±3°/0.5°, positions latérales, croisement diagonales vs centrale → **offset signé px + direction** ; garde anti-faux-positif (support de flux sur toute la longueur après retrait du profil radial + contraste + symétrie → confiance).
+- Endpoint **`GET /api/focuser/bahtinov?device=&x=&y=`** (+ `width/height` pour l'échelle d'overlay).
+- Frontend : toggle `▦ Bahtinov`, clic aperçu (garde anti-drag, conversion client→FITS comme curseur ADU), overlay 3 segments (centrale jaune, diagonales cyan, croix rouge) sur `focus-overlay-canvas`, lecture `Δ ±N px → ⟩⟩/⟨⟨` (vert <2px, orange <6, rouge sinon), historique 12 pastilles, bouton `⇄` (sens masque-dépendant, persisté `localStorage`). En Loop, ré-analyse auto de la même étoile.
+- Histogrammes `*HISTOGRAM*` droppés côté `Camera.on_blob_data` (2 Ko rendus comme image avant).
+
+### Tests
+- `tests/test_bahtinov.py` (nouveau, 5 tests, pytest + direct) : offsets synthétiques +8/−6/0 retrouvés à <1px avec direction, clic proche, étoile ronde rejetée (`ok:false`).
+- Live mock : `/api/focuser/bahtinov` sur frame sans spikes → `ok:false` propre ; `focus-metric` OK (HFR 3.4, 8 étoiles).
+- Gate : pytest **304** ✓, `test_mount_flow` **53/53** ✓ (×3, 1 flaky isolé comme d'hab), `test_focus_flow` **24** ✓, `test_hub` **39** ✓, `node --check` ✓, live mock (bahtinov `ok:false` propre + focus-metric HFR 3.4) ✓.
+
 ## Session 2026-09-23 (suite 2) — Capture unitaire + loop test dans Paramètres guidage (branche `fresh-capture`)
 
 ### Feature

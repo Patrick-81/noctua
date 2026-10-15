@@ -30,6 +30,18 @@ Panneaux : **Focuser** (position / vitesse / déplacements) + **Focus — HFR** 
 
 En séquenceur : `Refocus auto` se déclenche entre deux poses si `interval_min` (minutes) **ou** `Δ altitude` (°) dépassé — jamais sur la 1ʳᵉ pose (ligne de base). La séquence ne s'arrête pas sur un refocus raté (warning).
 
+## Mise au point manuelle (sans focuser motorisé)
+
+Panneau **✋ Mise au point manuelle** (mode Focuser, en bas à gauche) : tourne la molette à la main, Noctua mesure.
+
+1. `Pose` (s) → `📏 Mesurer` (HFR sur la dernière image) ou `🔁 Loop` (poses en boucle + mesure auto à chaque tour, `⏹ Stop` pour arrêter). Aucun ordre n'est envoyé au focuser — ça marche sans focuser branché.
+2. Chaque mesure alimente le graphe **HFR** (`Focus — HFR`) : fais descendre la courbe au minimum.
+3. **Masque de Bahtinov** : `▦ Bahtinov : ON` puis clique une étoile brillante de l'aperçu → Noctua détecte les 3 aigrettes (Radon) et affiche `Δ ±N px → ⟩⟩/⟨⟨` + les segments sur l'overlay. Règle la molette pour ramener Δ à ~0 (`◎ Au foyer !` sous ±2 px, pastilles vertes dans l'historique). `⇄` inverse le sens indiqué si ton montage de masque l'exige (mémorisé). En `Loop`, la même étoile est ré-analysée à chaque pose.
+
+{: .note }
+> **Astro-technique — lecture du Bahtinov**
+> Au foyer, l'aigrette centrale coupe exactement le croisement des deux diagonales. Défocalisé, elle se décale latéralement — le signe (intra/extra-focal) dépend du sens du masque, d'où le bouton `⇄` : si l'indication semble inversée (Δ augmente quand tu suis la flèche), inverse une fois pour la session. Backend : `indigo/devices/bahtinov.py` (`GET /api/focuser/bahtinov`), endpoint testé sur étoiles synthétiques (offset ±8 px retrouvé à <1 px).
+
 {: .warning }
 > **Pièges** — HFR qui *monte* au lieu de descendre : focuser inversé (`IN/OUT`), étoile saturée ou double, vent. Vérifie l'aperçu 1:1. Si le focuser ne bouge plus : `ABORT` puis `GO` avec une vitesse plus basse.
 

@@ -31,6 +31,18 @@ Panels: **Focuser** (position / speed / moves) + **Focus — HFR** + **Autofocus
 
 In Sequencer: `Auto-refocus` fires between two exposures if `interval_min` (minutes) **or** `Δ altitude` (°) exceeded — never on the 1st exposure (baseline). A failed refocus does not stop the sequence (warning).
 
+## Manual focus (no motorized focuser)
+
+**✋ Manual focus** panel (Focuser mode, bottom left): turn the knob by hand, Noctua measures.
+
+1. `Exp` (s) → `📏 Measure` (HFR on the last image) or `🔁 Loop` (looping exposures + auto measure each round, `⏹ Stop` to end). Nothing is ever sent to the focuser — works with no focuser attached.
+2. Each measurement feeds the **HFR** chart (`Focus — HFR`): drive the curve down to its minimum.
+3. **Bahtinov mask**: `▦ Bahtinov: ON`, then click a bright star in the preview → Noctua detects the 3 spikes (Radon) and shows `Δ ±N px → ⟩⟩/⟨⟨` + segments on the overlay. Turn the knob to bring Δ near 0 (`◎ In focus!` under ±2 px, green chips in the history). `⇄` flips the indicated direction if your mask mounting requires it (remembered). In `Loop`, the same star is re-analysed every exposure.
+
+{: .note }
+> **Astro-technique — reading the Bahtinov**
+> In focus, the central spike crosses exactly the intersection of the two diagonals. Out of focus it shifts sideways — the sign (intra/extra-focal) depends on mask orientation, hence the `⇄` button: if the reading grows while you follow the arrow, flip once for the session. Backend: `indigo/devices/bahtinov.py` (`GET /api/focuser/bahtinov`), endpoint tested on synthetic stars (±8 px offsets recovered within 1 px).
+
 {: .warning }
 > **Pitfalls** — HFR *rising* instead of falling: focuser reversed (`IN/OUT`), saturated or double star, wind. Check preview 1:1. If focuser stalls: `ABORT` then `GO` with lower speed.
 
