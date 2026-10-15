@@ -248,6 +248,7 @@ async function _autofocusStart() {
     if (_afRunning) return;
     const f = findFocuser();
     if (!f) { addLog('error', 'autofocus', i18n('log.autofocus.no_focuser')); return; }
+    _mfStop(true);  // la loop manuelle partage la caméra — on la coupe
 
     const range = parseInt(document.getElementById('af-range')?.value || '2000');
     const points = parseInt(document.getElementById('af-points')?.value || '25');
@@ -317,7 +318,7 @@ async function _autofocusStep() {
     }).then(r => r.json()).catch(() => {});
 
     // Wait for image
-    const imgReady = await _autofocusWaitImage(30000);
+    const imgReady = await _autofocusWaitImage(_afExposureSec * 1000 + 120000);
     if (!imgReady) { _autofocusAbort(i18n('focuser.no_image')); return; }
 
     // Measure HFR
@@ -373,6 +374,9 @@ async function _autofocusWaitFocuser(targetPos, timeoutMs) {
 }
 
 function _autofocusWaitImage(timeoutMs) {
+    if (typeof waitExposureDone === 'function') {
+        return waitExposureDone(_getSelectedCamera(), timeoutMs, () => _afRunning);
+    }
     const camName = _getSelectedCamera();
     const t0 = Date.now();
     return new Promise(resolve => {
@@ -422,7 +426,7 @@ async function _autofocusFinish() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ device: _getSelectedCamera(), duration: _afExposureSec })
             }).then(r => r.json()).catch(() => {});
-            await _autofocusWaitImage(30000);
+            await _autofocusWaitImage(_afExposureSec * 1000 + 120000);
         }
     } else {
         addLog('error', 'autofocus', res?.error || i18n('log.autofocus.analysis_failed'));
@@ -623,6 +627,228 @@ function initFocuserPanel() {
     if (_afStopBtn) {
         _afStopBtn.addEventListener('click', _autofocusStop);
     }
+
+    // Manual focus wiring (no focuser required)
+    const mfMeasure = document.getElementById('mf-measure');
+    if (mfMeasure) mfMeasure.addEventListener('click', _mfMeasure);
+    const mfLoop = document.getElementById('mf-loop');
+    if (mfLoop) mfLoop.addEventListener('click', _mfLoopToggle);
+    const mfStop = document.getElementById('mf-stop');
+    if (mfStop) { mfStop.disabled = true; mfStop.addEventListener('click', () => _mfStop()); }
+    const bhtToggle = document.getElementById('mf-bht-toggle');
+    if (bhtToggle) {
+        if (_bhtInvert) { /* libellé refresh ci-dessous */ }
+        bhtToggle.addEventListener('click', () => _bhtSetArmed(!_bhtArmed));
+        _bhtSetArmed(false);
+    }
+    const bhtInvert = document.getElementById('mf-bht-invert');
+    if (bhtInvert) {
+        bhtInvert.style.outline = _bhtInvert ? '2px solid #ffaa00' : '';
+        bhtInvert.addEventListener('click', () => {
+            _bhtInvert = !_bhtInvert;
+            try { localStorage.setItem('noctua.bhtInvert', _bhtInvert ? '1' : '0'); } catch (e) {}
+            bhtInvert.style.outline = _bhtInvert ? '2px solid #ffaa00' : '';
+        });
+    }
+    // Click-to-analyse on the capture preview (drag guard: not a pan).
+    const vp = document.getElementById('cap-preview-viewport');
+    if (vp && !vp._bhtClickBound) {
+        vp._bhtClickBound = true;
+        let _dx = 0, _dy = 0;
+        vp.addEventListener('pointerdown', e => { _dx = e.clientX; _dy = e.clientY; });
+        vp.addEventListener('pointerup', e => {
+            if (!_bhtArmed) return;
+            if (Math.hypot(e.clientX - _dx, e.clientY - _dy) > 6) return;
+            const p = _bhtViewportToFits(e);
+            if (p) _bhtAnalyze(p.x, p.y);
+        });
+    }
+}
+
+// ── Manual focus (no motorized focuser needed) ────────────────
+
+let _mfLoopOn = false;
+let _mfMeasureCount = 0;
+
+function _mfCamera() {
+    return _getSelectedCamera()
+        || (typeof findCamera === 'function' ? findCamera()?.name : '')
+        || '';
+}
+
+async function _mfMeasure() {
+    const cam = _mfCamera();
+    const q = cam ? `?device=${encodeURIComponent(cam)}` : '';
+    const st = document.getElementById('mf-status');
+    if (st) st.textContent = i18n('mf.measuring');
+    const m = await fetch('/api/focuser/focus-metric' + q)
+        .then(r => r.json()).catch(() => null);
+    if (!m?.ok || !(m.hfr > 0)) {
+        if (st) st.textContent = '—';
+        addLog('warning', 'focuser', i18n('focuser.no_image'));
+        return null;
+    }
+    _mfMeasureCount++;
+    _focHfrData.push({
+        step: _focHfrStep++,
+        position: _mfMeasureCount,
+        hfr: m.hfr, fwhm: m.fwhm,
+        timestamp: Date.now()
+    });
+    if (_focHfrData.length > 200) _focHfrData.shift();
+    _focDrawHfrChart();
+    if (st) st.textContent = `HFR ${m.hfr.toFixed(2)}px · ★${m.star_count} · #${_mfMeasureCount}`;
+    _focusStars = m.stars || [];
+    _focusHFR = m.hfr;
+    _focusFWHM = m.fwhm;
+    _focusVisible = true;
+    drawFocusOverlay();
+    return m;
+}
+
+async function _mfWaitImage(camName, timeoutMs) {
+    if (typeof waitExposureDone === 'function') {
+        return waitExposureDone(camName, timeoutMs, () => _mfLoopOn);
+    }
+    return false;
+}
+
+async function _mfLoopToggle() {
+    if (_mfLoopOn) { _mfStop(); return; }
+    const cam = _mfCamera();
+    if (!cam) { addLog('error', 'focuser', i18n('mf.no_camera')); return; }
+    _mfLoopOn = true;
+    _mfLoopUIToggle(true);
+    addLog('info', 'focuser', i18n('mf.loop') + ' — ' + cam);
+    while (_mfLoopOn) {
+        const exp = parseFloat(document.getElementById('mf-exposure')?.value || '2') || 2;
+        await apiPost('/api/camera/expose', { device: cam, duration: exp });
+        const ok = await _mfWaitImage(cam, exp * 1000 + 30000);
+        if (!_mfLoopOn) break;
+        if (ok) {
+            await _mfMeasure();
+            // Re-analyse Bahtinov sur la même étoile à chaque tour.
+            if (_bhtArmed && _bhtLastXY) {
+                await _bhtAnalyze(_bhtLastXY.x, _bhtLastXY.y, true);
+            }
+        }
+        if (!_mfLoopOn) break;
+    }
+    _mfLoopUIToggle(false);
+}
+
+function _mfStop(silent = false) {
+    _mfLoopOn = false;
+    const cam = _mfCamera();
+    if (cam) apiPost('/api/camera/abort', { device: cam }).catch(() => {});
+    _mfLoopUIToggle(false);
+    if (!silent) addLog('warning', 'focuser', i18n('mf.stopped'));
+}
+
+function _mfLoopUIToggle(on) {
+    const loopBtn = document.getElementById('mf-loop');
+    const stopBtn = document.getElementById('mf-stop');
+    const measBtn = document.getElementById('mf-measure');
+    if (loopBtn) loopBtn.disabled = on;
+    if (stopBtn) stopBtn.disabled = !on;
+    if (measBtn) measBtn.disabled = on;
+}
+
+// ── Bahtinov mask aid ─────────────────────────────────────────
+
+let _bhtArmed = false;
+let _bhtLastXY = null;
+let _bhtHist = [];   // [{offset, dir}]
+let _bhtInvert = false;
+try { _bhtInvert = localStorage.getItem('noctua.bhtInvert') === '1'; } catch (e) {}
+
+function _bhtSetArmed(on) {
+    _bhtArmed = on;
+    const btn = document.getElementById('mf-bht-toggle');
+    if (btn) {
+        btn.textContent = on ? i18n('mf.bht_on') : i18n('mf.bht_off');
+        btn.classList.toggle('success', on);
+    }
+    if (!on) { _bhtLastXY = null; clearBhtOverlay(); }
+}
+
+function _bhtFlipDir(dir) {
+    if (!_bhtInvert) return dir;
+    return dir === 'right' ? 'left' : 'right';
+}
+
+// click (viewport) → FITS pixels, même conversion que le curseur ADU.
+function _bhtViewportToFits(e) {
+    const cv = (typeof captureViewer !== 'undefined') ? captureViewer : null;
+    const canvas = document.getElementById('cap-preview-canvas');
+    if (!cv || !cv.imgW || !cv.imgH || !canvas) return null;
+    const r = canvas.getBoundingClientRect();
+    if (!r.width || !r.height) return null;
+    let x = (e.clientX - r.left) / (r.width / cv.imgW);
+    let y = (e.clientY - r.top) / (r.height / cv.imgH);
+    if (x < 0 || y < 0 || x >= cv.imgW || y >= cv.imgH) return null;
+    // L'aperçu peut être une vignette : remet à l'échelle du FITS.
+    const stats = cv._statsHist;
+    if (stats && stats.w && cv.imgW !== stats.w) {
+        const s = stats.w / cv.imgW;
+        x *= s; y *= s;
+    }
+    return { x: Math.round(x), y: Math.round(y) };
+}
+
+async function _bhtAnalyze(x, y, quiet = false) {
+    const cam = _mfCamera();
+    const q = `?x=${Math.round(x)}&y=${Math.round(y)}` + (cam ? `&device=${encodeURIComponent(cam)}` : '');
+    const resEl = document.getElementById('mf-bht-result');
+    if (resEl && !quiet) resEl.textContent = '…';
+    const r = await fetch('/api/focuser/bahtinov' + q)
+        .then(r => r.json()).catch(() => null);
+    if (!r?.ok) {
+        if (resEl) resEl.textContent = '✕ ' + (r?.error || i18n('mf.bht_no_star'));
+        if (!quiet) addLog('warning', 'focuser', r?.error || i18n('mf.bht_no_star'));
+        return null;
+    }
+    _bhtLastXY = { x: r.x, y: r.y };
+    // Segments overlay (coords FITS) : 3 droites ±L autour de l'intersection.
+    const L = Math.max(60, (r.crop_size || 257) / 2);
+    const lines = r.angles.map(deg => {
+        const a = deg * Math.PI / 180;
+        const dx = Math.cos(a), dy = Math.sin(a);
+        return [r.intersection.x - dx * L, r.intersection.y - dy * L,
+                r.intersection.x + dx * L, r.intersection.y + dy * L];
+    });
+    const centerIdx = r.angles.indexOf(r.center_angle);
+    setBhtOverlay({
+        lines, ix: r.intersection.x, iy: r.intersection.y,
+        centerIdx: centerIdx >= 0 ? centerIdx : 0,
+        fitsW: r.width || 1,
+    });
+    const dir = _bhtFlipDir(r.direction);
+    const off = Math.abs(r.offset_px);
+    if (resEl) {
+        resEl.textContent = off < 2
+            ? i18n('mf.bht_focused')
+            : `Δ ${r.offset_px > 0 ? '+' : ''}${r.offset_px}px → ${i18n(dir === 'right' ? 'mf.bht_right' : 'mf.bht_left')} (conf ${r.confidence})`;
+        resEl.style.color = off < 2 ? '#44cc44' : (off < 6 ? '#ffcc00' : '#ff6666');
+    }
+    _bhtHist.push({ offset: r.offset_px, dir });
+    if (_bhtHist.length > 12) _bhtHist.shift();
+    _bhtDrawHist();
+    return r;
+}
+
+function _bhtDrawHist() {
+    const el = document.getElementById('mf-bht-hist');
+    if (!el) return;
+    el.innerHTML = '';
+    _bhtHist.forEach(h => {
+        const chip = document.createElement('span');
+        const a = Math.abs(h.offset);
+        chip.textContent = `${h.offset > 0 ? '+' : ''}${h.offset}`;
+        chip.style.cssText = 'padding:1px 5px;border-radius:3px;background:rgba(255,255,255,0.06);color:' +
+            (a < 2 ? '#44cc44' : (a < 6 ? '#ffcc00' : '#ff6666'));
+        el.appendChild(chip);
+    });
 }
 
 // ── Hub : consommateur ws:state ───────────────────────────────

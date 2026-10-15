@@ -55,9 +55,17 @@ class IndigoClient:
         self._sock: socket.socket | None = None
         self._connected = False
         self._reconnect_try = 0
-        self._probe_count = 0
-        self._recv_buffer = b""
+        self._connect_count = 0  # incrémenté à chaque connexion établie (détecte les reconnects)
+        # Buffer de réception en bytearray : += et del [:n] sont en place
+        # (pas de recopie à chaque recv — vital pour un BLOB de 100 Mo :
+        # bytes immuables = O(n²) et dizaines de secondes).
+        self._recv_buffer = bytearray()
+        # Reprise de recherche du close-tag BLOB : offset jusqu'auquel
+        # l'absence du tag est déjà prouvée (évite de rescanner 100 Mo à
+        # chaque recv de 64 Ko pendant le download — autre O(n²)).
+        self._blob_hint = 0
         self._connecting = False
+        self._connect_gen = 0  # epoch: chaque connect() invalide les précédents
 
         # Stats
         self._def_count = 0
@@ -82,13 +90,30 @@ class IndigoClient:
     # ── Connection lifecycle ──────────────────────────────────────
 
     async def connect(self) -> None:
-        """Connect to the INDIGO server with auto-reconnect."""
+        """Connect to the INDIGO server with auto-reconnect.
+
+        Une seule génération active à la fois : chaque appel invalide les
+        tâches connect() précédentes (changement d'IP/host en cours de
+        retry), sinon deux sockets/threads se partagent _sock/_recv_buffer
+        et les envois/réponses se perdent (park/unpark sans réponse).
+        """
         if self._connecting:
             log.warning("connect() already in progress, ignoring duplicate call")
             return
         self._connecting = True
+        self._connect_gen += 1
+        gen = self._connect_gen
+        # Ferme une socket orpheline d'une génération précédente pour
+        # réveiller son thread de lecture (qui sort via le contrôle gen).
+        if self._sock:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+            self._sock = None
         self._loop = asyncio.get_running_loop()
-        while self._reconnect_try < MAX_RECONNECT:
+        while self._reconnect_try < MAX_RECONNECT and gen == self._connect_gen:
+            sock: socket.socket | None = None
             try:
                 log.info("Connecting to %s:%d ...", self._host, self._port)
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -96,8 +121,10 @@ class IndigoClient:
                 sock.connect((self._host, self._port))
                 self._sock = sock
                 self._connected = True
+                self._connect_count += 1
                 self._reconnect_try = 0
-                self._recv_buffer = b""
+                self._recv_buffer = bytearray()
+                self._blob_hint = 0
                 log.info("Connected to %s:%d", self._host, self._port)
 
                 if self.on_connected:
@@ -109,14 +136,15 @@ class IndigoClient:
                 log.info("Sent getProperties handshake")
 
                 # Start receive loop in a thread (blocking recv)
-                recv_thread = threading.Thread(target=self._recv_thread, daemon=True)
+                recv_thread = threading.Thread(
+                    target=self._recv_thread, args=(sock, gen), daemon=True)
                 recv_thread.start()
 
                 # Start probe loop
                 probe_task = asyncio.create_task(self._probe_loop())
 
-                # Wait until disconnected
-                while self._connected:
+                # Wait until disconnected (ou génération remplacée)
+                while self._connected and gen == self._connect_gen:
                     await asyncio.sleep(0.5)
 
                 probe_task.cancel()
@@ -130,15 +158,29 @@ class IndigoClient:
             except Exception as e:
                 log.error("Unexpected error: %s", e, exc_info=True)
             finally:
-                self._connected = False
-                if self._sock:
-                    try:
-                        self._sock.close()
-                    except Exception:
-                        pass
-                    self._sock = None
-                if self.on_connected:
-                    self.on_connected(False)
+                if gen == self._connect_gen:
+                    self._connected = False
+                    # Ne ferme que NOTRE socket (une génération plus récente
+                    # a déjà pu installer la sienne).
+                    if sock is not None and self._sock is sock:
+                        try:
+                            self._sock.close()
+                        except Exception:
+                            pass
+                        self._sock = None
+                    if self.on_connected:
+                        self.on_connected(False)
+                else:
+                    # Supplanté : ferme juste notre socket si orpheline.
+                    if sock is not None and self._sock is not sock:
+                        try:
+                            sock.close()
+                        except Exception:
+                            pass
+
+            if gen != self._connect_gen:
+                log.info("connect(): superseded by newer generation, stopping")
+                break
 
             # Reconnect with backoff
             self._reconnect_try += 1
@@ -147,14 +189,17 @@ class IndigoClient:
                      delay, self._reconnect_try, MAX_RECONNECT)
             # Sleep in small steps so we can break early if disconnect() is called
             elapsed = 0.0
-            while elapsed < delay and self._reconnect_try < MAX_RECONNECT:
+            while (elapsed < delay and self._reconnect_try < MAX_RECONNECT
+                   and gen == self._connect_gen):
                 await asyncio.sleep(min(0.5, delay - elapsed))
                 elapsed += 0.5
 
-        log.warning("Max reconnect attempts reached, giving up.")
+        if gen == self._connect_gen:
+            log.warning("Max reconnect attempts reached, giving up.")
         self._connecting = False
 
     async def disconnect(self) -> None:
+        self._connect_gen += 1  # invalide toute tâche connect() en cours
         self._reconnect_try = MAX_RECONNECT
         self._connected = False
         self._connecting = False
@@ -163,6 +208,8 @@ class IndigoClient:
                 self._sock.close()
             except Exception:
                 pass
+            finally:
+                self._sock = None
 
     # ── Sending ───────────────────────────────────────────────────
 
@@ -176,8 +223,12 @@ class IndigoClient:
             try:
                 self._sock.sendall((msg + "\n").encode())
             except Exception as e:
+                # Ne touche PAS à _connected ici : le thread de réception
+                # est seul propriétaire du flag. Un send stale (socket
+                # d'une génération supplantée) ne doit pas tuer la
+                # connexion fraîche — sinon park/home/slew deviennent
+                # aléatoires après un changement d'host/reconnect.
                 log.warning("Send error: %s", e)
-                self._connected = False
 
     async def send_get_properties(self, device: str | None = None,
                                   prop_name: str | None = None) -> None:
@@ -219,14 +270,19 @@ class IndigoClient:
 
     # ── Receiving (blocking thread) ───────────────────────────────
 
-    def _recv_thread(self) -> None:
-        """Blocking receive loop — runs in a daemon thread."""
-        while self._connected:
+    def _recv_thread(self, sock: socket.socket, gen: int) -> None:
+        """Blocking receive loop — runs in a daemon thread.
+
+        Lié à (sock, gen) : un thread d'une génération supplantée sort
+        dès qu'il se réveille (socket fermée par la nouvelle génération).
+        """
+        while self._connected and gen == self._connect_gen:
             try:
-                data = self._sock.recv(65536)
+                data = sock.recv(65536)
                 if not data:
                     log.warning("Connection closed by server")
-                    self._connected = False
+                    if gen == self._connect_gen:
+                        self._connected = False
                     break
                 self._recv_buffer += data
                 try:
@@ -234,7 +290,8 @@ class IndigoClient:
                 except Exception as e:
                     log.error("Error processing buffer: %s", e, exc_info=True)
                     # Don't kill the connection for parse errors — skip bad data
-                    self._recv_buffer = b""
+                    self._recv_buffer = bytearray()
+                    self._blob_hint = 0
             except socket.timeout:
                 continue
             except Exception as e:
@@ -245,7 +302,8 @@ class IndigoClient:
                         log.debug("Receive error (expected on close): %s", e)
                     else:
                         log.warning("Receive error: %s", e)
-                self._connected = False
+                if gen == self._connect_gen:
+                    self._connected = False
                 break
 
     def _process_buffer(self) -> None:
@@ -276,15 +334,24 @@ class IndigoClient:
         blob_messages = []      # list of (device, name, size, fmt, binary_data)
 
         while self._recv_buffer:
-            self._recv_buffer = self._recv_buffer.lstrip(b"\n\r")
-            if not self._recv_buffer:
-                break
+            # Strip des séparateurs \n\r SANS recopier le buffer (del en
+            # place) — lstrip() copierait 100 Mo à chaque message pendant
+            # le download d'un gros BLOB. Tout recadrage invalide le hint.
+            if self._recv_buffer[0] in (10, 13):
+                _k, _n = 1, len(self._recv_buffer)
+                while _k < _n and self._recv_buffer[_k] in (10, 13):
+                    _k += 1
+                del self._recv_buffer[:_k]
+                self._blob_hint = 0
+                if not self._recv_buffer:
+                    break
 
             # Self-closing tag
             m = _re_selfclose.match(self._recv_buffer)
             if m:
-                complete_messages.append(("selfclose", m.group(0)))
-                self._recv_buffer = self._recv_buffer[m.end():]
+                complete_messages.append(("selfclose", bytes(m.group(0))))
+                del self._recv_buffer[:m.end()]
+                self._blob_hint = 0
                 continue
 
             # Opening of a vector element
@@ -301,11 +368,12 @@ class IndigoClient:
                     if tag_end < len(self._recv_buffer) and \
                        self._recv_buffer[tag_end - 2:tag_end] == b'/>':
                         complete_messages.append((
-                            "selfclose", self._recv_buffer[:tag_end]))
-                        self._recv_buffer = self._recv_buffer[tag_end:]
+                            "selfclose", bytes(self._recv_buffer[:tag_end])))
+                        del self._recv_buffer[:tag_end]
+                        self._blob_hint = 0
                         continue
                     # Content element — find matching close tag
-                    tag_name = self._recv_buffer[1:tag_end].split(None, 1)[0]
+                    tag_name = bytes(self._recv_buffer[1:tag_end].split(None, 1)[0])
                     close_tag = b"</" + tag_name + b">"
                     idx = self._recv_buffer.find(close_tag, tag_end)
                     if idx < 0:
@@ -313,32 +381,41 @@ class IndigoClient:
                     msg_end = idx + len(close_tag)
                     complete_messages.append((
                         tag_name.decode("ascii", errors="replace"),
-                        self._recv_buffer[:msg_end]))
-                    self._recv_buffer = self._recv_buffer[msg_end:]
+                        bytes(self._recv_buffer[:msg_end])))
+                    del self._recv_buffer[:msg_end]
+                    self._blob_hint = 0
                     continue
                 # Not a known XML element — skip one line
                 nl = self._recv_buffer.find(b"\n")
                 if nl >= 0:
-                    self._recv_buffer = self._recv_buffer[nl + 1:]
+                    del self._recv_buffer[:nl + 1]
+                    self._blob_hint = 0
                 else:
                     break  # incomplete, wait for more data
                 continue
 
-            tag_type = m.group(1) + m.group(2) + b"Vector"  # e.g. b"defSwitchVector"
+            tag_type = bytes(m.group(1)) + bytes(m.group(2)) + b"Vector"  # e.g. b"defSwitchVector"
             close_tag = b"</" + tag_type + b">"
 
             # BLOB vector: extract binary payload inline
             # Only set/new Blob vectors contain binary data;
             # def Blob vectors are pure XML and handled as regular vectors.
-            if b"lob" in m.group(2).lower() and not tag_type.startswith(b"def"):
+            if b"lob" in bytes(m.group(2)).lower() and not tag_type.startswith(b"def"):
                 device, prop_name, item_name, fmt, binary_data, consumed = (
-                    self._extract_blob(tag_type, close_tag))
+                    self._extract_blob(tag_type, close_tag, self._blob_hint))
                 if consumed < 0:
+                    # Incomplet : mémorise jusqu'où le close-tag est exclu
+                    # pour reprendre la recherche là (pas de rescan O(n²)).
+                    # Le tag ne peut pas commencer avant cette borne, mais
+                    # peut chevaucher la frontière des données à venir.
+                    self._blob_hint = max(
+                        0, len(self._recv_buffer) - len(close_tag) + 1)
                     break  # incomplete, wait for more data
+                self._blob_hint = 0
                 if device and self.on_blob and binary_data:
                     self._dispatch(self.on_blob, device, prop_name,
                                    item_name, fmt, binary_data)
-                self._recv_buffer = self._recv_buffer[consumed:]
+                del self._recv_buffer[:consumed]
                 continue
 
             # Regular XML vector: find matching close tag
@@ -352,7 +429,7 @@ class IndigoClient:
             # count open tags of same type before idx — should be exactly 1
             open_count = 0
             search_start = 0
-            open_pattern = m.group(0)  # e.g. b'<setNumberVector '
+            open_pattern = bytes(m.group(0))  # e.g. b'<setNumberVector '
             while True:
                 pos = self._recv_buffer.find(open_pattern, search_start, idx)
                 if pos < 0:
@@ -367,9 +444,10 @@ class IndigoClient:
             msg_end = idx + len(close_tag)
             complete_messages.append((
                 tag_type.decode("ascii", errors="replace"),
-                self._recv_buffer[:msg_end],
+                bytes(self._recv_buffer[:msg_end]),
             ))
-            self._recv_buffer = self._recv_buffer[msg_end:]
+            del self._recv_buffer[:msg_end]
+            self._blob_hint = 0
 
         # Dispatch XML messages
         for tag_type, raw_xml in complete_messages:
@@ -393,11 +471,14 @@ class IndigoClient:
             log.debug("Processed %d XML messages, %d BLOBs",
                       len(complete_messages), len(blob_messages))
 
-    def _extract_blob(self, tag_type: bytes, close_tag: bytes):
+    def _extract_blob(self, tag_type: bytes, close_tag: bytes, search_from: int = 0):
         """Extract a BLOB from the buffer.
 
         Returns (device_name, prop_name, item_name, fmt, binary_data,
         consumed_bytes).  consumed_bytes is -1 if the message is incomplete.
+
+        search_from: offset à partir duquel chercher le close-tag (reprise
+        après un message incomplet — le début est déjà prouvé sans tag).
 
         INDIGO uses single quotes for attributes (device='...' name='...').
 
@@ -406,7 +487,7 @@ class IndigoClient:
         - Inline base64 (v1.7/v2): oneBLOB with base64 text between tags → decodes
         - Inline binary (legacy): oneBLOB with raw binary after '>' (size bytes)
         """
-        idx = self._recv_buffer.find(close_tag)
+        idx = self._recv_buffer.find(close_tag, search_from)
         if idx < 0:
             return None, None, None, "", b"", -1
 
@@ -427,7 +508,9 @@ class IndigoClient:
         if not one_blob_match:
             # No blob element found — skip this message
             consumed = idx + len(close_tag)
-            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+            _n = len(self._recv_buffer)
+            while consumed < _n and self._recv_buffer[consumed] in (10, 13):
+                consumed += 1
                 consumed += 1
             return device, prop_name, "", "", b"", consumed
 
@@ -450,7 +533,9 @@ class IndigoClient:
         if url_m:
             blob_url = url_m.group(1).decode("utf-8", errors="replace")
             consumed = idx + len(close_tag)
-            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+            _n = len(self._recv_buffer)
+            while consumed < _n and self._recv_buffer[consumed] in (10, 13):
+                consumed += 1
                 consumed += 1
             log.debug("BLOB URL: %s.%s [%s] url=%s", device, prop_name, name, blob_url)
             if device and self.on_blob_url:
@@ -481,23 +566,29 @@ class IndigoClient:
                 log.error("BLOB base64 decode error for %s.%s: %s",
                           device, prop_name, e)
                 consumed = idx + len(close_tag)
-                while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+                _n = len(self._recv_buffer)
+                while consumed < _n and self._recv_buffer[consumed] in (10, 13):
                     consumed += 1
                 return device, prop_name, name, fmt, b"", consumed
 
-            # Reject truncated BLOBs: decoded size must match the declared
-            # size attribute, otherwise the image is corrupted (intermittent
-            # transport loss) and must not be stored or broadcast.
+            # Note : un désaccord taille déclarée / taille décodée ne signifie
+            # PAS une troncature transport (TCP garantit la livraison ; une
+            # vraie troncature se verrait comme message incomplet, pas comme
+            # un base64 valide qui décode). Certains serveurs comptent la
+            # taille base64 ou ajoutent un padding — on garde l'image dès que
+            # le base64 décode, avec un simple warning. Ne jeter que le vide
+            # (échec de décodage). Un rejet strict (!= ou <) jetterait 100 %
+            # des images valides (« expose OK, pas d'image »).
             if size and len(binary_data) != size:
-                log.error("BLOB truncated %s.%s: declared=%d decoded=%d len_b64=%d consumed=%d buflen=%d — discarding",
-                          device, prop_name, size, len(binary_data), len(b64_text), idx, len(self._recv_buffer))
-                binary_data = b""
+                log.warning("BLOB size mismatch %s.%s: declared=%d decoded=%d — keeping",
+                            device, prop_name, size, len(binary_data))
 
             consumed = idx + len(close_tag)
-            while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+            _n = len(self._recv_buffer)
+            while consumed < _n and self._recv_buffer[consumed] in (10, 13):
                 consumed += 1
 
-            log.debug("BLOB base64: %s.%s [%s] size=%d decoded=%d format=%s",
+            log.info("BLOB base64: %s.%s [%s] size=%d decoded=%d format=%s",
                      device, prop_name, name, size, len(binary_data), fmt)
             return device, prop_name, name, fmt, binary_data, consumed
 
@@ -508,9 +599,10 @@ class IndigoClient:
         if len(self._recv_buffer) < bin_end:
             return None, None, None, "", b"", -1  # incomplete
 
-        binary_data = self._recv_buffer[bin_start:bin_end]
+        binary_data = bytes(self._recv_buffer[bin_start:bin_end])
         consumed = idx + len(close_tag)
-        while consumed < len(self._recv_buffer) and self._recv_buffer[consumed:consumed + 1] in (b"\n", b"\r"):
+        _n = len(self._recv_buffer)
+        while consumed < _n and self._recv_buffer[consumed] in (10, 13):
             consumed += 1
 
         log.debug("BLOB raw: %s.%s [%s] size=%d format=%s (%d bytes)",

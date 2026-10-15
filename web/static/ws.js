@@ -67,7 +67,7 @@ function connectWS() {
         } else if (msg.type === 'log') {
             Hub.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
         } else if (msg.type === 'image') {
-            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data }, { source: 'ws' });
+            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data, variant: msg.variant, stage: msg.stage || 'final' }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
             Hub.emit('solver:result', { result: msg.result }, { source: 'solver' });
         } else if (msg.type === 'stacking') {
@@ -404,6 +404,21 @@ function initConnectionBar() {
         }
         if (data.connected) refreshDriverList();
     }).catch(() => {});
+
+    // Populate serial-port datalist (shared with hardware panel)
+    if (typeof hwScanSerialPorts === 'function') {
+        hwScanSerialPorts({ force: true, silent: true }).catch(() => {});
+        // Refresh when serial row becomes visible
+        const serialRow = document.getElementById('conn-row-serial');
+        if (serialRow && 'MutationObserver' in window) {
+            const mo = new MutationObserver(() => {
+                if (serialRow.style.display !== 'none' && typeof hwScanSerialPorts === 'function') {
+                    hwScanSerialPorts({ silent: true }).catch(() => {});
+                }
+            });
+            mo.observe(serialRow, { attributes: true, attributeFilter: ['style'] });
+        }
+    }
 
     // Poll connection status + drivers every 3s
     setInterval(async () => {

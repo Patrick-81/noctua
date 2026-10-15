@@ -19,7 +19,7 @@ Declare *who is what* before slewing. A **profile** freezes the mapping roles �
 
 1. **Start the server** (`./start.sh` or `windows\launch-Noctua.bat`) → the top bar shows `● Offline` then `● Online` when `indigo_server` answers.
 2. Open **🔧 Hardware** → **DEVICES**: tick what you use (e.g. `Telescope Simulator`, `CCD Simulator`).
-3. **MOUNT — CONNECTION**: pick `Serial` (`/dev/ttyUSB0`, `/dev/ttyACM0`) or `Network host:port` (`192.168.1.10:7624`). The pair `mount_interface` / `mount_endpoint` is saved in the profile.
+3. **MOUNT — CONNECTION**: pick `Serial` (`/dev/ttyUSB0`, `/dev/ttyACM0`) or `Network host:port` (`192.168.1.10:7624`). The pair `mount_interface` / `mount_endpoint` is saved in the profile. **⟳ Scan serial ports** lists detected nodes (stable `by-id` path preferred) and flags in orange when the profile endpoint no longer exists (USB re-enumeration `ttyUSB0` → `ttyUSB1` → …).
 4. **ROLES**: assign `mount`, `camera`, `guide_camera`, `focuser`, `filter_wheel`. The top-bar LEDs (`T C A F W`) turn green when the role is connected.
 5. **Profile**: `＋` (new), `💾` (save), **APPLY** (connects the whole set). Profile lives in `profiles.yaml` (override `INDIGO_PROFILES_PATH`).
 6. **DEVICE PROPERTIES**: pick a device → direct edit of INDIGO vectors (`CONNECTION`, `FOCUSER_POSITION`, `CCD_INFO` …) — use it to enter the **focal length** (mandatory for mosaic / solve).

@@ -30,6 +30,11 @@ def register(app, server: "WebServer") -> None:
             return {"error": "no camera"}
         if not c.is_ready:
             return {"error": f"Camera '{c.name}' not connected to hardware — no CCD properties"}
+        if body.get("binning"):
+            await c.set_binning(int(body["binning"]), int(body["binning"]))
+        _pv = str(body.get("preview") or "").lower()
+        if _pv in ("vignette", "pleine", "full", "both"):
+            server._preview_variant = "pleine" if _pv == "full" else _pv
         await c.expose(body["duration"], body.get("frame_type", "LIGHT"))
         return {"ok": True}
 
@@ -105,6 +110,35 @@ def register(app, server: "WebServer") -> None:
         """
         # thumb=1 → préfère le JPEG (vignette ou pleine selon variant)
         if thumb:
+            # Génération à la demande : si seul l'autre variant est en cache
+            # (ex. expose en vignette puis bascule en pleine), on le fabrique
+            # depuis le FITS plutôt que de répondre l'autre ou rien.
+            _need = "pleine" if (variant == "pleine" or pleine) else ("vignette" if variant == "vignette" else "")
+            if _need == "pleine" and not getattr(server, "_last_thumb_pleine", None):
+                _fits_src = server._camera_images.get(device) if device else None
+                if not _fits_src:
+                    _fits_src = getattr(server, "_last_image_data", b"")
+                if _fits_src and _fits_src[:6].startswith(b"SIMPLE"):
+                    try:
+                        _gen = await asyncio.to_thread(server._jpeg_thumb, _fits_src, 8192)
+                    except Exception:
+                        _gen = None
+                    if _gen:
+                        server._last_thumb_pleine = _gen
+                        server._last_thumb_pleine_device = device or getattr(server, "_last_image_device", "")
+            if _need == "vignette" and not getattr(server, "_last_thumb_vignette", None):
+                _fits_src = server._camera_images.get(device) if device else None
+                if not _fits_src:
+                    _fits_src = getattr(server, "_last_image_data", b"")
+                if _fits_src and _fits_src[:6].startswith(b"SIMPLE"):
+                    try:
+                        _gen = await asyncio.to_thread(server._jpeg_thumb, _fits_src, 1024)
+                    except Exception:
+                        _gen = None
+                    if _gen:
+                        server._last_thumb_vignette = _gen
+                        server._last_thumb = _gen
+                        server._last_thumb_device = device or getattr(server, "_last_image_device", "")
             # pleine demandée explicitement
             if (variant == "pleine" or pleine) and getattr(server, "_last_thumb_pleine", None):
                 tdev = getattr(server, "_last_thumb_pleine_device", "") or device or getattr(server, "_last_image_device", "")

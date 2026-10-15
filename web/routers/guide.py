@@ -34,16 +34,26 @@ def register(app, server: "WebServer") -> None:
         min_pulse = int(body.get("min_pulse_ms", 50))
         plate_scale = float(body.get("plate_scale", 1.0))
         camera = (body.get("camera") or "").strip() or None
+        loop = bool(body.get("loop", True))
         if camera is None:
             cams = server.registry.get_all_cameras()
-            camera = cams[0].name if cams else None
+            ready = [c for c in cams if c.is_ready]
+            pick = ready or cams
+            camera = pick[0].name if pick else None
         if camera is None:
             return {"ok": False, "error": "no guide camera available"}
+        if loop:
+            cam = server.registry.get_camera(camera)
+            if cam is None:
+                return {"ok": False, "error": f"caméra guide '{camera}' introuvable"}
+            if not cam.is_ready:
+                return {"ok": False,
+                        "error": f"caméra guide '{camera}' non prête (pas de propriétés CCD)"}
         # Re-enable drift sim if it was disabled by calibration
         await _calibrate_set_drift(True)
         res = server._guide.start(
             exposure, aggressiveness, ra_gain, dec_gain, max_pulse, min_pulse, plate_scale)
-        if res.get("ok") and bool(body.get("loop", True)):
+        if res.get("ok") and loop:
             # La boucle serveur possède désormais les frames (plus de _guideLoop frontend).
             # loop=false : pilotage manuel frame par frame (tests, clients externes).
             server._guide_start_loop(camera)

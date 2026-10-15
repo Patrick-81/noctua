@@ -62,6 +62,28 @@ def register(app, server: "WebServer") -> None:
             log.error("Focus metric error: %s", e)
             return {"ok": False, "error": str(e)}
 
+    @app.get("/api/focuser/bahtinov")
+    async def focuser_bahtinov(device: str = "", x: float | None = None,
+                               y: float | None = None):
+        """Bahtinov mask analysis on the last captured image.
+
+        Query: device (camera name), x/y (optional click in image pixels —
+        uses the brightest star otherwise).
+        Returns {ok, x, y, offset_px, direction, angles, center_angle,
+        intersection, confidence, ...}. offset signed in pixels, direction
+        left/right (mask-mount dependent — UI offers an invert switch).
+        """
+        img_data = server._camera_images.get(device, server._last_image_data) if device else server._last_image_data
+        if not img_data:
+            return {"ok": False, "error": "no image captured yet"}
+        from indigo.devices.bahtinov import analyse_bahtinov
+        try:
+            result = analyse_bahtinov(bytes(img_data), x=x, y=y)
+            return SanitizedJSONResponse(result)
+        except Exception as e:
+            log.error("Bahtinov error: %s", e)
+            return {"ok": False, "error": str(e)}
+
     # ── Autofocus ─────────────────────────────────────────────
 
     @app.get("/api/focuser/autofocus/status")

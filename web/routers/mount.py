@@ -30,8 +30,10 @@ def register(app, server: "WebServer") -> None:
         c._host = host
         c._port = port
         c._protocol = protocol
-        if c.connected:
-            await c.disconnect()
+        # Toujours déconnecter d'abord : invalide la génération en cours
+        # (timers de retry inclus), sinon l'ancienne tâche connect() survit
+        # en parallèle et les envois/réponses se perdent.
+        await c.disconnect()
         c._reconnect_try = 0
         c._connecting = False
         loop = asyncio.get_event_loop()
@@ -123,9 +125,9 @@ def register(app, server: "WebServer") -> None:
             return {"error": "no mount"}
         direction = body["direction"]
         rate = body.get("rate")
-        if rate:
-            await m.set_slew_rate(rate)
-        await m.move(direction)
+        # Un seul set_slew_rate : move() applique le rate fourni (pas de
+        # défaut CENTERING qui écrasait le choix UI et tout désactivait).
+        await m.move(direction, rate)
         return {"ok": True}
 
     @app.post("/api/mount/halt")

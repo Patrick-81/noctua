@@ -26,6 +26,8 @@ let _hwProfiles = { active: null, profiles: [] };
 let _hwDriversGrouped = {};
 let _hwDriversFlat = [];
 let _hwSelectedDriver = null;
+let _hwSerialPorts = null;
+let _hwSerialLastFetch = 0;
 
 const HW_DRIVER_CATEGORY_ORDER = ['mount', 'camera', 'guide_camera', 'focuser', 'filter_wheel', 'dome', 'gps', 'rotator', 'aux', 'ao', 'agent', 'system', 'other'];
 const HW_DRIVER_CATEGORY_ICONS = { mount: '🔭', camera: '📷', guide_camera: '🎯', focuser: '🔍', filter_wheel: '🎨', dome: '🏠', gps: '📍', rotator: '🔄', aux: '🔌', ao: '🌊', agent: '🤖', system: '⚙️', other: '📦' };
@@ -35,7 +37,7 @@ function hwActiveProfile() {
     return _hwProfiles.profiles.find(p => p.name === _hwProfiles.active) || null;
 }
 
-async function hwLoad() {
+async function hwLoad(opts = {}) {
     try {
         const data = await fetch('/api/hardware').then(r => r.json());
         _hwDevices = data.devices || {};
@@ -43,14 +45,88 @@ async function hwLoad() {
         addLog('info', 'hw', i18nFmt('log.hw.devices_loaded', { n: Object.keys(_hwDevices).length }));
     } catch (e) { addLog('error', 'hw', e.message); }
     await hwLoadDrivers();
+    if (opts.rescanSerial !== false) {
+        hwScanSerialPorts({ silent: true }).catch(() => {});
+    }
+}
+
+// ── Serial port scan (shared by connection bar + hardware panel) ──
+async function hwScanSerialPorts({ force = false, silent = false } = {}) {
+    const now = Date.now();
+    if (!force && _hwSerialPorts && now - _hwSerialLastFetch < 3000) return _hwSerialPorts;
+    try {
+        const data = await fetch('/api/serial/ports').then(r => r.json());
+        _hwSerialPorts = data;
+        _hwSerialLastFetch = now;
+        hwFillSerialDatalist(data);
+        hwRenderSerialHint(data);
+        if (!silent) {
+            const n = (data.ports || []).length;
+            addLog('info', 'hw', n ? i18nFmt('hw.serial_found', { n }) : i18n('hw.serial_none'));
+        }
+        return data;
+    } catch (e) {
+        if (!silent) addLog('error', 'hw', e.message);
+        return null;
+    }
+}
+
+function hwFillSerialDatalist(data) {
+    const list = document.getElementById('serial-port-list');
+    if (!list) return;
+    list.innerHTML = '';
+    const seen = new Set();
+    for (const p of data?.ports || []) {
+        for (const path of [p.preferred, p.path, ...(p.by_id || [])]) {
+            if (!path || seen.has(path)) continue;
+            seen.add(path);
+            const opt = document.createElement('option');
+            opt.value = path;
+            const bits = [];
+            if (p.description) bits.push(p.description);
+            if (p.busy) {
+                bits.push(i18nFmt('hw.serial_busy', { pids: (p.holders || []).join(',') }));
+            }
+            if (p.preferred && path === p.preferred && path !== p.path) bits.push('stable');
+            opt.label = bits.join(' · ') || path;
+            list.appendChild(opt);
+        }
+    }
+    const profPath = data?.profile?.mount_endpoint;
+    if (profPath && !seen.has(profPath) && profPath.startsWith('/dev/')) {
+        const opt = document.createElement('option');
+        opt.value = profPath;
+        opt.label = 'profil (absent)';
+        list.appendChild(opt);
+    }
+}
+
+function hwRenderSerialHint(data) {
+    const hint = document.getElementById('hw-serial-hint');
+    if (!hint) return;
+    const prof = data?.profile;
+    const n = (data?.ports || []).length;
+    if (prof?.mount_endpoint && prof.exists === false) {
+        hint.textContent = i18nFmt('hw.serial_stale', { port: prof.mount_endpoint });
+        hint.style.color = '#ff8844';
+        return;
+    }
+    if (prof?.mount_endpoint && prof.exists) {
+        hint.textContent = i18nFmt('hw.serial_ok', { port: prof.mount_endpoint });
+        hint.style.color = n ? '#88ff88' : '#666';
+        return;
+    }
+    hint.textContent = n ? i18nFmt('hw.serial_found', { n }) : i18n('hw.serial_none');
+    hint.style.color = '#666';
 }
 
 // Détecte un mélange HTML/JS obsolète (cache navigateur) : si un id
-// attendu du panneau Matériel manque, les listes resteraient vides
+// attendu du panneau DEVICES manque, les listes resteraient vides
 // sans aucune erreur — on le signale explicitement.
 function hwCheckDom() {
     const expected = ['hw-profile-select', 'hw-driver-select', 'hw-driver-attach',
-        'hw-driver-detach', 'hw-drivers-refresh', 'hw-device-list', 'hw-role-assign', 'hw-driver-selected'];
+        'hw-driver-detach', 'hw-drivers-refresh', 'hw-device-list', 'hw-tabs',
+        'hw-tab-devices', 'hw-driver-selected'];
     const missing = expected.filter(id => !document.getElementById(id));
     if (missing.length) {
         addLog('error', 'hw', i18nFmt('log.hw.dom_stale', { ids: missing.join(', ') }));
@@ -287,6 +363,33 @@ function renderConnLeds() {
     }
 }
 
+// Roles compatibles avec un type de device (générique : mount/camera/…,
+// sans nom de modèle — LX200, OnStep, EQ6… passent par type=mount).
+function hwRolesForType(type) {
+    return HW_ROLE_FIELDS.filter(f => (HW_ROLE_TYPES[f] || []).includes(type));
+}
+
+function hwRoleLabel(role) {
+    return i18n(HW_ROLES.find(([r]) => r === role)?.[1] || 'hw.role_mount');
+}
+
+// Rôle courant du device dans le profil actif (null si non assigné).
+function hwCurrentRole(deviceName) {
+    const ap = hwActiveProfile();
+    if (!ap) return null;
+    for (const f of HW_ROLE_FIELDS) {
+        if (ap[f] === deviceName) return f;
+    }
+    return null;
+}
+
+// Endpoint affiché uniquement sur la ligne du device « monture »
+// (type mount OU rôle mount assigné) — reste générique pour toute marque.
+function hwShowEndpointCell(deviceName, d) {
+    if (d?.type === 'mount') return true;
+    return hwCurrentRole(deviceName) === 'mount';
+}
+
 function renderHardwarePanel() {
     const list = document.getElementById('hw-device-list');
     const sel = document.getElementById('hw-profile-select');
@@ -317,34 +420,48 @@ function renderHardwarePanel() {
     if (opticsInput && opticsInput !== document.activeElement) {
         opticsInput.value = ap?.optics || '';
     }
-    // Monture — connexion (interface + endpoint) liée au profil
-    const mountIf = document.getElementById('hw-mount-interface');
-    const mountEp = document.getElementById('hw-mount-endpoint');
-    const mountEpLabel = document.getElementById('hw-mount-endpoint-label');
-    if (mountIf && mountEp) {
-        const curIf = ap?.mount_interface || 'serial';
-        const curEp = ap?.mount_endpoint || '';
-        if (document.activeElement !== mountIf) mountIf.value = curIf;
-        if (document.activeElement !== mountEp) mountEp.value = curEp;
-        if (mountEpLabel) mountEpLabel.textContent = curIf === 'network' ? 'Host:port:' : 'Port:';
-        mountEp.placeholder = curIf === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
-    }
 
-    // Device rows
+    // Tableur : une ligne = un device INDIGO (rôle + endpoint inline)
     list.innerHTML = '';
     const names = Object.keys(_hwDevices);
     if (!names.length) {
         list.innerHTML = `<div style="color:#555; font-size:0.6rem; padding:4px;">${i18n('hw.no_devices')}</div>`;
     } else {
+        const curIf = ap?.mount_interface || 'serial';
+        const curEp = ap?.mount_endpoint || '';
         for (const name of names) {
             const d = _hwDevices[name];
             const icon = HW_ICONS[d.type] || HW_ICONS.generic;
             const row = document.createElement('div');
             row.className = 'hw-device';
+            row.dataset.device = name;
+
+            const roleNow = hwCurrentRole(name);
+            const roles = hwRolesForType(d.type);
+            let roleOpts = `<option value="">${i18n('hw.none')}</option>`;
+            for (const r of roles) {
+                roleOpts += `<option value="${r}" ${roleNow === r ? 'selected' : ''}>${escapeHTML(hwRoleLabel(r))}</option>`;
+            }
+
+            let epHtml = `<span class="hw-ep-dash" title="${escapeAttr(i18n('hw.ep_na'))}">—</span>`;
+            if (hwShowEndpointCell(name, d)) {
+                const ph = curIf === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
+                epHtml =
+                    `<span class="hw-ep-cell">` +
+                    `<select class="hw-iface" data-field="iface" title="${escapeAttr(i18n('hw.iface'))}">` +
+                    `<option value="serial" ${curIf === 'serial' ? 'selected' : ''}>${escapeHTML(i18n('hw.iface_serial'))}</option>` +
+                    `<option value="network" ${curIf === 'network' ? 'selected' : ''}>${escapeHTML(i18n('hw.iface_net'))}</option>` +
+                    `</select>` +
+                    `<input class="hw-ep-input" data-field="endpoint" list="serial-port-list" value="${escapeAttr(curEp)}" placeholder="${escapeAttr(ph)}" title="${escapeAttr(i18n('hw.ep_hint'))}">` +
+                    `</span>`;
+            }
+
             row.innerHTML =
-                `<span class="hw-icon">${icon}</span>` +
-                `<span class="hw-name" title="${escapeAttr(name)}">${escapeHTML(name)}</span>` +
+                `<select class="hw-role-select" data-device="${escapeAttr(name)}" title="${escapeAttr(i18n('hw.role_hint'))}">${roleOpts}</select>` +
+                `<span class="hw-name" title="${escapeAttr(name)}">${icon} ${escapeHTML(name)}</span>` +
                 `<span class="hw-status ${d.connected ? 'on' : 'off'}">${d.connected ? i18n('hw.connected') : i18n('hw.offline')}</span>` +
+                epHtml +
+                `<button class="btn-glass" data-action="props" data-device="${escapeAttr(name)}" title="${escapeAttr(i18n('hw.props'))}">⚙️</button>` +
                 `<button class="btn-glass ${d.connected ? 'danger' : 'success'}" data-action="${d.connected ? 'disconnect' : 'connect'}" data-device="${escapeAttr(name)}">${d.connected ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
             list.appendChild(row);
         }
@@ -363,79 +480,7 @@ function renderHardwarePanel() {
     }
 
     renderHwDrivers();
-    renderHardwareRoles();
     renderConnLeds();
-}
-
-// Per-role selectors: for each role, list the detected devices compatible with it.
-// + connexion individuelle par rôle (ou globale via Tout connecter / APPLIQUER).
-let _hwRolesSig = null;
-
-function renderHardwareRoles() {
-    const container = document.getElementById('hw-role-assign');
-    if (!container) return;
-    // L'utilisateur est en train de choisir dans un sélecteur de rôle :
-    // ne pas reconstruire, sinon le menu déroulant se referme aussitôt.
-    if (container.contains(document.activeElement)) return;
-    const ap = hwActiveProfile();
-    const sig = HW_ROLE_FIELDS.map(f => {
-        const types = HW_ROLE_TYPES[f] || [];
-        const cands = Object.keys(_hwDevices)
-            .filter(name => types.includes(_hwDevices[name].type)).sort()
-            .map(name => name + ':' + (_hwDevices[name].connected ? 1 : 0)).join(',');
-        return `${f}=${(ap && ap[f]) || ''}[${cands}]`;
-    }).join('|');
-    if (sig === _hwRolesSig && container.querySelector('.hw-role-select')) return;
-    _hwRolesSig = sig;
-    const fields = HW_ROLE_FIELDS;
-    container.innerHTML = '';
-    for (const f of fields) {
-        const label = i18n(HW_ROLES.find(([r]) => r === f)?.[1] || 'hw.role_mount');
-        const types = HW_ROLE_TYPES[f] || [];
-        const candidates = Object.keys(_hwDevices)
-            .filter(name => types.includes(_hwDevices[name].type))
-            .sort();
-        const assigned = ap?.[f] || '';
-        const opts = [`<option value="">${i18n('hw.none')}</option>`];
-        for (const name of candidates) {
-            const conn = _hwDevices[name]?.connected ? ' ●' : ' ○';
-            opts.push(`<option value="${escapeAttr(name)}" ${assigned === name ? 'selected' : ''}>${escapeHTML(name)}${conn}</option>`);
-        }
-        const row = document.createElement('div');
-        row.className = 'hw-row';
-        const isConn = assigned && _hwDevices[assigned]?.connected;
-        row.innerHTML =
-            `<span class="hw-label">${escapeHTML(label)}:</span>` +
-            `<select class="hw-role-select" data-role="${f}" style="flex:1;">${opts.join('')}</select>` +
-            `<button class="btn-glass ${isConn ? 'danger' : 'success'} hw-role-conn" data-role="${f}" data-device="${escapeAttr(assigned)}" ${assigned ? '' : 'disabled style="opacity:0.4;flex:0;"'} style="font-size:0.55rem;flex:0;">${isConn ? i18n('hw.dec') : i18n('hw.conn')}</button>`;
-        container.appendChild(row);
-    }
-    // Actions globales rôles : connecter / déconnecter tous les rôles assignés.
-    const bar = document.createElement('div');
-    bar.className = 'hw-row';
-    bar.style.marginTop = '4px';
-    bar.innerHTML =
-        `<button id="hw-roles-connect" class="btn-glass success" style="font-size:0.55rem;flex:1;">${i18n('hw.roles_connect')}</button>` +
-        `<button id="hw-roles-disconnect" class="btn-glass danger" style="font-size:0.55rem;flex:1;">${i18n('hw.roles_disconnect')}</button>`;
-    container.appendChild(bar);
-    const rc = bar.querySelector('#hw-roles-connect');
-    if (rc) rc.addEventListener('click', hwConnectRoles);
-    const rd = bar.querySelector('#hw-roles-disconnect');
-    if (rd) rd.addEventListener('click', hwDisconnectRoles);
-    const singles = container.querySelectorAll('.hw-role-conn');
-    singles.forEach(btn => btn.addEventListener('click', async () => {
-        const device = btn.dataset.device;
-        if (!device) return;
-        const connected = !!_hwDevices[device]?.connected;
-        const action = connected ? 'disconnect' : 'connect';
-        const res = await fetch(`/api/hardware/${action}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device }),
-        }).then(r => r.json()).catch(() => null);
-        if (res?.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
-        await hwLoad();
-        renderHardwarePanel();
-    }));
 }
 
 async function hwConnectRoles() {
@@ -491,11 +536,18 @@ async function hwAssignRole(role, name) {
     }
     const update = { name: ap.name };
     for (const f of HW_ROLE_FIELDS) update[f] = ap[f] || null;
-    if (update[role] === name) name = '';      // selecting the same device again → unassign
-    for (const f of HW_ROLE_FIELDS) {
-        if (update[f] === name) update[f] = null;
+    if (role) {
+        if (update[role] === name) name = '';      // same device again → unassign
+        for (const f of HW_ROLE_FIELDS) {
+            if (update[f] === name) update[f] = null;
+        }
+        update[role] = name;
+    } else {
+        // role vide : on retire ce device de tous les rôles
+        for (const f of HW_ROLE_FIELDS) {
+            if (update[f] === name) update[f] = null;
+        }
     }
-    update[role] = name;
     update.optics = ap.optics || '';
     update.mount_interface = ap.mount_interface || null;
     update.mount_endpoint = ap.mount_endpoint || null;
@@ -505,6 +557,47 @@ async function hwAssignRole(role, name) {
     });
     await hwLoad();
     renderHardwarePanel();
+}
+
+// Sauvegarde endpoint/interface monture depuis la ligne du tableur
+// (générique : n'importe quelle monture assignée au rôle mount).
+async function hwSaveMountConn({ iface, endpoint } = {}) {
+    const ap = hwActiveProfile();
+    if (!ap) return;
+    const body = { name: ap.name };
+    for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
+    body.optics = ap.optics || '';
+    body.mount_interface = iface != null ? iface : (ap.mount_interface || 'serial');
+    body.mount_endpoint = endpoint != null ? endpoint : (ap.mount_endpoint || '');
+    await fetch('/api/profiles', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+    });
+    await hwLoad({ rescanSerial: false });
+    // Pas de renderHardwarePanel complet ici (déjà en cours / focus input)
+    // → on laisse l'appelant rafraîchir si besoin.
+}
+
+// Pousse DEVICE_PORT vers le device monture si déjà connecté
+// (le port vit aussi dans les props INDIGO — une seule source de vérité UI).
+async function hwPushDevicePortIfAny(deviceName, port) {
+    if (!deviceName || !port) return;
+    try {
+        const st = (typeof devices !== 'undefined' && devices[deviceName]) || null;
+        if (!st || !st.connected) return;
+        const pv = (st.props || []).find(p => p.name === 'DEVICE_PORT' || p.name === 'CONNECTION_PORT');
+        if (!pv || !pv.items?.length) return;
+        const item = pv.items[0];
+        await fetch('/api/property', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                device: deviceName,
+                property: pv.name,
+                items: [{ name: item.name, value: port }],
+            }),
+        });
+        addLog('info', 'hw', i18nFmt('log.ws.serial_configured', { port }));
+    } catch (e) { /* best-effort */ }
 }
 
 function initHardwarePanel() {
@@ -518,6 +611,28 @@ function initHardwarePanel() {
     const connectAll = document.getElementById('hw-connect-all');
     const disconnectAll = document.getElementById('hw-disconnect-all');
     const refreshBtn = document.getElementById('hw-refresh');
+    const tabsBar = document.getElementById('hw-tabs');
+    const scanBtn = document.getElementById('hw-scan-serial');
+
+    // Onglets Devices / Drivers / Profil
+    if (tabsBar) tabsBar.addEventListener('click', (e) => {
+        const btn = e.target.closest('.hw-tab');
+        if (!btn) return;
+        const tab = btn.dataset.tab;
+        tabsBar.querySelectorAll('.hw-tab').forEach(b => {
+            const on = b === btn;
+            b.classList.toggle('active', on);
+            b.setAttribute('aria-selected', on ? 'true' : 'false');
+        });
+        for (const t of ['devices', 'drivers', 'profile']) {
+            const panel = document.getElementById(`hw-tab-${t}`);
+            if (!panel) continue;
+            const on = t === tab;
+            panel.classList.toggle('active', on);
+            if (on) panel.removeAttribute('hidden');
+            else panel.setAttribute('hidden', '');
+        }
+    });
 
     if (sel) sel.addEventListener('change', async () => {
         if (!sel.value) return;
@@ -557,8 +672,10 @@ function initHardwarePanel() {
         const body = { name: ap.name };
         for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
         body.optics = ap.optics || '';
-        body.mount_interface = document.getElementById('hw-mount-interface')?.value || ap.mount_interface || null;
-        body.mount_endpoint = document.getElementById('hw-mount-endpoint')?.value.trim() || ap.mount_endpoint || null;
+        const iface = list?.querySelector('.hw-iface')?.value;
+        const ep = list?.querySelector('.hw-ep-input')?.value.trim();
+        body.mount_interface = iface || ap.mount_interface || null;
+        body.mount_endpoint = ep != null ? ep : (ap.mount_endpoint || null);
         await fetch('/api/profiles', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -595,51 +712,73 @@ function initHardwarePanel() {
         else if (res?.error) addLog('error', 'hw', i18nFmt('log.ws.error', { err: res.error }));
     });
 
-    if (list) list.addEventListener('click', async (e) => {
-        const btn = e.target.closest('button[data-action]');
-        if (!btn) return;
-        const device = btn.dataset.device;
-        const action = btn.dataset.action;
-        const res = await fetch(`/api/hardware/${action}`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ device }),
-        }).then(r => r.json()).catch(() => null);
-        if (res?.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
-        await hwLoad();
-        renderHardwarePanel();
-    });
-
-    const roleAssign = document.getElementById('hw-role-assign');
-    if (roleAssign) roleAssign.addEventListener('change', async (e) => {
-        const sel = e.target.closest('.hw-role-select');
-        if (!sel) return;
-        await hwAssignRole(sel.dataset.role, sel.value);
-    });
-
-    const mountIf = document.getElementById('hw-mount-interface');
-    const mountEp = document.getElementById('hw-mount-endpoint');
-    async function saveMountConn() {
-        const ap = hwActiveProfile();
-        if (!ap) return;
-        const body = { name: ap.name };
-        for (const f of HW_ROLE_FIELDS) body[f] = ap[f] || null;
-        body.optics = ap.optics || '';
-        body.mount_interface = mountIf ? mountIf.value : ap.mount_interface || 'serial';
-        body.mount_endpoint = mountEp ? mountEp.value.trim() : ap.mount_endpoint || '';
-        await fetch('/api/profiles', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
+    // Délégation tableur : ⚙ props, CONN, rôle, endpoint
+    if (list) {
+        list.addEventListener('click', async (e) => {
+            const btn = e.target.closest('button[data-action]');
+            if (!btn) return;
+            const device = btn.dataset.device;
+            const action = btn.dataset.action;
+            if (action === 'props') { hwOpenDeviceProps(device); return; }
+            const res = await fetch(`/api/hardware/${action}`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device }),
+            }).then(r => r.json()).catch(() => null);
+            if (res?.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
+            await hwLoad();
+            renderHardwarePanel();
         });
-        await hwLoad();
-        renderHardwarePanel();
+
+        list.addEventListener('change', async (e) => {
+            const t = e.target;
+            if (t.classList?.contains('hw-role-select')) {
+                await hwAssignRole(t.value, t.dataset.device);
+                return;
+            }
+            if (t.classList?.contains('hw-iface')) {
+                // bascule série/réseau → placeholder + sauvegarde profil
+                const epInput = t.closest('.hw-ep-cell')?.querySelector('.hw-ep-input');
+                if (epInput) {
+                    epInput.placeholder = t.value === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
+                }
+                await hwSaveMountConn({ iface: t.value });
+                renderHardwarePanel();
+                return;
+            }
+            if (t.classList?.contains('hw-ep-input')) {
+                const iface = t.closest('.hw-ep-cell')?.querySelector('.hw-iface')?.value || 'serial';
+                const port = t.value.trim();
+                await hwSaveMountConn({ iface, endpoint: port });
+                const mountName = hwActiveProfile()?.mount || Object.keys(_hwDevices).find(n => _hwDevices[n]?.type === 'mount');
+                if (iface === 'serial' && mountName) await hwPushDevicePortIfAny(mountName, port);
+                return;
+            }
+        });
     }
-    if (mountIf) mountIf.addEventListener('change', async () => {
-        const lab = document.getElementById('hw-mount-endpoint-label');
-        if (lab) lab.textContent = mountIf.value === 'network' ? 'Host:port:' : 'Port:';
-        if (mountEp) mountEp.placeholder = mountIf.value === 'network' ? '192.168.1.10:7624' : '/dev/ttyUSB0';
-        await saveMountConn();
+
+    if (scanBtn) scanBtn.addEventListener('click', async () => {
+        const data = await hwScanSerialPorts({ force: true, silent: true });
+        const ports = data?.ports || [];
+        if (!ports.length) { addLog('warning', 'hw', i18n('hw.serial_none')); return; }
+        const choices = ports.map((p, i) => `${i + 1}. ${p.preferred}${p.description ? ` — ${p.description}` : ''}${p.busy ? ' [busy]' : ''}`);
+        const pick = prompt(
+            `${i18n('hw.serial_found', { n: ports.length })}\n${choices.join('\n')}\n\n#`,
+            '1',
+        );
+        if (pick === null || pick === '') return;
+        const idx = parseInt(pick, 10) - 1;
+        const chosen = ports[idx];
+        if (!chosen) return;
+        const pathInp = list?.querySelector('.hw-ep-input');
+        if (pathInp) {
+            pathInp.value = chosen.preferred;
+            pathInp.dispatchEvent(new Event('change', { bubbles: true }));
+        } else {
+            await hwSaveMountConn({ iface: 'serial', endpoint: chosen.preferred });
+            renderHardwarePanel();
+        }
+        addLog('info', 'hw', i18nFmt('log.ws.serial_configured', { port: chosen.preferred }));
     });
-    if (mountEp) mountEp.addEventListener('change', saveMountConn);
 
     if (optics) optics.addEventListener('change', async () => {
         const ap = hwActiveProfile();
@@ -679,14 +818,14 @@ function initHardwarePanel() {
 
     const drvAttach = document.getElementById('hw-driver-attach');
     if (drvAttach) drvAttach.addEventListener('click', async () => {
-        const sel = document.getElementById('hw-driver-select');
-        await hwAttachDriver(sel?.value || _hwSelectedDriver);
+        const dsel = document.getElementById('hw-driver-select');
+        await hwAttachDriver(dsel?.value || _hwSelectedDriver);
     });
 
     const drvDetach = document.getElementById('hw-driver-detach');
     if (drvDetach) drvDetach.addEventListener('click', async () => {
-        const sel = document.getElementById('hw-driver-select');
-        await hwDetachDriver(sel?.value || _hwSelectedDriver);
+        const dsel = document.getElementById('hw-driver-select');
+        await hwDetachDriver(dsel?.value || _hwSelectedDriver);
     });
 
     const drvRefresh = document.getElementById('hw-drivers-refresh');
@@ -702,6 +841,7 @@ function initHardwarePanel() {
 
     hwCheckDom();
     hwLoad().then(() => { renderHardwarePanel(); renderConnLeds(); });
+    hwScanSerialPorts({ force: true, silent: true }).catch(() => {});
 }
 
 // ── Hardware mode (mode dédié, grand panneau) ────────────────
@@ -710,45 +850,81 @@ function renderHardwareMode() {
     const container = document.getElementById('applet-hardware-mode');
     if (!container) return;
 
-    // Device selector + properties
-    const devSel = document.getElementById('hw-mode-device-select');
-    if (devSel) {
-        const prev = devSel.value;
-        devSel.innerHTML = `<option value="">${i18n('hw.select_device')}</option>`;
-        const names = Object.keys(_hwDevices);
-        if (names.length && (!_hwModeDevice || !names.includes(_hwModeDevice))) {
-            _hwModeDevice = names.includes('Mount') ? 'Mount' : names[0];
-        }
-        for (const name of names) {
-            const opt = document.createElement('option');
-            opt.value = name;
-            opt.textContent = `${name} (${_hwDevices[name].type})`;
-            devSel.appendChild(opt);
-        }
-        if (names.includes(_hwModeDevice)) devSel.value = _hwModeDevice;
-        else if (prev && names.includes(prev)) { devSel.value = prev; _hwModeDevice = prev; }
+    // Sélecteur props retiré du flux principal (onglet) — plus de
+    // hardcode "Mount LX200" : on garde le device courant s'il existe.
+    const names = Object.keys(_hwDevices);
+    if (_hwModeDevice && !names.includes(_hwModeDevice)) _hwModeDevice = null;
+    if (!_hwModeDevice && names.length) {
+        const mount = names.find(n => _hwDevices[n]?.type === 'mount');
+        _hwModeDevice = mount || names[0];
     }
 
     renderHardwareModeProps();
 }
 
-function renderHardwareModeProps() {
-    const propsEl = document.getElementById('hw-mode-props');
+// Résout le conteneur de props : nouveau panneau séparé en priorité,
+// ancien emplacement inline en repli (HTML en cache).
+function hwPropsContainer() {
+    return document.getElementById('hw-device-props') ||
+        document.getElementById('hw-mode-props');
+}
+
+function hwOpenDeviceProps(name) {
+    if (!name) return;
+    _hwModeDevice = name;
+    renderHardwareModeProps(true);
+    // Toujours (ré)afficher : couvre aussi le cas panneau fermé via ✕.
+    const panel = document.getElementById('applet-hwprops');
+    if (panel) {
+        panel.style.display = '';
+        panel.classList.remove('collapsed');
+    }
+}
+
+// Throttle : le WS stream à plusieurs Hz, reconstruire 36 props à chaque
+// fois fige le panneau. On ne reconstruit que si signature changée et au
+// plus toutes les 1.5 s (forçage sur action explicite).
+let _hwPropsSig = null;
+let _hwPropsLastMs = 0;
+function renderHardwareModeProps(force) {
+    // Panneau séparé (applet-hwprops) : la liste prend de la place, elle ne
+    // reste plus coincée en bas du panneau Matériel.
+    const panel = document.getElementById('applet-hwprops');
+    const propsEl = hwPropsContainer();
+    const titleEl = document.getElementById('hwprops-title-name');
     if (!propsEl) return;
     if (document.activeElement && propsEl.contains(document.activeElement)) return;
+    if (titleEl) titleEl.textContent = _hwModeDevice || '';
+    // On ne touche au display que pour masquer (jamais de forçage visible sur
+    // le stream : le layout/minimize de l'utilisateur reste maître).
+    if (panel && (!_hwModeDevice || !devices[_hwModeDevice])) panel.style.display = 'none';
     if (!_hwModeDevice || !devices[_hwModeDevice]) {
         propsEl.innerHTML = `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.select_hint')}</div>`;
         return;
     }
+    const _hwDev = devices[_hwModeDevice];
+    if (!_hwDev.props || !_hwDev.props.length) {
+        // Diagnostic visible : dit si le device est absent du store WS ou sans props.
+        propsEl.innerHTML = `<div style="color:#c84; font-size:0.65rem; padding:6px;">${i18n('hw.no_props')} [${escapeHTML(_hwModeDevice)} — ws:${_hwDev ? 'ok' : 'absent'}, props:${_hwDev && _hwDev.props ? _hwDev.props.length : '—'}]</div>`;
+        return;
+    }
+    const sig = _hwDev.props.map(p =>
+        p.name + '=' + p.state + '|' + (p.items || []).map(i => i.name + ':' + i.value).join(',')).join(';');
+    const nowMs = Date.now();
+    if (!force && sig === _hwPropsSig) return;
+    if (!force && nowMs - _hwPropsLastMs < 1500) return;
+    _hwPropsSig = sig;
+    _hwPropsLastMs = nowMs;
     const html = buildPropsHTML(_hwModeDevice);
     propsEl.innerHTML = html || `<div style="color:#555; font-size:0.65rem; padding:6px;">${i18n('hw.no_props')}</div>`;
 }
 
 function initHardwareMode() {
-    const devSel = document.getElementById('hw-mode-device-select');
-    if (devSel) devSel.addEventListener('change', () => {
-        _hwModeDevice = devSel.value || null;
-        renderHardwareModeProps();
+    const closeBtn = document.querySelector('#applet-hwprops .applet-close');
+    if (closeBtn) closeBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const panel = document.getElementById('applet-hwprops');
+        if (panel) panel.style.display = 'none';
     });
 }
 
@@ -803,5 +979,8 @@ Hub.subscribe('ws:state', 'hardware', (env) => {
 
 // Consommateur mode:changed : rafraîchit le mode matériel à l'entrée.
 Hub.subscribe('mode:changed', 'hardware', (env) => {
-    if (env.payload.mode === 'hardware') renderHardwareMode();
+    if (env.payload.mode === 'hardware') {
+        renderHardwareMode();
+        hwScanSerialPorts({ silent: true }).catch(() => {});
+    }
 });

@@ -2,7 +2,7 @@
 // Noctua — App principal (applets flottants)
 // ═══════════════════════════════════════════════════════════════
 
-import { SkyEngine } from '/sky-engine.js';
+import { SkyEngine } from '/sky-engine.js?v=20260918d';
 
 // ── Mode Manager ──────────────────────────────────────────────
 
@@ -467,6 +467,14 @@ function initDraggableApplets() {
                 e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA' ||
                 e.target.closest('.btn') || e.target.closest('.slider') ||
                 e.target.closest('.toggle-switch') || e.target.closest('a')) return;
+            // Coin de redimensionnement natif (resize:both) : laisser le
+            // navigateur redimensionner au lieu de déplacer.
+            try {
+                if (getComputedStyle(panel).resize !== 'none') {
+                    const r = panel.getBoundingClientRect();
+                    if (e.clientX > r.right - 18 && e.clientY > r.bottom - 18) return;
+                }
+            } catch (_) { /* ignore */ }
 
             if (panel.dataset.pinned) return;
             e.preventDefault();

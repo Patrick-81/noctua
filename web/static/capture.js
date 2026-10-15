@@ -130,6 +130,7 @@ function initCapturePanel() {
             _captureRunning = false;
             _captureAborted = true;
             apiPost('/api/camera/abort', { device: findCamera()?.name });
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
             updateCaptureProgress();
         });
     }
@@ -326,13 +327,16 @@ async function startSequence(count, delay) {
             }
         }
         addLog('info', 'capture', i18nFmt('log.capture.pose', { i: i + 1, count, exposure, type: _captureFrameType, filter: filter ? ` [${filter}]` : '' }));
-        apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType });
+        const _pv = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette') ? 'vignette' : 'pleine';
+        apiPost('/api/camera/expose', { device: cam.name, duration: exposure, frame_type: _captureFrameType, preview: _pv });
         _exposureDurationMs = exposure * 1000;
         _exposureStartMs = Date.now();
         startCountdown();
         // ligne défilante en haut du panneau aperçu pendant chargement
         document.getElementById('applet-capture-preview')?.classList.add('cap-preview-loading');
-        await waitExposureDone(cam.name, exposure * 1000 + 5000);
+        // Marge readout large : un gros capteur en USB2 (ex. 77 Mo) peut
+        // mettre plus d'une minute entre la fin de pose et le BLOB.
+        await waitExposureDone(cam.name, exposure * 1000 + 120000);
         stopCountdown();
         // Fallback HTTP si le WS n'a rien poussé (ws=0, déconnexion, etc.)
         await _fetchLastImageIfNeeded(cam.name);
@@ -362,24 +366,45 @@ async function setCaptureFilter(slot) {
     else _captureFilter = slot;
 }
 
-function waitExposureDone(camName, timeout) {
+function waitExposureDone(camName, timeout, aliveFn) {
+    // Attente robuste de fin de pose + image fraîche :
+    // - démarrage détecté via `exposing` (pas exposure_time : certains
+    //   drivers signalent Busy sans durée, t=0.0s pour toujours),
+    // - fin = idle ET image de CETTE caméra arrivée après le démarrage
+    //   (ignore les retardataires de la pose précédente),
+    // - caméra disparue (déconnexion) → échec rapide, pas de timeout plein.
+    const isAlive = aliveFn || (() => _captureRunning);
     return new Promise(resolve => {
         const start = Date.now();
         let started = false;
+        let ignoreBefore = (typeof _lastWsImageByDev !== 'undefined' && _lastWsImageByDev[camName]) || 0;
+        let missing = 0;
         const check = () => {
-            if (!_captureRunning) { resolve(); return; }
+            if (!isAlive()) { resolve(false); return; }
             const cam = devices[camName];
             const elapsed = Date.now() - start;
-            if (!cam || elapsed > timeout) { resolve(); return; }
-            if (!started) {
-                if (cam.exposure_time > 0) started = true;
-                setTimeout(check, 100);
-            } else {
-                if (cam.exposure_time <= 0) { resolve(); return; }
+            if (!cam) {
+                if (++missing > 25 || elapsed > timeout) { resolve(false); return; }
                 setTimeout(check, 200);
+                return;
             }
+            missing = 0;
+            const exposing = !!cam.exposing || (cam.exposure_time || 0) > 0;
+            if (exposing) {
+                if (!started) {
+                    started = true;
+                    ignoreBefore = (typeof _lastWsImageByDev !== 'undefined' && _lastWsImageByDev[camName]) || ignoreBefore;
+                }
+                setTimeout(check, 200);
+                return;
+            }
+            const fresh = (typeof _lastWsImageByDev !== 'undefined') &&
+                (_lastWsImageByDev[camName] || 0) > ignoreBefore;
+            if (fresh) { resolve(true); return; }
+            if (elapsed > timeout) { resolve(started); return; }
+            setTimeout(check, 300);
         };
-        setTimeout(check, 200);
+        setTimeout(check, 300);
     });
 }
 async function _fetchLastImageIfNeeded(camName) {
@@ -396,6 +421,11 @@ async function _fetchLastImageIfNeeded(camName) {
             if (age2 < 2000) return;
             addLog('info', 'capture', `Rapatriement HTTP ${j.variant||''} (fallback WS)`);
             handleCameraImage(j.data, j.format, j.variant);
+        } else {
+            // Pas d'image côté serveur non plus : sortir du mode chargement
+            // au lieu de laisser le spinner en suspens sans résultat.
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+            addLog('warning', 'capture', `Aucune image reçue pour ${camName} (pose + fallback HTTP sans résultat) — voir log serveur EXPOSE/BLOB`);
         }
     } catch (e) {}
 }

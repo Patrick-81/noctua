@@ -70,6 +70,12 @@ function initGuidePanel() {
     const captureBtn = document.getElementById('guide-capture-btn');
     if (captureBtn) captureBtn.addEventListener('click', _guideCapHandler);
 
+    // Test / mise au point : capture unitaire + loop (sans démarrer le guidage)
+    const testCaptureBtn = document.getElementById('guide-test-capture-btn');
+    if (testCaptureBtn) testCaptureBtn.addEventListener('click', _guideCapHandler);
+    const testLoopBtn = document.getElementById('guide-test-loop-btn');
+    if (testLoopBtn) testLoopBtn.addEventListener('click', _guideTestLoopToggle);
+
     // Auto-select button
     const autoBtn = document.getElementById('guide-autoselect-btn');
     if (autoBtn) autoBtn.addEventListener('click', _guideAutoSelect);
@@ -122,11 +128,21 @@ function _refreshGuideCameraList() {
         for (const c of cameras) {
             const opt = document.createElement('option');
             opt.value = c.name;
-            opt.textContent = c.name + (c.connected ? '' : i18n('guide.deco'));
+            // is_ready=false : compagnon sans CCD (ex. « … (guider) ») —
+            // non sélectionnable pour éviter une boucle « non prête ».
+            if (c.is_ready === false) {
+                opt.disabled = true;
+                opt.textContent = c.name + i18n('guide.not_ready');
+            } else {
+                opt.textContent = c.name + (c.connected ? '' : i18n('guide.deco'));
+            }
             _guideCameraSelect.appendChild(opt);
         }
-        if (prev && [..._guideCameraSelect.options].some(o => o.value === prev)) {
+        const selectable = [..._guideCameraSelect.options].filter(o => o.value && !o.disabled);
+        if (prev && selectable.some(o => o.value === prev)) {
             _guideCameraSelect.value = prev;
+        } else if (selectable.length) {
+            _guideCameraSelect.value = selectable[0].value;
         }
     }).catch(() => {});
 }
@@ -140,23 +156,99 @@ async function _guideCapHandler() {
     const cam = _guideCameraSelect?.value;
     if (!cam) { addLog('warn', 'guide', i18n('log.guide.select_camera')); return; }
     const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    const binning = parseInt(document.getElementById('guide-binning')?.value || '1', 10);
     const statusEl = document.getElementById('guide-preview-status');
     if (statusEl) { statusEl.textContent = i18n('guide.capturing'); statusEl.style.color = cssVar('--status-warning'); }
     addLog('info', 'guide', i18nFmt('log.guide.capture_preview', { exposure }));
     const res = await fetch('/api/camera/expose', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device: cam, duration: exposure })
+        body: JSON.stringify({ device: cam, duration: exposure, binning })
     }).then(r => r.json()).catch(() => null);
     if (!res?.ok) {
         const msg = res?.error || i18n('guide.capture_fail');
         if (statusEl) { statusEl.textContent = `❌ ${msg}`; statusEl.style.color = cssVar('--status-error'); }
         addLog('error', 'guide', msg);
+        return false;
     }
+    return true;
+}
+
+// ── Loop test (mise au point) — sans corrections monture ──────
+let _guideTestLoopOn = false;
+let _guideTestLoopBusy = false;
+
+function _guideTestLoopBtn() {
+    return document.getElementById('guide-test-loop-btn');
+}
+
+function _guideSetTestLoopUI(on) {
+    const btn = _guideTestLoopBtn();
+    if (!btn) return;
+    btn.textContent = on ? i18n('guide.test_loop_stop') : i18n('guide.test_loop');
+    btn.classList.toggle('warning', !!on);
+    btn.classList.toggle('success', !on);
+}
+
+function _guideStopTestLoop(silent = false) {
+    if (!_guideTestLoopOn && !_guideTestLoopBusy) return;
+    _guideTestLoopOn = false;
+    _guideSetTestLoopUI(false);
+    // Coupe la pose en vol pour libérer la caméra (guidage / stop manuel)
+    const cam = _guideCameraSelect?.value;
+    if (cam) {
+        fetch('/api/camera/abort', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device: cam })
+        }).catch(() => {});
+    }
+    if (!silent) addLog('info', 'guide', i18n('log.guide.loop_stopped'));
+}
+
+async function _guideTestLoopToggle() {
+    if (_guideTestLoopOn || _guideTestLoopBusy) {
+        _guideStopTestLoop();
+        return;
+    }
+    const cam = _guideCameraSelect?.value;
+    if (!cam) { addLog('warn', 'guide', i18n('log.guide.select_camera')); return; }
+    if (_guideRunning) { addLog('warn', 'guide', i18n('log.guide.loop_running')); return; }
+
+    const exposure = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+    _guideTestLoopOn = true;
+    _guideTestLoopBusy = true;
+    _guideSetTestLoopUI(true);
+    addLog('info', 'guide', i18nFmt('log.guide.loop_started', { exposure }));
+
+    // Première pose immédiate ; les suivantes après pose + marge (image via WS).
+    // Relit exposition/binning à chaque itération (réglage à chaud).
+    while (_guideTestLoopOn && !_guideRunning) {
+        const ok = await _guideCapHandler();
+        if (!_guideTestLoopOn || _guideRunning) break;
+        if (!ok) {
+            await sleep(1000);
+            continue;
+        }
+        const cur = parseFloat(document.getElementById('guide-exposure')?.value || '1.0');
+        const waitMs = Math.max(500, (cur + 0.5) * 1000);
+        const step = 200;
+        let waited = 0;
+        while (waited < waitMs && _guideTestLoopOn && !_guideRunning) {
+            await sleep(step);
+            waited += step;
+        }
+    }
+
+    _guideTestLoopBusy = false;
+    _guideSetTestLoopUI(false);
+    _guideTestLoopOn = false;
 }
 
 async function _guideStart() {
     if (_guideRunning) return;
+    // Une loop de test ne doit pas chevaucher le guidage
+    if (_guideTestLoopOn || _guideTestLoopBusy) _guideStopTestLoop(true);
     const cam = _guideCameraSelect?.value;
     if (!cam) { addLog('error', 'guide', i18n('log.guide.select_camera')); return; }
 
@@ -656,6 +748,7 @@ function _guideSetRunningUI(on) {
 async function _guideStop() {
     _guideRunning = false;
     _guideRefSet = false;
+    _guideStopTestLoop(true);
     await fetch('/api/guide/stop', { method: 'POST' }).catch(() => {});
     addLog('warning', 'guide', i18n('log.guide.stopped'));
     _guideCleanup();

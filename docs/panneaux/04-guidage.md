@@ -35,6 +35,7 @@ Puis :
 
 * **Exposition** (0.1–30 s) : 1 s par défaut ; plus long = SNR ↑ mais latence ↑.
 * **Binning** 1×1 / 2×2 / 4×4.
+* **Test / mise au point** : `📷 Capture` pose unitaire (applique pose + binning, image dans l’Aperçu) ; `🔁 Loop` répète les poses pour régler la mise au point **sans** démarrer le guidage (ni corrections monture). `⏹ Stop loop` arrête. Une loop en cours est coupée avant `▶ Lancer`.
 * **Agressivité** 0.8, **Gains RA/DEC** 1.0, **Pulse max** 2000 ms, **Tolérance** 10″ (± alerte sonore).
 
 ## Dithering (depuis le Séquenceur)

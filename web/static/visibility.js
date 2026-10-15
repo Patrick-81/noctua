@@ -71,6 +71,7 @@ function _visRenderChart(vis) {
     const W = 560, H = 200, padL = 30, padR = 10, padT = 10, padB = 20;
     const iw = W - padL - padR, ih = H - padT - padB;
     const yMin = -20, yMax = 90;
+    const start = vis.start_epoch;
     const x = (t) => padL + (t / 24.0) * iw;
     const y = (a) => padT + ((yMax - a) / (yMax - yMin)) * ih;
 
@@ -85,11 +86,12 @@ function _visRenderChart(vis) {
     // horizon line
     out += `<line x1="${padL}" y1="${hzY}" x2="${padL + iw}" y2="${hzY}" stroke="rgba(255,255,255,0.4)" stroke-width="1"></line>`;
 
-    // grid (hours)
+    // grid (heures) : heures locales réelles (start + h), pas 00h/04h
+    // relatifs — sinon le pic à +2h36 se lit « 3h du mat » au lieu de 16:19.
     for (let h = 0; h <= 24; h += 4) {
         const gx = x(h);
         out += `<line x1="${gx}" y1="${padT}" x2="${gx}" y2="${padT + ih}" stroke="rgba(255,255,255,0.08)"></line>`;
-        out += `<text x="${gx}" y="${H - 6}" font-size="9" fill="#888" text-anchor="middle">${String(h).padStart(2, '0')}h</text>`;
+        out += `<text x="${gx}" y="${H - 6}" font-size="9" fill="#888" text-anchor="middle">${_visFmtTime(start + h * 3600)}</text>`;
     }
     // y grid
     for (let a = yMin; a <= yMax; a += 30) {
@@ -108,7 +110,6 @@ function _visRenderChart(vis) {
     }
 
     // markers: rise / transit / set (times within 24h window → x offset from start)
-    const start = vis.start_epoch;
     const marker = (epoch, color, label, dy) => {
         if (epoch == null) return '';
         const t = (epoch - start) / 3600.0;
@@ -138,8 +139,14 @@ function _visRenderTimes(vis) {
     if (win) {
         if (vis.best_observable) {
             const b = vis.best_observable;
+            // Fenêtre à cheval sur minuit : précise le jour de fin (sinon
+            // « 13:43 – 13:43 » illisible quand start/end ont même HH:MM).
+            const sameDay = new Date(b.start_epoch * 1000).toDateString() ===
+                new Date(b.end_epoch * 1000).toDateString();
+            const endStr = _visFmtTime(b.end_epoch) +
+                (sameDay ? '' : ' ' + new Date(b.end_epoch * 1000).toLocaleDateString([], { day: '2-digit', month: '2-digit' }));
             win.innerHTML = `<span class="vis-metric-label">Mieux observable</span>` +
-                `<span>${_visFmtTime(b.start_epoch)} – ${_visFmtTime(b.end_epoch)} · max ${b.max_alt_deg.toFixed(1)}°</span>`;
+                `<span>${_visFmtTime(b.start_epoch)} – ${endStr} · max ${b.max_alt_deg.toFixed(1)}°</span>`;
         } else {
             win.innerHTML = `<span class="vis-metric-label">Observable</span><span>Sous l'horizon (${vis.min_alt_deg}°) sur 24h</span>`;
         }

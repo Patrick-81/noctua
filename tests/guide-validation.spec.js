@@ -135,13 +135,29 @@ async function uiDrag(page, viewportId, dx, dy) {
   }, { id: viewportId, dx, dy });
 }
 
+// Desktop dense (>4 panneaux) escamote tous les applets guidage au switchMode :
+// forcer display + retrait collapsed pour les panneaux utiles aux tests.
+async function expandGuidingPanels(page) {
+  await page.evaluate(() => {
+    for (const id of ['applet-guiding-settings', 'applet-guide-preview', 'applet-calibration', 'applet-guiding-graph', 'applet-guide-checklist']) {
+      const el = document.getElementById(id);
+      if (!el) continue;
+      el.classList.remove('collapsed');
+      el.style.display = '';
+      const minBtn = el.querySelector('.applet-minimize');
+      if (minBtn) minBtn.classList.remove('collapsed-label');
+    }
+  });
+}
+
 async function enterGuiding(page) {
   await page.goto(BASE_URL, { waitUntil: 'domcontentloaded' });
   await sleep(2000);
   await page.click('button[data-mode="guiding"]');
   await sleep(800);
+  await expandGuidingPanels(page);
   const select = page.locator('#guide-camera-select');
-  await expect(select).toBeVisible();
+  await expect(select).toBeVisible({ timeout: 10000 });
   // Connect the guide camera + mount (mirrors the working repro script)
   await page.evaluate(async () => {
     await fetch('/api/hardware/connect', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ device: 'Guide Camera' }) });
@@ -167,6 +183,31 @@ async function waitForCalibrationDone(page, timeout = 180000) {
 }
 
 test.describe.serial('Calibration + guidage validation (items 5-10)', () => {
+
+  // Paramètres : capture unitaire + loop de test (mise au point, sans guidage).
+  test('paramètres : capture unitaire + loop test (toggle)', async ({ page }) => {
+    test.setTimeout(60000);
+    await enterGuiding(page);
+
+    const testCapture = page.locator('#guide-test-capture-btn');
+    const testLoop = page.locator('#guide-test-loop-btn');
+    await expect(testCapture).toBeVisible();
+    await expect(testLoop).toBeVisible();
+
+    // Capture unitaire → image dans l'aperçu guide
+    await uiClick(page, 'guide-test-capture-btn');
+    const status = page.locator('#guide-preview-status');
+    await expect(status).toContainText('étoiles', { timeout: 15000 });
+
+    // Loop start → bouton bascule en « Stop loop »
+    await uiClick(page, 'guide-test-loop-btn');
+    await expect(testLoop).toContainText('Stop loop', { timeout: 5000 });
+
+    // Loop stop → bouton revient à « Loop »
+    await uiClick(page, 'guide-test-loop-btn');
+    await expect(testLoop).toContainText('Loop', { timeout: 5000 });
+    await expect(testLoop).not.toContainText('Stop loop');
+  });
 
   // Items 5, 7, 8: calibration with transient focus-metric failures (retry 3×),
   // toast with "Démarrer guidage", auto-populated gains, drawn graph — then a hard
@@ -242,10 +283,11 @@ test.describe.serial('Calibration + guidage validation (items 5-10)', () => {
     await sleep(2000);
     await page.click('button[data-mode="guiding"]');
     await sleep(800);
+    await expandGuidingPanels(page);
     await page.selectOption('#guide-camera-select', { label: 'Guide Camera' });
     await sleep(300);
     await page.evaluate(() => { const el = document.getElementById('cal-pulse-ms'); if (el) el.value = '100'; });
-    await page.click('#cal-start-btn');
+    await uiClick(page, 'cal-start-btn');
     const secondResult = await waitForCalibrationDone(page);
     expect(secondResult).toContain('✅ Terminé');
 

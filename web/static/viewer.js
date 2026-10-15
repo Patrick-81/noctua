@@ -142,7 +142,14 @@ class Viewer {
 
     setInfo(text) {
         const info = document.getElementById('cap-preview-info');
-        if (info) info.textContent = text;
+        if (!info) return;
+        // Préserve le badge preview/définitif (fils) malgré textContent.
+        const badge = document.getElementById('cap-image-stage');
+        info.textContent = text;
+        if (badge) {
+            info.appendChild(document.createTextNode(' '));
+            info.appendChild(badge);
+        }
     }
 
     // ── FITS parsing ──

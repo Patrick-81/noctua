@@ -44,13 +44,17 @@ function renderMountPanel() {
     const homingEl = document.getElementById('status-homing');
     if (homingEl) {
         homingEl.textContent = '● HOME';
-        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : 'off');
+        homingEl.className = 'mount-led ' + (d.homing ? 'busy' : (d.homed ? 'on' : 'off'));
     }
 
-    const busy = d.park_state === 'Busy' || d.slewing || d.homing;
-    ['btn-goto', 'btn-park-toggle', 'btn-home', 'btn-tracking'].forEach(id => {
+    // GOTO/tracking désactivés seulement pendant un mouvement (slew/homing) :
+    // le backend gère les conflits via abort/unpark auto. PARK/UNPARK/HOME
+    // restent TOUJOURS actifs — sinon un park_state coincé sur Busy rend
+    // l'UI non réactive et l'utilisateur ne peut plus débloquer la monture.
+    const moveBusy = d.slewing || d.homing;
+    ['btn-goto', 'btn-tracking'].forEach(id => {
         const btn = document.getElementById(id);
-        if (btn) btn.disabled = busy;
+        if (btn) btn.disabled = moveBusy;
     });
     const parkBtn = document.getElementById('btn-park-toggle');
     if (parkBtn) {
@@ -61,8 +65,10 @@ function renderMountPanel() {
             parkBtn.textContent = '⏸ PARK';
             parkBtn.className = 'btn-glass warning';
         }
-        parkBtn.disabled = busy;
+        parkBtn.disabled = false;
     }
+    const homeBtn = document.getElementById('btn-home');
+    if (homeBtn) homeBtn.disabled = false;
 
     if (d.props) {
         const statusProp = d.props.find(p => p.name === 'OnStep Status');
@@ -208,12 +214,14 @@ function mountMove(dir) {
     if (!m) { addLog('error', 'mount', 'Pas de monture detectee'); return; }
     if (m.dev.parked) { addLog('warning', 'mount', 'Monture parquée — déparquez d\'abord (UNPARK)'); return; }
     const speed = document.getElementById('slew-speed')?.value;
-    addLog('debug', 'mount', i18nFmt('log.mount.move_rate', { dir, speed }));
+    // info (pas debug) : le filtre Log n'affiche pas debug par défaut —
+    // impossible de diagnostiquer « joystick muet » sans cette ligne.
+    addLog('info', 'mount', i18nFmt('log.mount.move_rate', { dir, speed: speed || '?' }));
     apiPost('/api/mount/move', { direction: dir, rate: speed || undefined });
 }
 
 function mountHaltMove() {
-    addLog('debug', 'mount', i18n('log.mount.halt_move'));
+    addLog('info', 'mount', i18n('log.mount.halt_move'));
     apiPost('/api/mount/halt');
 }
 

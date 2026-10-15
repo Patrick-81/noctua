@@ -67,8 +67,16 @@ function initButtons() {
         if (m.dev.parked) { addLog('info','mount','UNPARK demandé'); mountUnpark(); } else { addLog('info','mount','PARK demandé'); mountPark(); }
     });
     bind('btn-home', mountHome);
-    bind('btn-set-park', () => { addLog('info','mount','SET PARK demandé'); apiPost('/api/mount/park/set'); });
-    bind('btn-set-home', () => { addLog('info','mount','SET HOME demandé'); apiPost('/api/mount/home/set'); });
+    bind('btn-set-park', () => {
+        if (!confirm(i18n('log.mount.confirm_set_park') || 'Écraser la position PARK avec la position actuelle ?')) return;
+        addLog('info', 'mount', 'SET PARK demandé');
+        apiPost('/api/mount/park/set');
+    });
+    bind('btn-set-home', () => {
+        if (!confirm(i18n('log.mount.confirm_set_home') || 'Écraser la position HOME avec la position actuelle ?')) return;
+        addLog('info', 'mount', 'SET HOME demandé');
+        apiPost('/api/mount/home/set');
+    });
     bind('btn-flip', mountFlip);
     bind('flip-enabled', () => { saveFlipConfig(); });
     bind('flip-margin', () => { saveFlipConfig(); });

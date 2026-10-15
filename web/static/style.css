@@ -131,6 +131,44 @@ body {
 .applet-minimize.collapsed-label::after { content: '+'; }
 .applet-minimize:not(.collapsed-label)::after { content: '−'; }
 
+/* ── Close button (panneau props : masque, rouvert via ⚙️) ─────── */
+
+.applet-close {
+    background: none;
+    border: 1px solid var(--border-default);
+    border-radius: 4px;
+    color: var(--accent-dim);
+    font-size: 0.65rem;
+    line-height: 1;
+    padding: 1px 5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    pointer-events: auto;
+    flex-shrink: 0;
+}
+.applet-close:hover {
+    color: #ff6666;
+    border-color: #ff6666;
+    background: var(--bg-hover);
+}
+
+/* ── Panneau PROPRIÉTÉS DEVICE : scroll interne ────────────────── */
+
+#applet-hwprops {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    resize: both;
+    min-width: 320px;
+    min-height: 200px;
+}
+#applet-hwprops > #hw-device-props {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overflow-x: auto;
+}
+
 /* ── Collapsed state ─────────────────────────────────────────── */
 
 .glass-panel.collapsed > *:not(.applet-drag) { display: none !important; }
@@ -268,21 +306,13 @@ body {
 
 .hw-device-list {
     padding: 4px 8px;
-    max-height: 180px; overflow-y: auto;
+    max-height: 280px; overflow-y: auto;
     display: flex; flex-direction: column; gap: 4px;
 }
 .hw-section-title {
     font-size: 0.6rem; color: var(--accent); text-transform: uppercase;
     letter-spacing: 0.08em; padding: 6px 8px 2px; border-top: 1px solid rgba(0,255,204,0.08);
     margin-top: 4px;
-}
-.hw-role-assign {
-    padding: 4px 8px;
-    display: flex; flex-direction: column; gap: 4px;
-}
-.hw-role-assign .hw-row { padding: 2px 0; }
-.hw-mode-device-select {
-    flex: 1; min-width: 0; font-size: 0.7rem;
 }
 #applet-hardware-mode {
     display: flex;
@@ -298,6 +328,70 @@ body {
     overflow-y: auto;
     font-size: 0.65rem;
 }
+
+/* ── Onglets Devices / Drivers / Profil (type Ekos) ─────────── */
+
+.hw-tabs {
+    display: flex; gap: 2px; padding: 4px 8px 0;
+    border-bottom: 1px solid rgba(0,255,204,0.12);
+}
+.hw-tab {
+    background: transparent; border: 1px solid transparent; border-bottom: none;
+    color: #777; font-size: 0.6rem; padding: 4px 12px;
+    border-radius: 4px 4px 0 0; cursor: pointer; text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.hw-tab:hover { color: #bbb; background: rgba(255,255,255,0.04); }
+.hw-tab.active {
+    color: var(--accent, #00ffcc);
+    background: rgba(0,255,204,0.08);
+    border-color: rgba(0,255,204,0.25);
+}
+.hw-tab-panel { display: none; flex-direction: column; min-height: 0; }
+.hw-tab-panel.active { display: flex; }
+.hw-tab-panel[hidden] { display: none !important; }
+
+/* ── Tableur devices (une ligne = un device) ────────────────── */
+
+.hw-table-head,
+.hw-device {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr) 52px minmax(120px, 1.4fr) 28px 46px;
+    gap: 4px;
+    align-items: center;
+}
+.hw-table-head {
+    font-size: 0.52rem; color: #666; text-transform: uppercase;
+    letter-spacing: 0.06em; padding: 6px 8px 2px;
+}
+.hw-table-body { max-height: 300px; overflow-y: auto; padding: 4px 8px; display: flex; flex-direction: column; gap: 3px; }
+.hw-device {
+    padding: 4px 6px; background: rgba(255,255,255,0.03); border-radius: 4px;
+}
+.hw-device .hw-icon { font-size: 0.85rem; text-align: center; }
+.hw-device .hw-name {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; color: #ccc; font-size: 0.62rem;
+}
+.hw-device .hw-status { font-size: 0.55rem; text-align: center; }
+.hw-device select, .hw-device input {
+    font-size: 0.58rem; min-width: 0; width: 100%;
+    background: rgba(0,0,0,0.25); color: #ccc;
+    border: 1px solid rgba(255,255,255,0.1); border-radius: 3px;
+    padding: 1px 3px;
+}
+.hw-device .hw-ep-cell {
+    display: flex; gap: 3px; align-items: center; min-width: 0;
+}
+.hw-device .hw-ep-cell input { flex: 1; }
+.hw-device .hw-ep-cell .hw-iface { width: 52px; flex: 0 0 52px; }
+.hw-device .hw-ep-dash { color: #444; font-size: 0.6rem; text-align: center; }
+.hw-device .btn-glass { font-size: 0.55rem; padding: 1px 5px; justify-self: center; }
+.hw-serial-hint {
+    font-size: 0.55rem; color: #666; padding: 2px 8px;
+    min-height: 0.7em;
+}
+.hw-serial-hint:not(:empty) { min-height: 0.75em; }
 
 /* ── Target info (pilotage) ─────────────────────────────────── */
 
@@ -1236,7 +1330,7 @@ body {
     margin-bottom: 0.4rem;
     border: 1px solid rgba(0,255,204,0.08);
     border-radius: 6px;
-    overflow: hidden;
+    overflow: visible;
 }
 .prop-group-header {
     background: var(--accent-faint);
@@ -1261,7 +1355,7 @@ body {
 .prop-label { min-width: 100px; color: #aaa; font-size: 0.7rem; }
 .prop-ctrl { flex: 1; display: flex; align-items: center; gap: 0.25rem; }
 
-.switch-group { display: flex; gap: 2px; }
+.switch-group { display: flex; gap: 2px; flex-wrap: wrap; }
 .switch-btn {
     background: var(--bg-input);
     color: #888;
