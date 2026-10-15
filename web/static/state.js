@@ -27,7 +27,7 @@ const MODES = {
         driverType: 'mount'
     },
     focuser: {
-        applets: ['applet-focuser-control', 'applet-focuser-position', 'applet-capture-preview'],
+        applets: ['applet-focuser-control', 'applet-focuser-position', 'applet-autofocus', 'applet-manualfocus', 'applet-capture-preview'],
         driverType: 'focuser'
     },
     guiding: {

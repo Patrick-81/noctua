@@ -25,9 +25,10 @@
 - Histogrammes `*HISTOGRAM*` droppés côté `Camera.on_blob_data` (2 Ko rendus comme image avant).
 
 ### Tests
-- `tests/test_bahtinov.py` (nouveau, 5 tests, pytest + direct) : offsets synthétiques +8/−6/0 retrouvés à <1px avec direction, clic proche, étoile ronde rejetée (`ok:false`).
+- `tests/test_bahtinov.py` (nouveau, 6 tests, pytest + direct) : offsets synthétiques +8/−6/0 retrouvés à <1px avec direction, clic proche, étoile ronde rejetée (`ok:false`), preview JPEG +8 retrouvé (+8,2).
 - Live mock : `/api/focuser/bahtinov` sur frame sans spikes → `ok:false` propre ; `focus-metric` OK (HFR 3.4, 8 étoiles).
-- Gate : pytest **304** ✓, `test_mount_flow` **53/53** ✓ (×3, 1 flaky isolé comme d'hab), `test_focus_flow` **24** ✓, `test_hub` **39** ✓, `node --check` ✓, live mock (bahtinov `ok:false` propre + focus-metric HFR 3.4) ✓.
+- **HFR/Bahtinov sur previews JPEG** : `decode_image()` (FITS/JPEG/PNG, +`source`) — la loop manuelle ne mesurait rien tant que seul le JPEG preview était arrivé (`parse_fits` échouait en silence). Plancher de détection mixte bruit/dynamique (le JPEG atténue les aigrettes).
+- Gate : pytest **306** ✓, `test_mount_flow` **53/53** ✓ (1 flaky isolé), `test_focus_flow` **24** ✓, `test_hub` **39** ✓, `node --check` ✓.
 
 ## Session 2026-09-23 (suite 2) — Capture unitaire + loop test dans Paramètres guidage (branche `fresh-capture`)
 

@@ -94,9 +94,34 @@ def test_no_spikes_rejected():
     print(f"  plain star → ok={res['ok']} conf={res.get('confidence')}")
 
 
+def test_jpeg_preview_spikes():
+    # Driver-style preview: background-subtracted + stretched to 8 bits
+    # (faint far spikes survive, as in a real CCD_PREVIEW_IMAGE).
+    import io
+    from PIL import Image as _PIL
+    from indigo.devices.focus_metrics import parse_fits
+    data = make_fits_bahtinov(shift=8.0)
+    img, w, h = parse_fits(data)
+    img = img.astype(float)
+    img = np.maximum(img - np.median(img), 0.0)
+    img = np.clip(img / max(img.max(), 1) * 220.0, 0, 255).astype("uint8")
+    buf = io.BytesIO()
+    _PIL.fromarray(img).save(buf, format="JPEG", quality=85)
+    res = analyse_bahtinov(buf.getvalue())
+    assert res["ok"], res
+    assert abs(res["offset_px"] - 8.0) <= 3.0, res
+    assert res["direction"] == "right", res
+    print(f"  JPEG shift=+8 → {res['offset_px']}px {res['direction']}")
+    # also via decode_image path used by the endpoint
+    from indigo.devices.focus_metrics import compute_focus_metrics
+    m = compute_focus_metrics(buf.getvalue())
+    assert m["ok"] and m.get("source") == "jpeg" and m["star_count"] > 0, m
+
+
 if __name__ == "__main__":
     for fn in (test_offset_positive, test_offset_negative, test_focused_zero,
-               test_click_near_star, test_no_spikes_rejected):
+               test_click_near_star, test_no_spikes_rejected,
+               test_jpeg_preview_spikes):
         print(f"{fn.__name__} ...")
         fn()
     print("BAHTINOV OK")

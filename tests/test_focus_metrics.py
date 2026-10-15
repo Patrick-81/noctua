@@ -241,6 +241,24 @@ def test_hfr_weighted_average():
           f"Flux-weighted HFR ({result['hfr']:.2f}) < wide star HFR ({wide_hfr:.2f})")
 
 
+def test_focus_metrics_jpeg_preview():
+    print("\n=== Focus Metrics (JPEG preview) ===")
+    import io
+    from PIL import Image as _PIL
+    # Same star field as FITS, encoded JPEG (driver preview case)
+    yy, xx = np.mgrid[0:200, 0:200]
+    img = np.full((200, 200), 100.0)
+    for cx, cy, peak, sigma in [(50, 50, 5000, 2.5), (150, 80, 3000, 2.0), (100, 150, 8000, 3.5)]:
+        img += peak * np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / (2 * sigma ** 2))
+    buf = io.BytesIO()
+    _PIL.fromarray(np.clip(img, 0, 255).astype("uint8")).save(buf, format="JPEG", quality=90)
+    result = compute_focus_metrics(buf.getvalue())
+    check(result["ok"], "Metrics computed on JPEG preview")
+    check(result.get("source") == "jpeg", f"source=jpeg (got {result.get('source')})")
+    check(result["star_count"] >= 3, f"Found >=3 stars (got {result['star_count']})")
+    check(result["hfr"] > 0, f"Average HFR > 0 (got {result['hfr']})")
+
+
 # ── Run all tests ───────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -250,6 +268,7 @@ if __name__ == "__main__":
     test_fwhm_gaussian()
     test_focus_metrics_integration()
     test_hfr_weighted_average()
+    test_focus_metrics_jpeg_preview()
 
     print(f"\n{'='*50}")
     print(f"Results: {passed} passed, {failed} failed, {passed + failed} total")

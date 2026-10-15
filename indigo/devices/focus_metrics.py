@@ -7,12 +7,42 @@ for evaluating focus quality on astronomical images.
 
 from __future__ import annotations
 
+import io
 import logging
 import re
 
 import numpy as np
+from PIL import Image as _PIL
 
 log = logging.getLogger("indigo.focus_metrics")
+
+
+def decode_image(data: bytes) -> tuple[np.ndarray | None, int, int, str]:
+    """Decode FITS or JPEG/PNG bytes to a 2D float64 array.
+
+    Returns (array, w, h, source) with source in {'fits','jpeg','png'}.
+    JPEG previews (ex. driver CCD_PREVIEW_IMAGE) carry the same stars as
+    the FITS — HFR/Bahtinov must work on them too, otherwise manual
+    focus measures nothing until the full FITS arrives.
+    """
+    if data is None or len(data) < 16:
+        return None, 0, 0, ""
+    if data[:6].startswith(b"SIMPLE"):
+        img, w, h = parse_fits(data)
+        return (img, w, h, "fits") if img is not None else (None, 0, 0, "")
+    if data[:2] == b"\xff\xd8" or data[:8].startswith(b"\x89PNG"):
+        try:
+            with _PIL.open(io.BytesIO(bytes(data))) as im:
+                gray = im.convert("L")
+                w, h = gray.size
+                return (np.asarray(gray, dtype=np.float64), w, h,
+                        "jpeg" if data[:2] == b"\xff\xd8" else "png")
+        except Exception as e:
+            log.warning("image decode error: %s", e)
+            return None, 0, 0, ""
+    # Legacy: raw FITS without SIMPLE header? Try FITS parse anyway.
+    img, w, h = parse_fits(data)
+    return (img, w, h, "fits") if img is not None else (None, 0, 0, "")
 
 
 def parse_fits(data: bytes) -> tuple[np.ndarray | None, int, int]:
@@ -350,11 +380,11 @@ def compute_focus_metrics(
     threshold_sigma: float = 5.0,
     min_distance: int = 5,
 ) -> dict:
-    """Compute focus metrics for a FITS image.
+    """Compute focus metrics for a FITS or JPEG image.
 
-    Returns dict with: hfr, fwhm, star_count, stars, bg_median, bg_std.
+    Returns dict with: hfr, fwhm, star_count, stars, bg_median, bg_std, source.
     """
-    image, w, h = parse_fits(data)
+    image, w, h, source = decode_image(data)
     if image is None:
         return {"ok": False, "error": "Failed to parse image"}
 
@@ -423,4 +453,5 @@ def compute_focus_metrics(
         "height": h,
         "bg_median": round(bg_median, 1),
         "bg_std": round(bg_std, 1),
+        "source": source,
     }

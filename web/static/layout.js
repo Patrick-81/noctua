@@ -51,7 +51,7 @@ class ChecklistPanel {
 
 const PANEL_ICONS = {
     'applet-status': '◈', 'applet-pilotage': '🔭', 'applet-hud': '🗺',
-    'applet-focuser-control': '🔍', 'applet-focuser-position': '📈', 'applet-autofocus': '◎',
+    'applet-focuser-control': '🔍', 'applet-focuser-position': '📈', 'applet-autofocus': '◎', 'applet-manualfocus': '✋',
     'applet-guide-checklist': '☑', 'applet-guide-preview': '👁', 'applet-guiding-graph': '📉',
     'applet-guiding-settings': '⚙', 'applet-calibration': '🎯', 'applet-session': '📋',
     'applet-capture-settings': '📷', 'applet-capture-preview': '🖼', 'applet-sequence': '📋',
@@ -62,7 +62,7 @@ const PANEL_ICONS = {
 const PANEL_TITLES = {
     'applet-status': 'Tableau de bord', 'applet-pilotage': 'Pilotage monture',
     'applet-hud': 'Console de pointage', 'applet-focuser-control': 'Focuser',
-    'applet-focuser-position': 'Focus — HFR', 'applet-autofocus': 'Autofocus V-curve',
+    'applet-focuser-position': 'Focus — HFR', 'applet-autofocus': 'Autofocus V-curve', 'applet-manualfocus': 'Mise au point manuelle',
     'applet-guide-checklist': 'Guidage — Checklist', 'applet-guide-preview': 'Guidage — Aperçu',
     'applet-guiding-graph': 'Guidage — Dérive', 'applet-guiding-settings': 'Guidage — Paramètres',
     'applet-calibration': 'Calibration monture', 'applet-session': 'Session',

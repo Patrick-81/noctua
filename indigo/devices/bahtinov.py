@@ -27,7 +27,7 @@ import math
 
 import numpy as np
 
-from .focus_metrics import find_stars, parse_fits
+from .focus_metrics import decode_image, find_stars
 
 log = logging.getLogger("indigo.bahtinov")
 
@@ -61,9 +61,14 @@ def _pick_peaks(angles: np.ndarray, profile: np.ndarray, count: int = 3,
                 min_sep_deg: float = MIN_PEAK_SEP_DEG) -> list[float]:
     """Pick the `count` strongest local maxima separated by >= min_sep."""
     n = len(profile)
+    pmax = float(np.max(profile))
     med = float(np.median(profile))
     std = float(np.std(profile))
-    floor = med + max(2.0 * std, 1e-9)
+    # Plancher mixte : bruit (1.5σ) + 10% de la dynamique. Les previews
+    # JPEG atténuent les aigrettes (~+35% au-dessus du fond) : un plancher
+    # purement statistique les raterait. La validation stricte (support de
+    # flux + symétrie) élimine les faux pics — la détection reste généreuse.
+    floor = med + max(1.5 * std, 0.1 * (pmax - med), 1e-9)
     is_peak = np.zeros(n, dtype=bool)
     for i in range(n):
         v = profile[i]
@@ -210,13 +215,13 @@ def _cross(px1: float, py1: float, t1: float,
 
 def analyse_bahtinov(data: bytes, x: float | None = None, y: float | None = None,
                      crop_size: int = CROP_SIZE) -> dict:
-    """Measure Bahtinov defocus offset on a FITS frame.
+    """Measure Bahtinov defocus offset on a FITS or JPEG frame.
 
     Returns {ok, x, y, offset_px, direction, angles, center_angle,
-    intersection, confidence, crop_size} — offset signed in pixels,
+    intersection, confidence, ...}. offset signed in pixels,
     direction 'left'/'right' (which side the central spike sits on).
     """
-    image, w, h = parse_fits(data)
+    image, w, h, _source = decode_image(data)
     if image is None:
         return {"ok": False, "error": "Failed to parse image"}
 
