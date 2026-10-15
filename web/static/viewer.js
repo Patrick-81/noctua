@@ -188,28 +188,71 @@ class Viewer {
 
         const remaining = bytes.length - dataStart;
         const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
-        const pixels = new Float64Array(w * h);
-        if (bitpix === 32 || bitpix === -32)
-            for (let i = 0; i < w * h && i * 4 + 4 <= remaining; i++) pixels[i] = view.getFloat32(i * 4, false);
-        else if (bitpix === 16)
-            for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++) pixels[i] = view.getInt16(i * 2, false);
-        else if (bitpix === -16)
-            for (let i = 0; i < w * h && i * 2 + 2 <= remaining; i++) pixels[i] = view.getUint16(i * 2, false);
-        else if (bitpix === 64)
-            for (let i = 0; i < w * h && i * 8 + 8 <= remaining; i++) pixels[i] = view.getFloat64(i * 8, false);
-        else if (bitpix === 8)
-            for (let i = 0; i < w * h && i < remaining; i++) pixels[i] = bytes[dataStart + i];
-        else return null;
+        // RGB (NAXIS=3, ex. RisingCam) : lit les 3 plans + luma pour la
+        // mesure. Avant : seul le 1er plan (R, quasi noir) était affiché !
+        const nplanes = (naxis === 3) ? (parseInt(get('NAXIS3') || '0') || 3) : 1;
+        const planeSize = w * h;
+        const pixels = new Float64Array(planeSize);
+        let pixelsRGB = null;
+        const readPlane = (base, out, n) => {
+            if (bitpix === 32 || bitpix === -32)
+                for (let i = 0; i < n && i * 4 + 4 <= remaining - base; i++) out[i] = view.getFloat32(base + i * 4, false);
+            else if (bitpix === 16)
+                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getInt16(base + i * 2, false);
+            else if (bitpix === -16)
+                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getUint16(base + i * 2, false);
+            else if (bitpix === 64)
+                for (let i = 0; i < n && i * 8 + 8 <= remaining - base; i++) out[i] = view.getFloat64(base + i * 8, false);
+            else if (bitpix === 8)
+                for (let i = 0; i < n && i < remaining - base; i++) out[i] = bytes[dataStart + base + i];
+            else return false;
+            return true;
+        };
+
+        // Plan 0 → pixels (luma/mono, comportement historique). RGB 8 bits :
+        // conserve aussi les 3 plans pour l'affichage couleur (sinon on
+        // n'affichait que le plan R, quasi noir → image « noire »).
+        if (!readPlane(0, pixels, planeSize)) return null;
+        if (nplanes === 3 && bitpix === 8) {
+            const gchan = new Float64Array(planeSize);
+            const bchan = new Float64Array(planeSize);
+            if (readPlane(planeSize, gchan, planeSize) &&
+                readPlane(planeSize * 2, bchan, planeSize)) {
+                const rgb = new Uint8Array(planeSize * 3);
+                for (let i = 0; i < planeSize; i++) {
+                    const r = pixels[i], g = gchan[i], b = bchan[i];
+                    pixels[i] = (r + g + b) / 3;
+                    rgb[i * 3] = Math.max(0, Math.min(255, Math.round(r)));
+                    rgb[i * 3 + 1] = Math.max(0, Math.min(255, Math.round(g)));
+                    rgb[i * 3 + 2] = Math.max(0, Math.min(255, Math.round(b)));
+                }
+                pixelsRGB = rgb;
+            }
+        }
 
         let max = -Infinity;
         for (let i = 0; i < pixels.length; i++) if (pixels[i] > max) max = pixels[i];
         const sorted = Float64Array.from(pixels).sort();
         const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
         const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
-        return { w, h, pixels, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma) };
+        // Mode de stretch : 'asinh' (défaut, aperçu) ou 'linear' (MAP —
+        // dynamique complète). Persisté par l'applet de MAP manuelle.
+        if (this.stretchMode !== 'linear' && this.stretchMode !== 'asinh') this.stretchMode = 'asinh';
+        return { w, h, pixels, pixelsRGB, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma), max };
     }
 
     // ── Rendering ──
+
+    // Stretch linéaire pur (dynamique complète, sans compression) :
+    // noir = fond de ciel, blanc = pixel max. Pour juger un profil
+    // d'étoile en MAP (l'autostretch asinh ment sur les tailles).
+    // Pure (testable sans DOM) — utilisée par _renderStretched.
+    // Retourne 0..255.
+    static linearNorm(raw, sky, white) {
+        const hi = (white > sky + 1) ? white : sky + 1;
+        const v = (raw - sky) / (hi - sky);
+        return Math.max(0, Math.min(255, Math.round(v * 255)));
+    }
 
     render(bytes, fmt) {
         const norm = (fmt || '').toLowerCase();
@@ -235,13 +278,15 @@ class Viewer {
     _renderFITS(bytes) {
         const result = this._parseFITS(bytes);
         if (!result) { this.setStatus(i18n('viewer.bad_fits'), '#ff4444'); return; }
-        const { w, h, pixels, sky, soft, k } = result;
+        const { w, h, pixels, pixelsRGB, sky, soft, k, max } = result;
         this.pixels = pixels;
+        this.pixelsRGB = pixelsRGB || null;
         this.imgW = w;
         this.imgH = h;
         this.sky = sky;
         this.soft = soft;
         this.k = k;
+        this.imgMax = max;
 
         this._showWrap();
         this._renderStretched();
@@ -286,6 +331,7 @@ class Viewer {
             this.imgW = img.width;
             this.imgH = img.height;
             this.pixels = null;
+            this.pixelsRGB = null;
             // legacy globals for overlay/save compatibility
             _histWidth = img.width; _histHeight = img.height;
             const canvas = document.getElementById(this.canvasId);
@@ -324,12 +370,27 @@ class Viewer {
         const tctx = tmp.getContext('2d');
         const imgData = tctx.createImageData(w, h);
         const data = imgData.data;
+        const isLinear = (this.stretchMode === 'linear');
+        const useRGB = !!(this.pixelsRGB && this.pixelsRGB.length === w * h * 3);
+        const asinhK = Math.asinh(this.k);
         for (let y = 0; y < h; y++) {
             for (let x = 0; x < w; x++) {
-                const raw = this.pixels[y * w + x];
-                const v = Math.asinh(Math.max(0, raw - this.sky) / this.soft) / Math.asinh(this.k);
-                const val = Math.max(0, Math.min(255, Math.round(v * 255)));
                 const dst = ((h - 1 - y) * w + x) * 4;
+                if (useRGB) {
+                    const s = (y * w + x) * 3;
+                    for (let c = 0; c < 3; c++) {
+                        const raw = this.pixelsRGB[s + c];
+                        data[dst + c] = isLinear
+                            ? Viewer.linearNorm(raw, this.sky, this.imgMax)
+                            : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - this.sky) / this.soft) / asinhK * 255)));
+                    }
+                    data[dst + 3] = 255;
+                    continue;
+                }
+                const raw = this.pixels[y * w + x];
+                const val = isLinear
+                    ? Viewer.linearNorm(raw, this.sky, this.imgMax)
+                    : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - this.sky) / this.soft) / asinhK * 255)));
                 data[dst] = val; data[dst + 1] = val; data[dst + 2] = val; data[dst + 3] = 255;
             }
         }

@@ -1,0 +1,115 @@
+"""Tests for color thumbnails + noise-floor stretch (WebServer._jpeg_thumb)."""
+import io
+import sys
+from pathlib import Path
+
+import numpy as np
+from PIL import Image as _PIL
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from web.server import WebServer
+
+WS = WebServer.__new__(WebServer)
+H, W = 480, 640
+
+
+def fits_hdr(cards):
+    return "".join(c.ljust(80) for c in cards).ljust(2880)[:2880].encode("ascii")
+
+
+def color_scene():
+    rng = np.random.default_rng(11)
+    yy, xx = np.mgrid[0:H, 0:W]
+    scene = np.zeros((H, W, 3))
+    for x, y, peak, sigma, ch in [(150, 200, 200, 4, 0), (450, 300, 180, 4, 2),
+                                  (300, 100, 120, 3, 1)]:
+        scene[:, :, ch] += peak * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * sigma ** 2))
+    scene += 8 + rng.normal(0, 2, scene.shape)
+    return np.clip(scene, 0, 255).astype(np.uint8)
+
+
+def thumb_img(jpg):
+    assert jpg and jpg[:2] == b"\xff\xd8", "not a JPEG"
+    return np.asarray(_PIL.open(io.BytesIO(jpg)).convert("RGB")).astype(float)
+
+
+def test_rgb_planar_keeps_color():
+    s8 = color_scene()
+    planar = np.stack([s8[:, :, 0], s8[:, :, 1], s8[:, :, 2]], axis=0)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    8",
+                    "NAXIS   =                    3", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "NAXIS3  =                    3", "END"])
+    d = thumb_img(WS._jpeg_thumb(hdr + planar.tobytes(), 320))
+    s = 320 / max(H, W)
+    r = d[int(200 * s) - 3:int(200 * s) + 4, int(150 * s) - 3:int(150 * s) + 4].mean(axis=(0, 1))
+    b = d[int(300 * s) - 3:int(300 * s) + 4, int(450 * s) - 3:int(450 * s) + 4].mean(axis=(0, 1))
+    assert r[0] > r[2] + 20, r
+    assert b[2] > b[0] + 20, b
+
+
+def test_bayer_debayer_color():
+    s8 = color_scene()
+    mos = np.zeros((H, W), np.uint8)
+    mos[0::2, 1::2] = s8[0::2, 1::2, 0]
+    mos[1::2, 0::2] = s8[1::2, 0::2, 2]
+    mos[0::2, 0::2] = s8[0::2, 0::2, 1]
+    mos[1::2, 1::2] = s8[1::2, 1::2, 1]
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    8",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'", "END"])
+    d = thumb_img(WS._jpeg_thumb(hdr + mos.tobytes(), 320))
+    s = 320 / max(H, W)
+    r = d[int(200 * s) - 3:int(200 * s) + 4, int(150 * s) - 3:int(150 * s) + 4].mean(axis=(0, 1))
+    b = d[int(300 * s) - 3:int(300 * s) + 4, int(450 * s) - 3:int(450 * s) + 4].mean(axis=(0, 1))
+    assert r[0] > r[2] + 15, r
+    assert b[2] > b[0] + 15, b
+
+
+def test_bayer_16bit_faint_stars_survive():
+    # Cas réel SV305PRO RAW16 : offset 32768, étoiles faibles ~100-300 ADU.
+    # Un passage uint8 intermédiaire (//257) les écraserait à 0/1.
+    rng = np.random.default_rng(5)
+    yy, xx = np.mgrid[0:H, 0:W]
+    img = np.full((H, W), 48.0)
+    for x, y, peak in [(150, 200, 250.0), (450, 300, 400.0), (300, 100, 150.0)]:
+        img += peak * np.exp(-((xx - x) ** 2 + (yy - y) ** 2) / (2 * 3.0 ** 2))
+    img += rng.normal(0, 6, img.shape)
+    raw16 = np.clip(img, 0, 4095).astype(np.int32) + 32768
+    # Mosaïque GRBG : sous-échantillonne chaque phase (le motif survit).
+    mos = np.zeros((H, W), np.int32)
+    mos[0::2, 1::2] = raw16[0::2, 1::2]
+    mos[1::2, 0::2] = raw16[1::2, 0::2]
+    mos[0::2, 0::2] = raw16[0::2, 0::2]
+    mos[1::2, 1::2] = raw16[1::2, 1::2]
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                   16",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'",
+                    "BZERO   =                32768", "END"])
+    d = thumb_img(WS._jpeg_thumb(hdr + mos.astype(">i2").tobytes(), 320))
+    s = 320 / max(H, W)
+    for x, y in [(150, 200), (450, 300), (300, 100)]:
+        v = d[int(y * s) - 2:int(y * s) + 3, int(x * s) - 2:int(x * s) + 3].mean()
+        assert v > 40, (x, y, v)
+    assert float(np.median(d)) < 30, float(np.median(d))
+
+
+def test_dark_stays_black():
+    dark = np.zeros((H, W), np.uint8)
+    dark[10, 10] = 200
+    dark[400, 500] = 150
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    8",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "END"])
+    d = np.asarray(_PIL.open(io.BytesIO(
+        WS._jpeg_thumb(hdr + dark.tobytes(), 320))).convert("L")).astype(float)
+    assert float(np.median(d)) < 25, float(np.median(d))
+    assert float(d.max()) > 150, float(d.max())
+
+
+if __name__ == "__main__":
+    for fn in (test_rgb_planar_keeps_color, test_bayer_debayer_color,
+               test_bayer_16bit_faint_stars_survive, test_dark_stays_black):
+        print(f"{fn.__name__} ...")
+        fn()
+    print("THUMB OK")

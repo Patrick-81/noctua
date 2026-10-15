@@ -35,9 +35,10 @@ In Sequencer: `Auto-refocus` fires between two exposures if `interval_min` (minu
 
 **✋ Manual focus** panel (Focuser mode, bottom left): turn the knob by hand, Noctua measures.
 
-1. `Exp` (s) → `📏 Measure` (HFR on the last image) or `🔁 Loop` (looping exposures + auto measure each round, `⏹ Stop` to end). Nothing is ever sent to the focuser — works with no focuser attached.
+1. `Exp` (s) → `📏 Measure` (HFR on the last image) or `🔁 Loop` (looping exposures + auto measure each round, `⏹ Stop` to end). The Loop measures **from the JPEG preview** (~4 s/round, no wait for the full FITS): turn the knob between rounds. Nothing is ever sent to the focuser — works with no focuser attached.
 2. Each measurement feeds the **HFR** chart (`Focus — HFR`): drive the curve down to its minimum.
 3. **Bahtinov mask**: `▦ Bahtinov: ON`, then click a bright star in the preview → Noctua detects the 3 spikes (Radon) and shows `Δ ±N px → ⟩⟩/⟨⟨` + segments on the overlay. Turn the knob to bring Δ near 0 (`◎ In focus!` under ±2 px, green chips in the history). `⇄` flips the indicated direction if your mask mounting requires it (remembered). In `Loop`, the same star is re-analysed every exposure.
+4. **Linear view** (`◐ Linear`, remembered): autostretch lies about star profiles; for focusing the full FITS is shown in pure linear (black = sky background, white = max pixel, full dynamics), fetched over HTTP on each new image. Essential to judge focus, saturation or a spike.
 
 {: .note }
 > **Astro-technique — reading the Bahtinov**

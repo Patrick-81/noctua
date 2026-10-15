@@ -28,8 +28,30 @@ CAMERA_PROPERTIES = {
     "CCD_EXPOSURE", "CCD_TEMPERATURE", "CCD_BINNING",
     "CCD_GAIN", "CCD_OFFSET", "CCD_FRAME_TYPE",
     "CCD_PREVIEW", "CCD_UPLOAD", "CCD_IMAGE",
-    "UPLOAD_MODE", "UPLOAD_SETTINGS",
+    "UPLOAD_MODE", "UPLOAD_SETTINGS", "X_PIXEL_FORMAT",
 }
+
+# Upgrade de profondeur 8 → 16 bits (noms normalisés sans espaces/casse).
+# Uniquement RAW8→RAW16 / Y8→Y16 : on ne change jamais la nature
+# (jamais vers/depuis RGB/JPEG) — strict gain de dynamique (capteur
+# 12 bits : le RAW8 écrase les étoiles faibles quantifiées à zéro).
+PIXEL_DEPTH_UPGRADE = {"RAW8": "RAW16", "Y8": "Y16"}
+
+
+def raw16_upgrade(items: list[tuple[str, bool]]) -> str | None:
+    """Item à activer pour passer en 16 bits, ou None si rien à faire.
+
+    items: [(nom, actif)]. Insensible casse/espaces ("RAW 16" == "RAW16").
+    Retourne le nom EXACT de l'item à activer.
+    """
+    norm = {n.upper().replace(" ", ""): n for n, _ in items}
+    active = {n.upper().replace(" ", "") for n, v in items if v}
+    if any("16" in a for a in active):
+        return None  # déjà en 16 bits (ou autre mode 16)
+    for src8, dst16 in PIXEL_DEPTH_UPGRADE.items():
+        if src8 in active and dst16 in norm:
+            return norm[dst16]
+    return None
 
 
 class Camera(BaseDevice):

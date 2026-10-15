@@ -233,9 +233,9 @@ def analyse_bahtinov(data: bytes, x: float | None = None, y: float | None = None
     if x is not None and y is not None:
         near = [s for s in cand
                 if abs(s["x"] - x) <= 80 and abs(s["y"] - y) <= 80]
-        if not near:
-            return {"ok": False, "error": "no star near click"}
-        star = max(near, key=lambda s: s["flux"])
+        # Clic à côté (échelle vignette, preview compressé…) : repli sur
+        # l'étoile la plus brillante plutôt qu'une erreur bloquante.
+        star = max(near or cand, key=lambda s: s["flux"])
     else:
         star = max(cand, key=lambda s: s["flux"])
 

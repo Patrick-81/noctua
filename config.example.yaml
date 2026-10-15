@@ -7,6 +7,11 @@ indigo:
   # (INDIGO v2 : le serveur garde l'image, Noctua la télécharge en HTTP —
   # comme le panneau indigo_server, parfois bien plus rapide côté driver).
   blob_mode: Also
+  # prefer_raw16: true (défaut) bascule les caméras Bayer de RAW 8 vers
+  # RAW 16 bits quand proposé (X_PIXEL_FORMAT) — indispensable à la mise
+  # au point sur étoiles faibles (capteur 12 bits). Mettre false pour garder
+  # le format d'origine du driver.
+  prefer_raw16: true
 web:
   host: 0.0.0.0             # interface d'écoute (0.0.0.0 = LAN local)
   port: 8080

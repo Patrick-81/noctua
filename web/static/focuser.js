@@ -650,6 +650,19 @@ function initFocuserPanel() {
             bhtInvert.style.outline = _bhtInvert ? '2px solid #ffaa00' : '';
         });
     }
+    const linBtn = document.getElementById('mf-stretch');
+    if (linBtn) {
+        linBtn.addEventListener('click', async () => {
+            _linOn = !_linOn;
+            try { localStorage.setItem('noctua.linStretch', _linOn ? '1' : '0'); } catch (e) {}
+            _linApply();
+            if (_linOn) {
+                const ok = await _linFetchFull();
+                if (!ok) addLog('warning', 'focuser', i18n('focuser.no_image'));
+            }
+        });
+    }
+    _linApply();
     // Click-to-analyse on the capture preview (drag guard: not a pan).
     const vp = document.getElementById('cap-preview-viewport');
     if (vp && !vp._bhtClickBound) {
@@ -708,7 +721,9 @@ async function _mfMeasure() {
 
 async function _mfWaitImage(camName, timeoutMs) {
     if (typeof waitExposureDone === 'function') {
-        return waitExposureDone(camName, timeoutMs, () => _mfLoopOn);
+        // Mode early : itère dès le preview JPEG (~4 s), sans attendre le
+        // FITS complet — sinon chaque tour de molette coûte 70 s.
+        return waitExposureDone(camName, timeoutMs, () => _mfLoopOn, { early: true });
     }
     return false;
 }
@@ -849,6 +864,60 @@ function _bhtDrawHist() {
             (a < 2 ? '#44cc44' : (a < 6 ? '#ffcc00' : '#ff6666'));
         el.appendChild(chip);
     });
+}
+
+// ── Vue linéaire (dynamique complète) pour la MAP ──────────────
+// L'autostretch ment sur les profils d'étoiles ; en MAP on veut le
+// linéaire : noir = fond de ciel, blanc = pixel max. Nécessite le FITS
+// complet dans le navigateur (rapatrié en HTTP, pas le JPEG).
+let _linOn = false;
+let _linFetching = false;
+let _linLastAt = 0;
+try { _linOn = localStorage.getItem('noctua.linStretch') === '1'; } catch (e) {}
+
+function _linApply() {
+    if (typeof captureViewer !== 'undefined' && captureViewer) {
+        captureViewer.stretchMode = _linOn ? 'linear' : 'asinh';
+    }
+    const btn = document.getElementById('mf-stretch');
+    if (btn) {
+        btn.textContent = _linOn ? i18n('mf.lin_on') : i18n('mf.lin_off');
+        btn.classList.toggle('success', _linOn);
+    }
+}
+
+async function _linFetchFull() {
+    if (_linFetching) return false;
+    if (typeof captureViewer === 'undefined' || !captureViewer) return false;
+    _linFetching = true;
+    try {
+        const cam = _mfCamera();
+        const q = `?thumb=0${cam ? `&device=${encodeURIComponent(cam)}` : ''}`;
+        const j = await fetch('/api/camera/last_image' + q).then(r => r.json()).catch(() => null);
+        if (!j?.ok || !j.data) return false;
+        const raw = atob(j.data);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        _linApply();  // stretchMode avant render
+        captureViewer.render(bytes, j.format || 'fits');
+        _linLastAt = Date.now();
+        drawFocusOverlay();
+        return true;
+    } catch (e) {
+        console.warn('lin full-FITS fetch failed', e);
+        return false;
+    } finally {
+        _linFetching = false;
+    }
+}
+
+// Suivi auto : chaque nouvelle image en mode focuser avec Lin ON
+// rapatrie le FITS complet pour l'afficher en linéaire.
+function _linFollow() {
+    if (!_linOn) return;
+    if (typeof currentMode !== 'undefined' && currentMode !== 'focuser') return;
+    if (typeof _lastWsImageAt === 'undefined' || _lastWsImageAt <= _linLastAt) return;
+    _linFetchFull();
 }
 
 // ── Hub : consommateur ws:state ───────────────────────────────

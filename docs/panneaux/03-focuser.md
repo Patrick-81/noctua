@@ -34,9 +34,10 @@ En séquenceur : `Refocus auto` se déclenche entre deux poses si `interval_min`
 
 Panneau **✋ Mise au point manuelle** (mode Focuser, en bas à gauche) : tourne la molette à la main, Noctua mesure.
 
-1. `Pose` (s) → `📏 Mesurer` (HFR sur la dernière image) ou `🔁 Loop` (poses en boucle + mesure auto à chaque tour, `⏹ Stop` pour arrêter). Aucun ordre n'est envoyé au focuser — ça marche sans focuser branché.
+1. `Pose` (s) → `📏 Mesurer` (HFR sur la dernière image) ou `🔁 Loop` (poses en boucle + mesure auto à chaque tour, `⏹ Stop` pour arrêter). La Loop mesure **dès le preview JPEG** (~4 s/tour, sans attendre le FITS complet) : tourne la molette entre deux tours. Aucun ordre n'est envoyé au focuser — ça marche sans focuser branché.
 2. Chaque mesure alimente le graphe **HFR** (`Focus — HFR`) : fais descendre la courbe au minimum.
 3. **Masque de Bahtinov** : `▦ Bahtinov : ON` puis clique une étoile brillante de l'aperçu → Noctua détecte les 3 aigrettes (Radon) et affiche `Δ ±N px → ⟩⟩/⟨⟨` + les segments sur l'overlay. Règle la molette pour ramener Δ à ~0 (`◎ Au foyer !` sous ±2 px, pastilles vertes dans l'historique). `⇄` inverse le sens indiqué si ton montage de masque l'exige (mémorisé). En `Loop`, la même étoile est ré-analysée à chaque pose.
+4. **Vue linéaire** (`◐ Linéaire`, mémorisé) : l'autostretch ment sur les profils d'étoiles ; en MAP on affiche le FITS complet en linéaire pur (noir = fond de ciel, blanc = pixel max, dynamique complète), rapatrié en HTTP à chaque nouvelle image. Indispensable pour juger un foyer, une saturation ou une aigrette.
 
 {: .note }
 > **Astro-technique — lecture du Bahtinov**

@@ -1,5 +1,17 @@
 # Checkpoint — Noctua (autoguidage + contrôle INDIGO)
 
+## Session 2026-10-15 (suite) — Définitif pourri : stride Bayer + //257 (branche `master`)
+
+### Diagnostic (preview bon, définitif HS)
+- Layout RGB vérifié dans les sources INDIGO (`indigo_process_image` transpose BIP→planaire) : notre `reshape((3,h,w))` est correct, pas de scramble de ce côté.
+- Deux vrais bugs trouvés par tests de contenu (les tests précédents ne vérifiaient que « c'est un JPEG ») :
+  1. **Stride avant dématriçage** : `mosaïque[::2,::2]` ne garde qu'une phase sur 4 → 3 couleurs sur 4 jetées, couleurs fausses (étoile rouge vue bleue).
+  2. **`// 257` 16→8 bits avant stretch** : pleine dynamique 12 bits écrasée à 0-15 (étoiles faibles à 0/1) avant même l'étirement.
+- Fix : vignette = **binning 2×2 exact des quads** (chaque pixel RGB complet) ; pleine = bilinéaire pleine résolution ; stretch en pleine profondeur (BZERO soustrait, jamais de passage uint8 intermédiaire) ; couleur RGB planaire préservée (transpose = vue, pas de copie).
+- `tests/test_jpeg_thumb.py` : RGB planaire (R=242/B=21), Bayer GRBG uint8, **Bayer 16 bits + BZERO étoiles faibles** (le cas SV305PRO), fond sombre (médiane 0, hot pixels blancs).
+- Gate : pytest **316** ✓, mount_flow 53/53 ✓, hub 39 ✓.
+- Note live : trame RisingCam du moment noire (R≤13/G≤22/B 17px — capuchon ?), pas de démo couleur possible sans signal.
+
 ## Session 2026-10-15 (suite) — Badge preview/définitif + bouton capture qui se réarme (branche `fresh-capture`)
 
 ### Diagnostic terrain (log RisingCam)

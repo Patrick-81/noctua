@@ -46,13 +46,16 @@ class WebServer:
                  profiles_path: Path | None = None, telescope_config: dict | None = None,
                  sequence_config: dict | None = None, exposure_config: dict | None = None,
                  templates_path: Path | None = None, masters_config: dict | None = None,
-                 blob_mode: str = "Also"):
+                 blob_mode: str = "Also", prefer_raw16: bool = True):
         self.registry = registry
         # Mode de livraison BLOB : Also (inline base64, compatible INDI+INDIGO,
         # défaut sûr) ou URL (INDIGO v2, le serveur garde l'image, le client
         # la télécharge en HTTP — comme le panneau indigo_server).
         _bm = (blob_mode or "Also").upper()
         self.blob_mode = _bm if _bm in ("ALSO", "URL") else "ALSO"
+        # RAW 16 bits préféré au RAW 8 bits quand la caméra le propose
+        # (X_PIXEL_FORMAT) — opt-out via indigo.prefer_raw16: false.
+        self.prefer_raw16 = bool(prefer_raw16)
         self.site = site_config or {}
         self.telescope = dict(telescope_config or {})
         self.sequence_cfg = dict(sequence_config or {})
@@ -178,16 +181,28 @@ class WebServer:
         blob_requested: set[str] = set()      # cameras we sent getProperties for
         blob_enabled: set[str] = set()         # cameras we sent <enableBLOB> for (property-level)
         blob_enabled_dev: set[str] = set()     # cameras we sent device-level <enableBLOB> for
-        format_set: set[str] = set()           # cameras we set CCD_IMAGE_FORMAT for
         retry_count: dict[str, int] = {}       # per-camera getProperties retry count
         last_connect: int = -1                # compteur de connexion vu (détecte les reconnects)
+        last_try: dict[tuple, float] = {}     # cooldown d'envoi par (caméra, réglage)
 
         def _reset():
             blob_requested.clear()
             blob_enabled.clear()
             blob_enabled_dev.clear()
-            format_set.clear()
             retry_count.clear()
+            last_try.clear()
+
+        def _due(key: tuple) -> bool:
+            # Les réglages switch sont refusés pendant une acquisition
+            # (Busy → Alert) : ne renvoyer qu'en cas de désaccord, avec
+            # cooldown 30 s, au lieu d'une fois-pour-toutes (qui rate sa
+            # seule chance si la caméra pose à ce moment-là).
+            import time as _t
+            now = _t.monotonic()
+            if now - last_try.get(key, 0.0) < 30.0:
+                return False
+            last_try[key] = now
+            return True
 
         while True:
             await asyncio.sleep(2)
@@ -243,7 +258,8 @@ class WebServer:
 
                 # Step 2c: Forcer l'upload côté client (INDI UPLOAD_MODE) —
                 # certains drivers restent en LOCAL/DIRECT et n'envoient
-                # jamais le BLOB sur le bus.
+                # jamais le BLOB sur le bus. Réémis si désaccord (cooldown),
+                # car refusé pendant une acquisition.
                 try:
                     for _up_name in ("UPLOAD_MODE", "CCD_UPLOAD", "UPLOAD_SETTINGS"):
                         _up_pv = dev.get_prop(_up_name)
@@ -252,7 +268,7 @@ class WebServer:
                         _names = {it.name for it in _up_pv.items}
                         if "UPLOAD_CLIENT" in _names:
                             _on = next((it for it in _up_pv.items if it.name == "UPLOAD_CLIENT"), None)
-                            if _on is not None and not _on.value:
+                            if _on is not None and not _on.value and _due((name, "upload")):
                                 await dev.send_switch(_up_name, [
                                     {"name": it.name, "value": it.name == "UPLOAD_CLIENT"}
                                     for it in _up_pv.items])
@@ -260,7 +276,7 @@ class WebServer:
                             break
                         if "CLIENT" in _names:
                             _on = next((it for it in _up_pv.items if it.name == "CLIENT"), None)
-                            if _on is not None and not _on.value:
+                            if _on is not None and not _on.value and _due((name, "upload")):
                                 await dev.send_switch(_up_name, [
                                     {"name": it.name, "value": it.name == "CLIENT"}
                                     for it in _up_pv.items])
@@ -276,7 +292,8 @@ class WebServer:
                 if preview_pv:
                     try:
                         enabled_on = any(it.name == "ENABLED" and it.value for it in preview_pv.items)
-                        if not enabled_on and any(it.name == "ENABLED" for it in preview_pv.items):
+                        if (not enabled_on and any(it.name == "ENABLED" for it in preview_pv.items)
+                                and _due((name, "preview"))):
                             items = [{"name": it.name, "value": it.name == "ENABLED"} for it in preview_pv.items]
                             await dev.send_switch("CCD_PREVIEW", items)
                             log.info("Enabled CCD_PREVIEW for %s (preview JPEG rapide)", name)
@@ -284,23 +301,40 @@ class WebServer:
                         pass
 
                 # Step 3: Set CCD_IMAGE_FORMAT to FITS (full pour sauvegarde)
-                if name not in format_set:
-                    fmt_pv = dev.get_prop("CCD_IMAGE_FORMAT")
-                    if fmt_pv:
-                        format_set.add(name)
-                        log.info("CCD_IMAGE_FORMAT for %s: %s",
+                fmt_pv = dev.get_prop("CCD_IMAGE_FORMAT")
+                if fmt_pv:
+                    fits_on = any(
+                        item.name == "FITS" and item.value
+                        for item in fmt_pv.items
+                    )
+                    if not fits_on and _due((name, "format")):
+                        log.info("CCD_IMAGE_FORMAT for %s: %s → FITS",
                                  name, [(it.name, bool(it.value)) for it in fmt_pv.items])
-                        fits_on = any(
-                            item.name == "FITS" and item.value
+                        items = [
+                            {"name": item.name,
+                              "value": item.name == "FITS"}
                             for item in fmt_pv.items
-                        )
-                        if not fits_on:
-                            items = [
-                                {"name": item.name,
-                                  "value": item.name == "FITS"}
-                                for item in fmt_pv.items
-                            ]
-                            await dev.send_switch("CCD_IMAGE_FORMAT", items)
+                        ]
+                        await dev.send_switch("CCD_IMAGE_FORMAT", items)
+
+                # Step 3b: RAW16 de préférence (capteur 12 bits : le RAW8
+                # écrase les étoiles faibles). Uniquement RAW8→RAW16 /
+                # Y8→Y16, jamais de changement de nature (cf. camera.py).
+                # Réémis si désaccord (refusé pendant une acquisition).
+                # Désactivable via indigo.prefer_raw16: false.
+                if getattr(self, "prefer_raw16", True):
+                    px_pv = dev.get_prop("X_PIXEL_FORMAT")
+                    if px_pv:
+                        from indigo.devices.camera import raw16_upgrade
+                        target = raw16_upgrade([(it.name, bool(it.value)) for it in px_pv.items])
+                        if target and _due((name, "pixel")):
+                            log.info("X_PIXEL_FORMAT for %s: %s → %s (16 bits)",
+                                     name, [(it.name, bool(it.value)) for it in px_pv.items],
+                                     target)
+                            await dev.send_switch("X_PIXEL_FORMAT", [
+                                {"name": it.name, "value": it.name == target}
+                                for it in px_pv.items
+                            ])
 
     def _on_camera_discovered(self, dev):
         """Wire the image callback as soon as a camera device appears."""
@@ -657,8 +691,130 @@ class WebServer:
             asyncio.ensure_future(self._on_camera_image(device_name, data, fmt, url))
         return _cb
 
+    @staticmethod
+    def _bin_bayer(mono, pattern=""):
+        """Bayer -> RGB demi-résolution EXACTE (moyenne des quads 2x2).
+
+        mono: 2D entier, BZERO déjà soustrait. Ne JAMAIS sous-échantillonner
+        une mosaïque par stride (il ne garderait qu'une phase sur 4 et
+        jetterait 3 couleurs sur 4) : on binne les quads, chaque pixel
+        de sortie porte les 3 couleurs. Utilisé pour la vignette ; la
+        pleine résolution utilise le bilinéaire (_debayer_preview).
+        """
+        import numpy as _np
+        try:
+            pat = (pattern or "").upper()
+            if len(pat) != 4 or any(c not in "RGB" for c in pat):
+                return None
+            h, w = mono.shape
+            h2, w2 = (h // 2) * 2, (w // 2) * 2
+            if h2 < 2 or w2 < 2:
+                return None
+            m = mono[:h2, :w2].astype(_np.float32)
+            pos = {}
+            for i, c in enumerate(pat):
+                pos.setdefault(c, []).append((i // 2, i % 2))
+            chans = {}
+            for c in "RGB":
+                qs = [m[y::2, x::2] for (y, x) in pos.get(c, [])]
+                if not qs:
+                    return None
+                chans[c] = sum(qs) / len(qs)
+            return _np.stack([chans["R"], chans["G"], chans["B"]], axis=2)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _debayer_preview(mono, pattern="", w=0, h=0):
+        """Dématriçage bilinéaire (PIL, C-rapide) d'une mosaïque Bayer.
+
+        mono: tableau 2D entier, BZERO déjà soustrait, pleine dynamique
+        (pas de passage en uint8 avant : //257 écraserait les étoiles
+        faibles). Retourne RGB float32 (h, w, 3) ou None.
+        """
+        import numpy as _np
+        from PIL import Image as _PIL
+        try:
+            pat = (pattern or "").upper()
+            if len(pat) != 4 or any(c not in "RGB" for c in pat):
+                return None
+            if tuple(mono.shape) != (h, w):
+                return None
+            pos = {}
+            for i, c in enumerate(pat):
+                pos.setdefault(c, []).append((i // 2, i % 2))
+            f = mono.astype(_np.float32)
+            chans = {}
+            for c in "RGB":
+                # ascontiguousarray : les quadrants sont des vues stridées
+                # que PIL.fromarray lirait de travers (couleurs permutées).
+                qs = [_np.ascontiguousarray(f[y::2, x::2]) for (y, x) in pos.get(c, [])]
+                if not qs:
+                    return None
+                q = sum(qs) / len(qs)
+                im = _PIL.fromarray(q, mode="F").resize((w, h), _PIL.BILINEAR)
+                chans[c] = _np.asarray(im, dtype=_np.float32)
+            return _np.stack([chans["R"], chans["G"], chans["B"]], axis=2)
+        except Exception:
+            return None
+
+    @staticmethod
+    def _stretch_and_jpeg(arr_u8, max_side: int, is_color: bool):
+        """Étire (plancher bruit) + encode JPEG.
+
+        arr_u8: tableau (H, W) gris ou (H, W, 3) couleur (uint8 de
+        préférence, autre dtype numérique toléré). Plancher = médiane +
+        3σ (MAD) : un fond sombre reste noir au lieu d'amplifier le bruit
+        de lecture. Mêmes bornes sur les 3 canaux (balance préservée).
+        """
+        import io as _io
+        import numpy as _np
+        from PIL import Image as _PIL
+        try:
+            work = _np.ascontiguousarray(arr_u8)
+            if is_color:
+                luma = work.mean(axis=2).astype(_np.float32)
+            else:
+                luma = work.astype(_np.float32)
+            flat = luma.ravel()
+            step = max(1, flat.size // 200_000)
+            sample = flat[::step]
+            med = float(_np.median(sample))
+            mad = float(_np.median(_np.abs(sample - med)))
+            sigma = 1.4826 * mad
+            lo = med + 3.0 * sigma
+            hi = float(_np.percentile(sample, 99.5))
+            if not hi > lo:
+                hi = lo + 1.0
+            if is_color:
+                out = _np.empty(work.shape, dtype=_np.uint8)
+                scale = 255.0 / (hi - lo)
+                for c in range(3):
+                    ch = _np.clip((work[:, :, c].astype(_np.float32) - lo) * scale, 0, 255)
+                    ch = _np.arcsinh(_np.clip(ch / 255.0, 0, 1) * 10) / _np.arcsinh(10)
+                    out[:, :, c] = (ch * 255).astype(_np.uint8)
+                img = _PIL.fromarray(out, mode="RGB")
+            else:
+                arr_f = _np.clip((work.astype(_np.float32) - lo) / (hi - lo), 0, 1)
+                arr_f = _np.arcsinh(arr_f * 10) / _np.arcsinh(10)
+                img = _PIL.fromarray((arr_f * 255).astype(_np.uint8), mode="L")
+            img.thumbnail((max_side, max_side), _PIL.BILINEAR)
+            out = _io.BytesIO()
+            img.save(out, format="JPEG", quality=80, optimize=True)
+            return out.getvalue()
+        except Exception:
+            return None
+
     def _jpeg_thumb(self, data: bytes, max_side: int = 1024) -> bytes | None:
-        """FITS/RGB → JPEG léger (échantillonné, sans pic mémoire)."""
+        """FITS/RGB/Bayer → JPEG couleur léger.
+
+        - RGB planaire/entrelacé → JPEG couleur (fini le tout-gris) ;
+        - Bayer (BAYERPAT) → dématriçage aperçu ;
+        - mono → gris.
+        Étirement robuste au bruit : plancher = médiane + 3σ (MAD), pas le
+        percentile 2 (qui amplifiait le bruit de lecture en grain visible
+        sur les fonds sombres).
+        """
         try:
             import io as _io
             import numpy as _np
@@ -671,6 +827,7 @@ class WebServer:
                 return out.getvalue()
             if len(data) < 2880 or not data[:6].startswith(b"SIMPLE"):
                 return None
+            import re as _re
             hdr = data[:2880].decode("ascii", errors="ignore")
             def _geti(k):
                 import re as _re
@@ -682,6 +839,10 @@ class WebServer:
             w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS"); bitpix = _geti("BITPIX")
             if not w or not h or w * h > 100_000_000:
                 return None
+            m_bayer = _re.search(r"BAYERPAT\s*=\s*'?\s*([A-Za-z]+)", hdr)
+            bayerpat = m_bayer.group(1).upper() if m_bayer else ""
+            m_bzero = _re.search(r"BZERO\s*=\s*([-\d\.]+)", hdr)
+            bzero = float(m_bzero.group(1)) if m_bzero else 0.0
             bpp = 2 if bitpix == 16 else 1 if bitpix == 8 else 4 if bitpix == -32 else 2
             naxis3 = _geti("NAXIS3")
             planes = naxis3 if naxis == 3 and naxis3 else 1
@@ -697,46 +858,49 @@ class WebServer:
                 arr = _np.frombuffer(raw, dtype=">f4")
             else:
                 arr = _np.frombuffer(raw, dtype=">i2")
-            # Sous-échantillonne AVANT la moyenne des plans RGB : en vignette
-            # (scale=6) on traite 36× moins d'éléments. Le median/percentile
-            # reste représentatif pour l'étirement.
+            # Échelle de travail : sous-échantillonne AVANT tout float
+            # (vignette 26 Mpx → ~0.7 Mpx : 36× moins de RAM/CPU).
             scale = max(1, int(max(w, h) / max_side))
+            color = None  # float32 ou uint8 (H, W, 3) si couleur résolue
             if planes == 3:
+                # RGB INDIGO = planaire (transposé par le driver), repli
+                # entrelacé toléré. Profondeur native conservée (pas de
+                # //257 : l'étirement travaille en float).
                 try:
                     if arr.size == planes * h * w:
-                        rgb = arr.reshape((planes, h, w))
-                        arr = (rgb[:, ::scale, ::scale].mean(axis=0) if scale > 1
-                               else rgb.mean(axis=0))
+                        rgb = arr.reshape((planes, h, w)).transpose(1, 2, 0)
                     else:
                         rgb = arr.reshape((h, w, planes))
-                        arr = (rgb[::scale, ::scale, :].mean(axis=2) if scale > 1
-                               else rgb.mean(axis=2))
+                    if rgb.shape == (h, w, 3):
+                        color = _np.ascontiguousarray(rgb[::scale, ::scale] if scale > 1 else rgb)
+                    else:
+                        color = None
                 except Exception:
-                    return None
-            else:
+                    color = None
+            elif bayerpat:
+                # Mosaïque Bayer → couleur SANS passage uint8 (la dynamique
+                # survit). Vignette : binning 2x2 exact des quads ; pleine :
+                # bilinéaire pleine résolution.
                 try:
-                    arr = arr.reshape((h, w))
+                    m = arr.reshape((h, w))
+                    if int(bzero):
+                        m = m.astype(_np.int32) - int(bzero)
+                    if scale > 1:
+                        color = self._bin_bayer(m, bayerpat)
+                    else:
+                        color = self._debayer_preview(m, bayerpat, w, h)
                 except Exception:
-                    return None
-                if scale > 1:
-                    arr = arr[::scale, ::scale]
-            flat = arr.ravel()
-            step = max(1, flat.size // 200_000)
-            sample = flat[::step].astype(_np.float32)
-            med = float(_np.median(sample))
-            arr_f = _np.clip(arr.astype(_np.float32) - med, 0, None)
-            lo, hi = _np.percentile(sample - med, [2, 99.5])
-            lo = max(0, lo); hi = max(1, hi)
-            if hi > lo:
-                arr_f = (arr_f - lo) / (hi - lo)
-            arr_f = _np.clip(arr_f, 0, 1)
-            arr_f = _np.arcsinh(arr_f * 10) / _np.arcsinh(10)
-            arr_u8 = (arr_f * 255).astype(_np.uint8)
-            img = _PIL.fromarray(arr_u8, mode="L")
-            img.thumbnail((max_side, max_side), _PIL.BILINEAR)
-            out = _io.BytesIO()
-            img.save(out, format="JPEG", quality=80, optimize=True)
-            return out.getvalue()
+                    color = None
+            if color is not None:
+                return self._stretch_and_jpeg(color, max_side, True)
+            # Mono (ou repli) : pipeline historique, plancher anti-bruit.
+            try:
+                arr = arr.reshape((h, w))
+            except Exception:
+                return None
+            if scale > 1:
+                arr = arr[::scale, ::scale]
+            return self._stretch_and_jpeg(arr, max_side, False)
         except Exception as e:  # noqa: BLE001
             log.warning("thumb failed (fallback full): %s", e)
             return None

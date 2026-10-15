@@ -304,6 +304,12 @@ class DeviceRegistry:
                         log.info("[%s] Disconnected", device_name)
 
             dev.on_set(tag, pv)
+            # Tout vecteur en Alert = ordre refusé/échec driver (gain pendant
+            # une pose, format rejeté…). Warning explicite : sans ça, un
+            # réglage silencieusement ignoré est indiagnosticable côté UI.
+            if pv.state == "Alert" and pv.name.upper() != "CONNECTION":
+                log.warning("[%s] %s Alert%s", device_name, pv.name,
+                            f": {pv.message}" if pv.message else "")
             self._emit_state()
 
     def _on_new(self, tag: str, pv: PropertyVector) -> None:

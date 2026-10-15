@@ -242,6 +242,7 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
             _lastWsImageAt = Date.now();
             console.log(`handleCameraImage: affichée ${f} ${variant||''} ${stage||''} ${Math.round(b64.length*0.75/1024)}Ko`);
             if (captureViewer) captureViewer.render(bytes, f);
+            if (typeof _linFollow === 'function') _linFollow();
         } catch (e) {
             console.warn('handleCameraImage render failed', e);
             if (typeof addLog === 'function') addLog('warning', 'capture', `Affichage image impossible: ${e.message}`);

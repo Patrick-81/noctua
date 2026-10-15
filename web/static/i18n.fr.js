@@ -682,6 +682,8 @@
             'mf.bht_right': '⟩⟩ droite',
             'mf.bht_left': '⟨⟨ gauche',
             'mf.bht_focused': '◎ Au foyer !',
+            'mf.lin_off': '◐ Linéaire : OFF',
+            'mf.lin_on': '◐ Linéaire : ON',
             'stk.accumulating': '⏳ Accumulation en cours…',
             'stk.done': '✓ Terminé',
             'stk.quick_capture': '⏳ Capture rapide en cours…',

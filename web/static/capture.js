@@ -366,14 +366,17 @@ async function setCaptureFilter(slot) {
     else _captureFilter = slot;
 }
 
-function waitExposureDone(camName, timeout, aliveFn) {
+function waitExposureDone(camName, timeout, aliveFn, opts = {}) {
     // Attente robuste de fin de pose + image fraîche :
     // - démarrage détecté via `exposing` (pas exposure_time : certains
     //   drivers signalent Busy sans durée, t=0.0s pour toujours),
     // - fin = idle ET image de CETTE caméra arrivée après le démarrage
     //   (ignore les retardataires de la pose précédente),
     // - caméra disparue (déconnexion) → échec rapide, pas de timeout plein.
+    // - opts.early : résout dès la PREMIÈRE image fraîche (preview JPEG),
+    //   sans attendre idle/FITS — itérations rapides de MAP manuelle.
     const isAlive = aliveFn || (() => _captureRunning);
+    const early = !!opts.early;
     return new Promise(resolve => {
         const start = Date.now();
         let started = false;
@@ -390,16 +393,17 @@ function waitExposureDone(camName, timeout, aliveFn) {
             }
             missing = 0;
             const exposing = !!cam.exposing || (cam.exposure_time || 0) > 0;
+            const fresh = (typeof _lastWsImageByDev !== 'undefined') &&
+                (_lastWsImageByDev[camName] || 0) > ignoreBefore;
             if (exposing) {
                 if (!started) {
                     started = true;
                     ignoreBefore = (typeof _lastWsImageByDev !== 'undefined' && _lastWsImageByDev[camName]) || ignoreBefore;
                 }
+                if (early && fresh) { resolve(true); return; }
                 setTimeout(check, 200);
                 return;
             }
-            const fresh = (typeof _lastWsImageByDev !== 'undefined') &&
-                (_lastWsImageByDev[camName] || 0) > ignoreBefore;
             if (fresh) { resolve(true); return; }
             if (elapsed > timeout) { resolve(started); return; }
             setTimeout(check, 300);

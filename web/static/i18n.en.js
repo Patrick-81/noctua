@@ -660,6 +660,8 @@
             'mf.bht_right': '⟩⟩ right',
             'mf.bht_left': '⟨⟨ left',
             'mf.bht_focused': '◎ In focus!',
+            'mf.lin_off': '◐ Linear: OFF',
+            'mf.lin_on': '◐ Linear: ON',
             'stk.accumulating': '⏳ Accumulating…',
             'stk.done': '✓ Done',
             'stk.quick_capture': '⏳ Quick capture in progress…',

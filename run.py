@@ -114,7 +114,8 @@ def main():
                     telescope_config=telescope_cfg, sequence_config=sequence_cfg,
                     exposure_config=exposure_cfg,
                     masters_config=config.get("masters", {}),
-                    blob_mode=str(indigo_cfg.get("blob_mode", "Also")))
+                    blob_mode=str(indigo_cfg.get("blob_mode", "Also")),
+                    prefer_raw16=bool(indigo_cfg.get("prefer_raw16", True)))
 
     # Run everything
     async def run_all():
