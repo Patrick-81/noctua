@@ -10,33 +10,33 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#020205">
-    <link rel="stylesheet" href="/style.css?v=26">
+    <link rel="stylesheet" href="/style.css?v=20261016o">
     <script src="/lib/d3.min.js"></script>
-    <script src="/i18n.fr.js?v=20261015a"></script>
-    <script src="/i18n.en.js?v=20261015a"></script>
+    <script src="/i18n.fr.js?v=20261016o"></script>
+    <script src="/i18n.en.js?v=20261016o"></script>
     <script src="/i18n.js"></script>
     <script src="/theme.js"></script>
     <script src="/utils.js"></script>
-    <script src="/state.js?v=20261015a"></script>
+    <script src="/state.js?v=20261016o"></script>
     <script src="/hub.js"></script>
-    <script src="/layout.js?v=20261015a"></script>
-    <script src="/viewer.js?v=20261015a"></script>
-    <script src="/api.js"></script>
+    <script src="/layout.js?v=20261016o"></script>
+    <script src="/viewer.js?v=20261016o"></script>
+    <script src="/api.js?v=20261016o"></script>
     <script src="/mount.js?v=20260919b"></script>
     <script src="/controls.js?v=20260918i"></script>
-    <script src="/ws.js?v=20261015a"></script>
+    <script src="/ws.js?v=20261016o"></script>
     <script src="/objects.js?v=20260918c"></script>
-    <script src="/hardware.js?v=20260923b"></script>
-    <script src="/capture.js?v=20261015a"></script>
+    <script src="/hardware.js?v=20261016o"></script>
+    <script src="/capture.js?v=20261016o"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
     <script src="/stacking.js"></script>
-    <script src="/preview.js?v=20261015a"></script>
+    <script src="/preview.js?v=20261016o"></script>
     <script src="/solver.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
-    <script src="/focuser.js?v=20261015a"></script>
-    <script src="/guide.js?v=20260923c"></script>
+    <script src="/focuser.js?v=20261016o"></script>
+    <script src="/guide.js?v=20261016o"></script>
     <script src="/dashboard.js"></script>
     <script src="/calibration.js"></script>
     <script src="/session.js"></script>
@@ -229,6 +229,10 @@
         <!-- APPLET: Propriétés du device (panneau séparé, mode Matériel) -->
         <div id="applet-hwprops" class="glass-panel applet mode-specific" data-modes="hardware" style="display:none; top:70px; left:592px; width:520px; max-height:calc(100vh - 120px);">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;"><span data-i18n="hw.props">PROPRIÉTÉS DU DEVICE</span> — <span id="hwprops-title-name"></span></span><button class="applet-close" title="Fermer">✕</button><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div style="display:flex; gap:6px; padding:4px 8px;">
+                <button id="hwprops-save" class="set-btn" data-i18n="hw.save_settings">💾 Sauver réglages</button>
+                <button id="hwprops-apply" class="set-btn" data-i18n="hw.apply_settings">↺ Réappliquer</button>
+            </div>
             <div id="hw-device-props" class="device-panel hw-mode-props"></div>
         </div>
 

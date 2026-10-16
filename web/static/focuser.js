@@ -605,6 +605,7 @@ function initFocuserPanel() {
         _refreshCameraList();
         _focCameraSelect.addEventListener('change', () => {
             _selectedFocCamera = _focCameraSelect.value;
+            if (typeof notifyCameraChanged === 'function') notifyCameraChanged();
             addLog('info', 'focuser', i18nFmt('log.focuser.camera', { name: _selectedFocCamera || '—' }));
         });
     }
@@ -755,7 +756,8 @@ async function _mfLoopToggle() {
 function _mfStop(silent = false) {
     _mfLoopOn = false;
     const cam = _mfCamera();
-    if (cam) apiPost('/api/camera/abort', { device: cam }).catch(() => {});
+    // apiPost ne retourne pas de promesse (erreurs gérées en interne).
+    if (cam) apiPost('/api/camera/abort', { device: cam });
     _mfLoopUIToggle(false);
     if (!silent) addLog('warning', 'focuser', i18n('mf.stopped'));
 }
@@ -886,12 +888,16 @@ function _linApply() {
     }
 }
 
-async function _linFetchFull() {
+async function _linFetchFull(devName) {
     if (_linFetching) return false;
     if (typeof captureViewer === 'undefined' || !captureViewer) return false;
     _linFetching = true;
     try {
-        const cam = _mfCamera();
+        // FITS de la caméra qui vient d'imager (passée par preview.js),
+        // sinon la caméra MAP. Un mauvais device = FITS périmé d'une autre caméra.
+        const cam = devName || _mfCamera();
+        // Pleine dynamique : FITS brut (thumb=0). Le viewer dématrice
+        // (BAYERPAT → bilinéaire) sans passer par le JPEG 8 bits.
         const q = `?thumb=0${cam ? `&device=${encodeURIComponent(cam)}` : ''}`;
         const j = await fetch('/api/camera/last_image' + q).then(r => r.json()).catch(() => null);
         if (!j?.ok || !j.data) return false;

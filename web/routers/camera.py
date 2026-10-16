@@ -207,6 +207,10 @@ def register(app, server: "WebServer") -> None:
         import re as _re
         import numpy as _np
         img = server._camera_images.get(device) if device else None
+        if device and (not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE")):
+            # Caméra nommée explicitement mais sans image : PAS de repli
+            # global (afficherait les niveaux d'une autre caméra).
+            return {"ok": False, "error": f"no image for camera {device} yet"}
         if not img:
             img = getattr(server, "_last_image_data", b"")
         if not img or len(img) < 2880 or not img[:6].startswith(b"SIMPLE"):
@@ -220,6 +224,15 @@ def register(app, server: "WebServer") -> None:
                     except: return 0
                 w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS"); bitpix = _geti("BITPIX")
                 if not w or not h: return None
+                # Échelle physique (cf. viewer.js) : brut*BSCALE + BZERO.
+                # Sans ça, l'unsigned (BZERO=32768) au-delà de 32767 sort
+                # négatif et stats/histo/ADU sont faux sur les images claires.
+                def _getf(k, default):
+                    m = _re.search(rf"{k}\s*=\s*([-\d\.eE]+)", hdr)
+                    try: return float(m.group(1)) if m else default
+                    except: return default
+                bzero = _getf("BZERO", 0.0); bscale = _getf("BSCALE", 1.0)
+                if not (bscale > 0 or bscale < 0): bscale = 1.0
                 bpp = 2 if bitpix==16 else 1 if bitpix==8 else 4 if bitpix==-32 else 2
                 naxis3 = _geti("NAXIS3"); planes = naxis3 if naxis==3 and naxis3 else 1
                 hdr_end = img.find(b"END" + b" " * 77)
@@ -230,6 +243,8 @@ def register(app, server: "WebServer") -> None:
                 if bitpix==8: arr = _np.frombuffer(raw, dtype=_np.uint8)
                 elif bitpix==-32: arr = _np.frombuffer(raw, dtype=">f4")
                 else: arr = _np.frombuffer(raw, dtype=">i2")
+                if bzero != 0.0 or bscale != 1.0:
+                    arr = arr.astype(_np.float32) * bscale + bzero
                 if planes==3:
                     try:
                         arr = arr.reshape((planes, h, w)) if arr.size==planes*h*w else arr.reshape((h,w,planes))
@@ -268,6 +283,9 @@ def register(app, server: "WebServer") -> None:
             cand = server._camera_images.get(device)
             if cand and len(cand) >= 6 and cand[:6].startswith(b"SIMPLE"):
                 img = cand
+            else:
+                # Caméra nommée sans FITS : pas de repli sur une autre caméra.
+                return {"ok": False, "error": f"no FITS for camera {device}"}
         if not img:
             # _last_image_data est FITS si on a bien séparé JPEG/FITS côté server
             cand = getattr(server, "_last_image_data", b"")
@@ -291,6 +309,13 @@ def register(app, server: "WebServer") -> None:
                     except: return 0
                 w = _geti("NAXIS1"); h = _geti("NAXIS2"); bitpix = _geti("BITPIX")
                 if not w or not h: return None
+                # Échelle physique (cf. stats ci-dessus) : brut*BSCALE + BZERO.
+                def _getf(k, default):
+                    m = _re.search(rf"{k}\s*=\s*([-\d\.eE]+)", hdr)
+                    try: return float(m.group(1)) if m else default
+                    except: return default
+                bzero = _getf("BZERO", 0.0); bscale = _getf("BSCALE", 1.0)
+                if not (bscale > 0 or bscale < 0): bscale = 1.0
                 bpp = 2 if bitpix==16 else 1 if bitpix==8 else 4 if bitpix==-32 else 2
                 hdr_end = img.find(b"END" + b" " * 77)
                 off = ((hdr_end // 2880) + 1) * 2880 if hdr_end!=-1 else 2880
@@ -350,7 +375,8 @@ def register(app, server: "WebServer") -> None:
                             arr = arr.mean(axis=0) if arr.shape[0]==3 else arr.mean(axis=2) if arr.shape[2]==3 else arr[0]
                         except: return None
                         adu = float(arr[ay, ax])
-                return {"adu": adu, "w":w,"h":h, "x":ax, "y":int(y)}
+                return {"adu": (adu * bscale + bzero) if adu is not None else None,
+                        "w": w, "h": h, "x": ax, "y": int(y)}
             except Exception as e:
                 return {"error": str(e)}
         res = await _aio.to_thread(_get)

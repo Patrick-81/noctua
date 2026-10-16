@@ -17,6 +17,11 @@ log = logging.getLogger("indigo.profiles")
 PROFILE_FIELDS = ["mount", "camera", "guide_camera", "focuser", "filter_wheel", "optics",
                   "mount_interface", "mount_endpoint"]
 
+# Réglages par device persistés : {device: {PROP: {item: value}}}
+# Ex. {"SVBONY SV305PRO": {"CCD_MODE": {"RAW 16 1x1": True}, "CCD_GAIN": {"GAIN": 150}}}
+# Appliqués (best-effort) à la connexion du device, avant toute acquisition.
+DEVICE_SETTINGS_FIELD = "device_settings"
+
 ROLE_LABELS = {
     "mount": "Monture",
     "camera": "Caméra",
@@ -24,6 +29,29 @@ ROLE_LABELS = {
     "focuser": "Focuser",
     "filter_wheel": "Roue à filtres",
 }
+
+
+def _clean_device_settings(ds) -> dict:
+    """Nettoie {device: {PROP: {item: value}}} : que des str non vides et
+    des valeurs JSON (bool/num/str). Entrées vides écartées."""
+    if not isinstance(ds, dict):
+        return {}
+    clean: dict = {}
+    for dev, props in ds.items():
+        if not isinstance(dev, str) or not dev.strip() or not isinstance(props, dict):
+            continue
+        cprops: dict = {}
+        for prop, items in props.items():
+            if not isinstance(prop, str) or not prop.strip() or not isinstance(items, dict):
+                continue
+            citems = {k: v for k, v in items.items()
+                      if isinstance(k, str) and k.strip()
+                      and isinstance(v, (bool, int, float, str))}
+            if citems:
+                cprops[prop.strip()] = citems
+        if cprops:
+            clean[dev.strip()] = cprops
+    return clean
 
 
 class ProfileStore:
@@ -82,6 +110,10 @@ class ProfileStore:
                 clean[field] = val.strip()
             else:
                 clean[field] = None
+        # Réglages par device : conservés tels quels (dicts nettoyés aux
+        # str/num/bool, props et items non vides uniquement).
+        ds = profile.get(DEVICE_SETTINGS_FIELD)
+        clean[DEVICE_SETTINGS_FIELD] = _clean_device_settings(ds)
         profiles = self.data.setdefault("profiles", [])
         for i, p in enumerate(profiles):
             if p.get("name") == name:
@@ -93,6 +125,22 @@ class ProfileStore:
             self.data["active"] = name
         self.save()
         return {"ok": True, "profile": clean, "active": self.data["active"]}
+
+    def set_device_settings(self, profile_name: str, device: str, settings: dict) -> dict:
+        """Mémorise les réglages d'un device dans un profil (merge par device)."""
+        for p in self.data.get("profiles", []):
+            if p.get("name") == profile_name:
+                ds = p.setdefault(DEVICE_SETTINGS_FIELD, {})
+                if not isinstance(ds, dict):
+                    ds = p[DEVICE_SETTINGS_FIELD] = {}
+                cleaned = _clean_device_settings({device: settings}).get(device) if settings else None
+                if cleaned:
+                    ds[device] = cleaned
+                else:
+                    ds.pop(device, None)
+                self.save()
+                return {"ok": True, "device_settings": ds}
+        return {"error": f"profile '{profile_name}' not found"}
 
     def delete(self, name: str) -> dict:
         profiles = self.data.get("profiles", [])

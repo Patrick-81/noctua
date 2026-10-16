@@ -67,7 +67,7 @@ function connectWS() {
         } else if (msg.type === 'log') {
             Hub.emit('ws:log', { level: msg.level, logger: msg.logger, msg: msg.msg }, { source: 'ws' });
         } else if (msg.type === 'image') {
-            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data, variant: msg.variant, stage: msg.stage || 'final' }, { source: 'ws' });
+            Hub.emit('ws:image', { device: msg.device, format: msg.format, data: msg.data, variant: msg.variant, stage: msg.stage || 'final', exposure: msg.exposure || 0, xfer: (msg.xfer != null ? msg.xfer : null) }, { source: 'ws' });
         } else if (msg.type === 'solver_result') {
             Hub.emit('solver:result', { result: msg.result }, { source: 'solver' });
         } else if (msg.type === 'stacking') {
@@ -116,7 +116,7 @@ function selectDevice(name) {
     if (dev && dev.type === 'mount') {
         renderMountPanel();
     } else {
-        renderProps(name);
+        renderProps(name, true);
     }
 }
 
@@ -140,7 +140,7 @@ function buildPropsHTML(deviceName) {
     return html;
 }
 
-function renderProps(deviceName) {
+function renderProps(deviceName, force) {
     const container = document.getElementById('applet-props');
     if (!container) return;
     if (!devices[deviceName] || !devices[deviceName].props || devices[deviceName].props.length === 0) {
@@ -148,6 +148,16 @@ function renderProps(deviceName) {
         return;
     }
     container.style.display = '';
+    // Même garde que le panneau matériel : un rebuild entre mousedown et
+    // click remplace le bouton sous le curseur et tue le clic. On gèle tant
+    // que la souris est dessus ou qu'une saisie est en cours (sauf forçage
+    // explicite = sélection d'un autre device).
+    if (!force) try {
+        const ae = document.activeElement;
+        if (ae && container.contains(ae) && ae.tagName === 'INPUT'
+            && (ae.type === 'text' || ae.type === 'number')) return;
+        if (container.matches(':hover')) return;
+    } catch (e) { /* garde CSS/DOM KO : on reconstruit */ }
 
     const dragHandle = container.querySelector('.applet-drag');
     if (dragHandle) dragHandle.remove();
@@ -224,7 +234,22 @@ function renderPropRow(deviceName, p) {
 }
 
 function renderSwitch(deviceName, p) {
-    if (p.rule === 'AnyOfMany') {
+    // CONNECTION : vrai interrupteur Connecter/Déconnecter (le vecteur
+    // n'a souvent qu'un seul item actif — cliquer dessus renvoyait On en
+    // boucle, sans aucun moyen d'éteindre depuis ce panneau).
+    if (String(p.name || '').toUpperCase() === 'CONNECTION') {
+        const item = p.items.find(i => i.name === 'CONNECT')
+            || p.items.find(i => i.name === 'CONNECTED')
+            || p.items[0];
+        if (!item) return '';
+        const on = !!item.value;
+        const disabled = p.perm === 'ro' ? 'disabled' : '';
+        const escD = escapeAttr(deviceName), escP = escapeAttr(p.name), escI = escapeAttr(item.name);
+        return '<div class="switch-group">' +
+            `<button class="switch-btn success${on ? ' active' : ''}" ${disabled} onclick="setSwitchItem('${escD}','${escP}','${escI}',true)">${escapeHTML(i18n('hw.conn'))}</button>` +
+            `<button class="switch-btn danger${!on ? ' active' : ''}" ${disabled} onclick="setSwitchItem('${escD}','${escP}','${escI}',false)">${escapeHTML(i18n('hw.dec'))}</button>` +
+            '</div>';
+    }    if (p.rule === 'AnyOfMany') {
         return p.items.map(item => {
             const checked = item.value ? 'checked' : '';
             const disabled = p.perm === 'ro' ? 'disabled' : '';

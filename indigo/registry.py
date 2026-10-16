@@ -90,6 +90,28 @@ def categorize_driver(name: str, label: str = "") -> str:
     return "other"
 
 
+def connection_vector(known_items: list, connect: bool) -> list:
+    """Vecteur CONNECTION complet pour (dé)connecter un device.
+
+    known_items: [(name, ...)] du def connu (noms seuls suffisent).
+    Sémantique INDIGO : CONNECTED/CONNECT=connect, tout item
+    DISCONNECT*=not connect (déconnecter = DISCONNECTED On — un vecteur
+    tout-Off est ignoré par le driver). Autres items : Off.
+    Pure (testable sans INDIGO).
+    """
+    full = []
+    for entry in known_items:
+        name = entry[0] if isinstance(entry, (list, tuple)) else entry
+        up = str(name).upper()
+        if up.startswith("DISCONNECT"):
+            full.append({"name": name, "value": not connect})
+        elif up in ("CONNECT", "CONNECTED"):
+            full.append({"name": name, "value": connect})
+        else:
+            full.append({"name": name, "value": False})
+    return full
+
+
 class DeviceRegistry:
     """Discovers and manages INDIGO devices."""
 
@@ -99,6 +121,7 @@ class DeviceRegistry:
         self._drivers: list[dict] = []  # DRIVERS switch items
         self._auto_connecting: set[str] = set()  # devices we sent CONNECT to
         self._connect_item_names: dict[str, str] = {}  # device → item name for CONNECT
+        self._disconnecting: set[str] = set()  # manual disconnects awaiting driver confirm
 
         # Register callbacks on the client
         client.on_property_def = self._on_def
@@ -199,12 +222,14 @@ class DeviceRegistry:
             self._drivers.clear()
             self._auto_connecting.clear()
             self._connect_item_names.clear()
+            self._disconnecting.clear()
             log.debug("All devices cleared (disconnected)")
             self._emit_state()
         else:
             self._drivers.clear()
             self._auto_connecting.clear()
             self._connect_item_names.clear()
+            self._disconnecting.clear()
 
     def _on_def(self, tag: str, pv: PropertyVector) -> None:
         """Handle a def*Vector — discover or update device."""
@@ -238,11 +263,20 @@ class DeviceRegistry:
                     if is_on and not dev.connected:
                         dev.on_connection_status(True)
                         log.info("[%s] Connected (via def)", device_name)
+                    elif not is_on and dev.connected and device_name in self._disconnecting:
+                        # Confirmation de notre disconnect manuel arrivée en def
+                        # (certains drivers redéfinissent au lieu d'un set) :
+                        # sans ça, connected restait True pour toujours.
+                        self._disconnecting.discard(device_name)
+                        dev.on_connection_status(False)
+                        log.info("[%s] Disconnected (via def)", device_name)
                     elif not is_on and not dev.connected and device_name not in self._auto_connecting:
                         self._auto_connecting.add(device_name)
                         log.info("Auto-connecting device: %s (item=%s)",
                                  device_name, connect_item.name)
-                        self._schedule_connect(device_name, connect_item.name)
+                        self._schedule_connect(
+                            device_name,
+                            connection_vector([it.name for it in pv.items], True))
 
                 self._emit_state()
             return
@@ -295,6 +329,8 @@ class DeviceRegistry:
                     # Pas de retry auto : on remonte l'erreur (port, etc.) et
                     # on laisse l'utilisateur corriger puis relancer manuellement.
                     # _auto_connecting reste posé pour éviter les storms de def.
+                    if not connected:
+                        self._disconnecting.discard(device_name)
                     if pv.state == "Alert":
                         msg = pv.message or ""
                         log.warning("[%s] Connection failed: %s", device_name, msg or "Alert")
@@ -416,18 +452,33 @@ class DeviceRegistry:
 
     # ── Auto-connect ─────────────────────────────────────────────
 
-    def _schedule_connect(self, device_name: str, item_name: str = "CONNECT") -> None:
-        """Schedule sending CONNECT=On to a device on the event loop.
+    def _schedule_connect(self, device_name: str, items: list | str = "CONNECT") -> bool:
+        """Schedule sending a CONNECTION switch to a device on the event loop.
 
-        item_name: the actual switch item name from the def (CONNECT or CONNECTED).
+        items: soit le nom de l'item à passer On (legacy, ex. "CONNECT"),
+        soit le vecteur complet [{name, value}]. Toujours préférer le
+        vecteur complet : CONNECTION = CONNECTED/DISCONNECTED (OneOfMany),
+        déconnecter = DISCONNECTED On — tout-Off est ignoré par le driver.
+        Returns False when nothing was sent (no event loop) — caller must
+        surface it instead of reporting a silent success.
         """
-        if self.client._loop:
-            asyncio.run_coroutine_threadsafe(
-                self.client.send_new_switch(device_name, "CONNECTION", [
-                    {"name": item_name, "value": True},
-                ]),
-                self.client._loop,
-            )
+        if isinstance(items, str):
+            items = [{"name": items, "value": True}]
+        if not self.client._loop:
+            log.warning("Connect %s NOT sent: no client event loop", device_name)
+            return False
+
+        async def _do():
+            try:
+                await self.client.send_new_switch(device_name, "CONNECTION", items)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Connect %s failed: %s", device_name, e)
+
+        log.info("Connect requested: %s <= %s", device_name,
+                 [(it.get("name"), it.get("value")) for it in items
+                  if isinstance(it, dict)])
+        asyncio.run_coroutine_threadsafe(_do(), self.client._loop)
+        return True
 
     # ── State broadcasting ───────────────────────────────────────
 

@@ -26,6 +26,7 @@ function initCapturePanel() {
     if (camSelect) {
         camSelect.addEventListener('change', () => {
             selectedCamera = camSelect.value || null;
+            if (typeof notifyCameraChanged === 'function') notifyCameraChanged();
             renderCapturePanel();
         });
     }

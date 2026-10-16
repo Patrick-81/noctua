@@ -1371,6 +1371,14 @@ body {
     color: var(--accent);
     border-color: var(--accent);
 }
+.switch-btn.success { color: #88ff88; border-color: rgba(136, 255, 136, 0.3); }
+.switch-btn.danger { color: #ff5577; border-color: rgba(255, 85, 119, 0.3); }
+/* Survol : liseré lumineux + curseur explicite (retour visuel immédiat). */
+.switch-btn:hover, .btn-glass:hover, .set-btn:hover {
+    border-color: var(--accent);
+    color: #fff;
+    cursor: crosshair;
+}
 
 .prop-checkbox { accent-color: var(--accent); }
 

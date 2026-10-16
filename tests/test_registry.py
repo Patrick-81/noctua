@@ -38,9 +38,11 @@ class FakeClient:
         self._loop = None
         self.sent = []
 
-    def send_new_switch(self, device, prop, items):
+    async def send_new_switch(self, device, prop, items):
+        # Async comme le vrai client : le corps s'exécute dans la coroutine
+        # (cf. _schedule_connect qui enveloppe l'envoi pour logger les erreurs).
         self.sent.append((device, prop, items))
-        return _FakeCoro()
+        return None
 
 
 def make_registry():
@@ -64,8 +66,13 @@ def connection_pv(value, vector_type):
 @pytest.fixture
 def record_schedules(monkeypatch):
     def fake_run_coroutine_threadsafe(coro, loop):
-        if hasattr(coro, "close"):
-            coro.close()
+        # Exécute vraiment la coroutine (comme la boucle prod) au lieu de
+        # la fermer : sinon les envois enveloppés ne partent jamais en test.
+        try:
+            asyncio.run(coro)
+        except RuntimeError:
+            if hasattr(coro, "close"):
+                coro.close()
         return None
 
     monkeypatch.setattr(asyncio, "run_coroutine_threadsafe",

@@ -207,15 +207,89 @@ window._guideClick = _guideClick;
 // ── Hub ───────────────────────────────────────────────────────
 
 // Consommateur ws:image : route l'image vers le viewer guide ou capture.
+// UN SEUL affichage par pose : la FINALE (dérivée du FITS : dématricée,
+// balance des blancs, pleine dynamique). Le preview driver est plus rapide
+// mais sa balance est fausse (ex. plafond blanc → orange) — il ne sert que
+// de roue de secours si aucune finale n'arrive sous 20 s (jamais d'écran
+// noir). Les images guide (temps réel) s'affichent toujours aussitôt.
+var _shownExposureByDev = {};
+var _pendingPreviewByDev = {};
+// Appelé à tout changement de caméra (capture, MAP, guide) : on purge
+// image, stats, histo et déduplication — rien de périmé ne survit.
+function notifyCameraChanged() {
+    _shownExposureByDev = {};
+    for (const k of Object.keys(_pendingPreviewByDev)) {
+        try { clearTimeout(_pendingPreviewByDev[k].timer); } catch (e) {}
+        delete _pendingPreviewByDev[k];
+    }
+    try {
+        if (typeof captureViewer !== 'undefined' && captureViewer) captureViewer.clear();
+        if (typeof guideViewer !== 'undefined' && guideViewer) guideViewer.clear();
+    } catch (e) { /* viewers pas encore montés */ }
+    try {
+        const info = document.getElementById('cap-preview-info');
+        if (info) { info.textContent = '—'; }
+        const histo = document.getElementById('cap-histo-canvas');
+        if (histo) histo.getContext('2d')?.clearRect(0, 0, histo.width, histo.height);
+        const adu = document.getElementById('cap-adu-cursor');
+        if (adu) adu.textContent = ' ';
+        const metric = document.getElementById('focus-metric-info');
+        if (metric) metric.textContent = '';
+    } catch (e) { /* DOM pas encore monté */ }
+}
 Hub.subscribe('ws:image', 'preview', (env) => {
-    const { device, format, data, variant, stage } = env.payload;
+    const { device, format, data, variant, stage, exposure, xfer } = env.payload;
     if (device) _lastWsImageByDev[device] = Date.now();
     const guideCam = _guideCameraSelect?.value || '';
-    console.log('WS image: device=%s format=%s variant=%s stage=%s guideCam=%s match=%s', device, format, variant||'', stage||'', guideCam, device === guideCam);
-    if (guideCam && device === guideCam) {
-        handleGuideImage(data, format);
-    } else {
-        handleCameraImage(data, format, variant, stage);
+    console.log('WS image: device=%s format=%s variant=%s stage=%s exposure=%s guideCam=%s match=%s', device, format, variant||'', stage||'', exposure||0, guideCam, device === guideCam);
+    const isGuideImg = !!(guideCam && device === guideCam);
+    const isPreview = String(stage || 'final') === 'preview';
+    if (isPreview && !isGuideImg) {
+        // Preview mis en attente : la finale (meilleure) arrive juste
+        // derrière. Secours : affiché si rien ne suit sous 20 s.
+        if (device) {
+            const _old = _pendingPreviewByDev[device];
+            if (_old) clearTimeout(_old.timer);
+            const _entry = { exposure };
+            _entry.timer = setTimeout(() => {
+                if (_pendingPreviewByDev[device] !== _entry) return;
+                delete _pendingPreviewByDev[device];
+                if (exposure && _shownExposureByDev[device] === exposure) return;
+                console.log(`WS image: preview affiché (pas de finale sous 20s, pose ${exposure || '?'})`);
+                try {
+                    if (handleCameraImage(data, format, variant, stage, device, xfer) !== false
+                        && exposure && device) _shownExposureByDev[device] = exposure;
+                } catch (e) { console.warn('WS image: preview secours raté', e); }
+            }, 20000);
+            _pendingPreviewByDev[device] = _entry;
+        }
+        console.log(`WS image: preview en attente (finale attendue, pose ${exposure || '?'})`);
+        return;
+    }
+    if (exposure && device && _shownExposureByDev[device] === exposure) {
+        console.log(`WS image: ignorée (pose ${exposure} déjà affichée)`);
+        return;
+    }
+    // Une finale arrive : le preview en attente (s'il y en a un) est périmé.
+    if (device && _pendingPreviewByDev[device]) {
+        clearTimeout(_pendingPreviewByDev[device].timer);
+        delete _pendingPreviewByDev[device];
+    }
+    try {
+        let _painted = true;
+        if (isGuideImg) {
+            handleGuideImage(data, format);
+        } else {
+            _painted = handleCameraImage(data, format, variant, stage, device, xfer);
+        }
+        // Ne marque la pose que si quelque chose s'est affiché : une image
+        // filtrée (mauvais variant) ne doit pas condamner toute la pose.
+        if (exposure && device && _painted !== false) _shownExposureByDev[device] = exposure;
+    } catch (e) {
+        // Un rendu raté ne doit jamais geler le flux : on ne marque pas la
+        // pose comme affichée, la prochaine image réessaiera.
+        console.warn('WS image: rendu raté, pose non marquée', e);
+        return;
     }
 });
 
@@ -227,25 +301,62 @@ let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
 var _lastWsImageByDev = {};
-function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
+function handleCameraImage(b64Data, fmt, variant, stage = 'final', devName = '', xferS = null) {
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
     const varNorm = String(variant||'').toLowerCase();
+    function _paintBytes(b64, f) {
+        const raw = atob(b64);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        _lastWsImageAt = Date.now();
+        console.log(`handleCameraImage: affichée ${f} ${variant||''} ${stage||''} ${Math.round(b64.length*0.75/1024)}Ko`);
+        if (captureViewer) {
+            if (xferS != null) captureViewer.pendingXfer = xferS;
+            captureViewer.render(bytes, f);
+        }
+    }
     function _renderAndFetch(b64, f) {
+        // Retourne true si quelque chose a été affiché (ou va l'être :
+        // fetch FITS / fallback) — la déduplication par pose ne marque
+        // que les poses réellement rendues, sinon une vignette filtrée
+        // condamnerait toute la pose en mode pleine.
+        // MAP + Lin : on préfère le FITS (pleine dynamique, dématricé) en
+        // un seul rendu. Mais si le fetch échoue, on affiche le JPEG plutôt
+        // que rien (filet anti-écran-noir).
+        const _linActive = (typeof _linOn !== 'undefined' && _linOn
+            && typeof currentMode !== 'undefined' && currentMode === 'focuser');
+        const _fitsIn = String(f || '').toLowerCase().includes('fits');
+        if (_linActive && !_fitsIn) {
+            _lastWsImageAt = Date.now();
+            const _fallback = () => {
+                try { _paintBytes(b64, f); }
+                catch (e) { console.warn('handleCameraImage fallback failed', e); }
+            };
+            if (typeof _linFetchFull === 'function') {
+                // FITS de la caméra qui vient d'imager, pas forcément la MAP.
+                if (typeof captureViewer !== 'undefined' && captureViewer && xferS != null)
+                    captureViewer.pendingXfer = xferS;
+                _linFetchFull(devName).then(ok => {
+                    if (!ok) { _lastWsImageAt = 0; _fallback(); }
+                });
+            } else _fallback();
+            document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
+            document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+            setTimeout(() => fetchStatsWithRetry(3), 700);
+            return true;
+        }
         try {
             clearOffsetOverlay();
             clearFocusOverlay();
-            const raw = atob(b64);
-            const bytes = new Uint8Array(raw.length);
-            for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-            _lastWsImageAt = Date.now();
-            console.log(`handleCameraImage: affichée ${f} ${variant||''} ${stage||''} ${Math.round(b64.length*0.75/1024)}Ko`);
-            if (captureViewer) captureViewer.render(bytes, f);
-            if (typeof _linFollow === 'function') _linFollow();
+            _paintBytes(b64, f);
+            // NB : pas de _linFollow() ici — le cas Lin+JPEG est géré plus
+            // haut (fetch FITS unique), le cas Lin+FITS est déjà complet.
         } catch (e) {
             console.warn('handleCameraImage render failed', e);
             if (typeof addLog === 'function') addLog('warning', 'capture', `Affichage image impossible: ${e.message}`);
+            return false;
         } finally {
             document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
             document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
@@ -257,6 +368,7 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
             }
             setTimeout(()=> fetchStatsWithRetry(3), 700);
         }
+        return true;
     }
     function fetchStatsWithRetry(retry) {
         function fetchStats(rem) {
@@ -276,6 +388,13 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
                     console.log('histo rendu');
                 } else if (s && !s.ok) {
                     console.warn('stats error', s.error);
+                    // Pas de stats pour cette caméra : purge l'histo périmé
+                    // (sinon niveaux d'une autre caméra affichés).
+                    try {
+                        if (captureViewer) captureViewer._statsHist = null;
+                        const hc = document.getElementById('cap-histo-canvas');
+                        if (hc) hc.getContext('2d')?.clearRect(0, 0, hc.width, hc.height);
+                    } catch (e) { /* DOM pas monté */ }
                 }
             }).catch(e=> console.warn('stats fetch fail', e));
         }
@@ -283,21 +402,19 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
     }
     if (isFits) {
         console.log(`handleCameraImage: FITS ${Math.round(b64Data.length*0.75/1024)}Ko`);
-        _renderAndFetch(b64Data, fmt);
-        return;
+        return _renderAndFetch(b64Data, fmt);
     }
     // filtrage par variant si présent
     if (varNorm) {
         if (wantVignette && varNorm === 'pleine') {
             console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
-            return;
+            return false;
         }
         if (!wantVignette && varNorm === 'vignette') {
             console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
-            return;
+            return false;
         }
-        _renderAndFetch(b64Data, fmt);
-        return;
+        return _renderAndFetch(b64Data, fmt);
     }
     // fallback sans variant : dimensions
     try {
@@ -313,10 +430,12 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
             const isVignetteImg = img.width < 1500;
             if (wantVignette && !isVignetteImg) {
                 console.log(`handleCameraImage: pleine ignorée (mode vignette)`);
+                if (devName) delete _shownExposureByDev[devName];
                 return;
             }
             if (!wantVignette && isVignetteImg) {
                 console.log(`handleCameraImage: vignette ignorée (mode pleine)`);
+                if (devName) delete _shownExposureByDev[devName];
                 return;
             }
             _renderAndFetch(b64Data, fmt);
@@ -329,6 +448,9 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final') {
     } catch(e) {
         _renderAndFetch(b64Data, fmt);
     }
+    // Chemin async (dimensions lues au onload) : on marque optimiste, le
+    // rendu suit dans tous les cas (onload peint ou filtre, onerror peint).
+    return true;
 }
 
 

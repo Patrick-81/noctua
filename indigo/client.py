@@ -216,7 +216,7 @@ class IndigoClient:
     async def _send(self, msg: str) -> None:
         if self._sock and self._connected:
             # PARK en INFO pour l'observatoire (était DEBUG invisible)
-            if "MOUNT_PARK" in msg or "TELESCOPE_PARK" in msg:
+            if "MOUNT_PARK" in msg or "TELESCOPE_PARK" in msg or "CONNECTION" in msg:
                 log.info("SEND: %s", msg.replace("\n", "\\n")[:500])
             else:
                 log.debug("SEND: %s", msg.replace("\n", "\\n")[:200])

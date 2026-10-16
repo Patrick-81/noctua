@@ -107,9 +107,36 @@ def test_dark_stays_black():
     assert float(d.max()) > 150, float(d.max())
 
 
+def test_tungsten_ceiling_balanced():
+    # Cas réel SV305PRO : plafond éclairé chaud, GRBG 16 bits, BZERO=32768.
+    # R=12473 G=9689 B=2615 (+bruit) → sans balance, la vignette sort orange ;
+    # avec balance gris-moyen, les 3 canaux du fond s'égalisent (neutre).
+    rng = np.random.default_rng(7)
+    phys = np.zeros((H, W, 3))
+    phys[:, :, 0] = 12473.0
+    phys[:, :, 1] = 9689.0
+    phys[:, :, 2] = 2615.0
+    phys += rng.normal(0, 60, phys.shape)
+    mos = np.zeros((H, W), np.int32)
+    mos[0::2, 0::2] = (phys[0::2, 0::2, 1] - 32768)
+    mos[0::2, 1::2] = (phys[0::2, 1::2, 0] - 32768)
+    mos[1::2, 0::2] = (phys[1::2, 0::2, 2] - 32768)
+    mos[1::2, 1::2] = (phys[1::2, 1::2, 1] - 32768)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                   16",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'",
+                    "BZERO   =                32768", "END"])
+    d = thumb_img(WS._jpeg_thumb(hdr + mos.astype(">i2").tobytes(), 320))
+    meds = [float(np.median(d[:, :, c])) for c in range(3)]
+    spread = max(meds) - min(meds)
+    assert spread < 40, meds
+    assert sum(meds) / 3 > 100, meds  # fond clair, pas noir
+
+
 if __name__ == "__main__":
     for fn in (test_rgb_planar_keeps_color, test_bayer_debayer_color,
-               test_bayer_16bit_faint_stars_survive, test_dark_stays_black):
+                test_bayer_16bit_faint_stars_survive, test_dark_stays_black,
+                test_tungsten_ceiling_balanced):
         print(f"{fn.__name__} ...")
         fn()
     print("THUMB OK")

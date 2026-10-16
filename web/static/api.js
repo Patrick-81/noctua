@@ -5,6 +5,20 @@
 // ═══════════════════════════════════════════════════════════════
 
 function setSwitchItem(device, prop, item, value) {
+    // Le switch CONNECTION passe par les endpoints dédiés (vérifiés) :
+    // même comportement que les boutons connecter/déconnecter de la liste
+    // (confirmation driver + anti-reconnect auto), quel que soit le panneau.
+    if (String(prop || '').toUpperCase() === 'CONNECTION') {
+        const action = value ? 'connect' : 'disconnect';
+        fetch('/api/hardware/' + action, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ device }),
+        }).then(r => r.json()).then(res => {
+            if (res && res.error) addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: res.error }));
+        }).catch(e => addLog('error', 'hw', i18nFmt('log.hw.device_error', { device, err: e.message })));
+        return;
+    }
     apiPost('/api/property', { device, property: prop, items: [{ name: item, value: value }] });
 }
 

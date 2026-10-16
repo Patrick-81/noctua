@@ -140,9 +140,31 @@ class Viewer {
         if (el) { el.textContent = msg; if (color) el.style.color = color; }
     }
 
-    setInfo(text) {
-        const info = document.getElementById('cap-preview-info');
+    // Remise à zéro à changement de caméra : pas d'image périmée affichée.
+    clear(msg) {
+        this.pixels = null; this.pixelsRGB = null; this.rgbBal = null;
+        this._statsHist = null; this.imgW = 0; this.imgH = 0;
+        this.imgMax = 0; this.sky = 0;
+        try {
+            const canvasEl = document.getElementById(this.canvasId);
+            if (canvasEl) canvasEl.getContext('2d')?.clearRect(0, 0, canvasEl.width, canvasEl.height);
+            for (const id of this.overlayIds || []) {
+                const ov = document.getElementById(id);
+                if (ov) ov.getContext('2d')?.clearRect(0, 0, ov.width, ov.height);
+            }
+        } catch (e) { /* canvas pas encore monté */ }
+        if (msg) this.setStatus(msg, '#888');
+    }
+
+    setInfo(text) {        const info = document.getElementById('cap-preview-info');
         if (!info) return;
+        // Durée acquisition→transfert (posée par preview.js avant render,
+        // consommée une fois — pas de valeur périmée sur le rendu suivant).
+        if (this.pendingXfer != null) {
+            try { text += ' · ' + i18nFmt('cap.xfer', { s: this.pendingXfer }); }
+            catch (e) { text += ` · ${this.pendingXfer}s`; }
+            this.pendingXfer = null;
+        }
         // Préserve le badge preview/définitif (fils) malgré textContent.
         const badge = document.getElementById('cap-image-stage');
         info.textContent = text;
@@ -185,6 +207,12 @@ class Viewer {
         const h = parseInt(get('NAXIS2') || '0');
         const bitpix = parseInt(get('BITPIX') || '16');
         if (naxis < 2 || !w || !h) return null;
+        // Échelle physique FITS : valeur = brut*BSCALE + BZERO. Les drivers
+        // INDIGO sortent l'unsigned via BZERO=32768 : sans ça, tout ce qui
+        // dépasse 32767 devient négatif (plafond blanc → bruit orange).
+        const bzero = parseFloat(get('BZERO') || '0') || 0;
+        let bscale = parseFloat(get('BSCALE') || '1');
+        if (!(bscale > 0) && !(bscale < 0)) bscale = 1;
 
         const remaining = bytes.length - dataStart;
         const view = new DataView(bytes.buffer, bytes.byteOffset + dataStart, remaining);
@@ -196,15 +224,15 @@ class Viewer {
         let pixelsRGB = null;
         const readPlane = (base, out, n) => {
             if (bitpix === 32 || bitpix === -32)
-                for (let i = 0; i < n && i * 4 + 4 <= remaining - base; i++) out[i] = view.getFloat32(base + i * 4, false);
+                for (let i = 0; i < n && i * 4 + 4 <= remaining - base; i++) out[i] = view.getFloat32(base + i * 4, false) * bscale + bzero;
             else if (bitpix === 16)
-                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getInt16(base + i * 2, false);
+                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getInt16(base + i * 2, false) * bscale + bzero;
             else if (bitpix === -16)
-                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getUint16(base + i * 2, false);
+                for (let i = 0; i < n && i * 2 + 2 <= remaining - base; i++) out[i] = view.getUint16(base + i * 2, false) * bscale + bzero;
             else if (bitpix === 64)
-                for (let i = 0; i < n && i * 8 + 8 <= remaining - base; i++) out[i] = view.getFloat64(base + i * 8, false);
+                for (let i = 0; i < n && i * 8 + 8 <= remaining - base; i++) out[i] = view.getFloat64(base + i * 8, false) * bscale + bzero;
             else if (bitpix === 8)
-                for (let i = 0; i < n && i < remaining - base; i++) out[i] = bytes[dataStart + base + i];
+                for (let i = 0; i < n && i < remaining - base; i++) out[i] = bytes[dataStart + base + i] * bscale + bzero;
             else return false;
             return true;
         };
@@ -213,6 +241,34 @@ class Viewer {
         // conserve aussi les 3 plans pour l'affichage couleur (sinon on
         // n'affichait que le plan R, quasi noir → image « noire »).
         if (!readPlane(0, pixels, planeSize)) return null;
+        // Bayer (NAXIS=2 + BAYERPAT, ex. RGGB) : dématriçage bilinéaire en
+        // pleine dynamique (float, pas de passage 8 bits). Sans ça, la
+        // mosaïque affichée en mono donne une « grille » sur les surfaces
+        // claires. pixels = luma (mesure/HFR), pixelsRGB = couleur.
+        const bayerpat = String(get('BAYERPAT') || '').toUpperCase();
+        if (nplanes === 1 && /^[RGB]{4}$/.test(bayerpat)) {
+            const deb = Viewer.debayer(pixels, w, h, bayerpat);
+            if (deb) {
+                for (let i = 0; i < planeSize; i++)
+                    pixels[i] = (deb[i * 3] + 2 * deb[i * 3 + 1] + deb[i * 3 + 2]) / 4;
+                pixelsRGB = deb;
+            }
+        }
+        // Balance des blancs d'affichage (display-only) : médiane par canal
+        // sur échantillon — sinon le stretch global teinte l'image (ex.
+        // surface blanche → orange si le canal B est plus faible). Les
+        // mesures (HFR, stats) restent sur la luma non modifiée.
+        let rgbBal = null;
+        if (pixelsRGB) {
+            const step = Math.max(1, Math.floor(planeSize / 200000));
+            const samples = [[], [], []];
+            for (let i = 0; i < planeSize; i += step)
+                for (let c = 0; c < 3; c++) samples[c].push(pixelsRGB[i * 3 + c]);
+            const med = (a) => { a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)] || 0; };
+            const skyC = [med(samples[0]), med(samples[1]), med(samples[2])];
+            const ref = Math.max(skyC[0], skyC[1], skyC[2]) || 1;
+            rgbBal = skyC.map((s) => (s > 0 ? ref / s : 1));
+        }
         if (nplanes === 3 && bitpix === 8) {
             const gchan = new Float64Array(planeSize);
             const bchan = new Float64Array(planeSize);
@@ -230,18 +286,68 @@ class Viewer {
             }
         }
 
-        let max = -Infinity;
-        for (let i = 0; i < pixels.length; i++) if (pixels[i] > max) max = pixels[i];
+        let max = -Infinity, min = Infinity;
+        for (let i = 0; i < pixels.length; i++) {
+            const v = pixels[i];
+            if (v > max) max = v;
+            if (v < min) min = v;
+        }
         const sorted = Float64Array.from(pixels).sort();
-        const sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
+        let sky = sorted[Math.floor(sorted.length * 0.5)] || 0;
         const sigma = sorted[Math.floor(sorted.length * 0.841)] - sky || 1;
+        // Cadrage dégénéré (plafond blanc saturé, bias : max≈sky) — le
+        // stretch ancré au fond rendrait tout noir. On ancre le noir au min
+        // des données (display-only, mesures sur pixels bruts inchangées).
+        if ((max - sky) < 8) sky = (min === Infinity ? sky : min);
         // Mode de stretch : 'asinh' (défaut, aperçu) ou 'linear' (MAP —
         // dynamique complète). Persisté par l'applet de MAP manuelle.
         if (this.stretchMode !== 'linear' && this.stretchMode !== 'asinh') this.stretchMode = 'asinh';
-        return { w, h, pixels, pixelsRGB, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma), max };
+        return { w, h, pixels, pixelsRGB, rgbBal, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma), max };
     }
 
     // ── Rendering ──
+
+    // Dématriçage bilinéaire pur (pleine dynamique float, testable sans
+    // DOM). pattern : 4 lettres ex. 'RGGB' → (0,0)=R, (0,1)=G, (1,0)=G,
+    // (1,1)=B. Retourne Float64Array(h*w*3) ou null. Au-delà de 12 Mpx on
+    // binne en demi-résolution (réutilise le caller pour downsampler).
+    static debayer(mono, w, h, pattern) {
+        try {
+            const pat = String(pattern || '').toUpperCase();
+            if (!/^[RGB]{4}$/.test(pat) || w < 4 || h < 4) return null;
+            const at = (x, y) => mono[Math.max(0, Math.min(h - 1, y)) * w + Math.max(0, Math.min(w - 1, x))];
+            const colAt = (x, y) => pat[(((y % 2) + 2) % 2) * 2 + (((x % 2) + 2) % 2)];
+            const out = new Float64Array(w * h * 3);
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const o = (y * w + x) * 3;
+                    const c = colAt(x, y);
+                    if (c === 'G') {
+                        // R et B : voisins en croix si la couleur y est, sinon diagonales.
+                        let r, b;
+                        if (colAt(x + 1, y) === 'R' || colAt(x - 1, y) === 'R') {
+                            r = (at(x - 1, y) + at(x + 1, y)) / 2;
+                            b = (at(x, y - 1) + at(x, y + 1)) / 2;
+                        } else if (colAt(x, y + 1) === 'R' || colAt(x, y - 1) === 'R') {
+                            r = (at(x, y - 1) + at(x, y + 1)) / 2;
+                            b = (at(x - 1, y) + at(x + 1, y)) / 2;
+                        } else {
+                            r = (at(x - 1, y - 1) + at(x + 1, y - 1) + at(x - 1, y + 1) + at(x + 1, y + 1)) / 4;
+                            b = (at(x - 1, y) + at(x + 1, y) + at(x, y - 1) + at(x, y + 1)) / 4;
+                        }
+                        out[o] = r; out[o + 1] = at(x, y); out[o + 2] = b;
+                    } else {
+                        // Pixel R ou B : G = moyenne croix, autre couleur = diagonales.
+                        out[o + 1] = (at(x - 1, y) + at(x + 1, y) + at(x, y - 1) + at(x, y + 1)) / 4;
+                        const d = (at(x - 1, y - 1) + at(x + 1, y - 1) + at(x - 1, y + 1) + at(x + 1, y + 1)) / 4;
+                        if (c === 'R') { out[o] = at(x, y); out[o + 2] = d; }
+                        else { out[o] = d; out[o + 2] = at(x, y); }
+                    }
+                }
+            }
+            return out;
+        } catch (e) { return null; }
+    }
 
     // Stretch linéaire pur (dynamique complète, sans compression) :
     // noir = fond de ciel, blanc = pixel max. Pour juger un profil
@@ -278,9 +384,10 @@ class Viewer {
     _renderFITS(bytes) {
         const result = this._parseFITS(bytes);
         if (!result) { this.setStatus(i18n('viewer.bad_fits'), '#ff4444'); return; }
-        const { w, h, pixels, pixelsRGB, sky, soft, k, max } = result;
+        const { w, h, pixels, pixelsRGB, rgbBal, sky, soft, k, max } = result;
         this.pixels = pixels;
         this.pixelsRGB = pixelsRGB || null;
+        this.rgbBal = rgbBal || null;
         this.imgW = w;
         this.imgH = h;
         this.sky = sky;
@@ -379,10 +486,11 @@ class Viewer {
                 if (useRGB) {
                     const s = (y * w + x) * 3;
                     for (let c = 0; c < 3; c++) {
-                        const raw = this.pixelsRGB[s + c];
+                        const bal = (this.rgbBal && this.rgbBal[c]) || 1;
+                        const raw = this.pixelsRGB[s + c] * bal;
                         data[dst + c] = isLinear
-                            ? Viewer.linearNorm(raw, this.sky, this.imgMax)
-                            : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - this.sky) / this.soft) / asinhK * 255)));
+                            ? Viewer.linearNorm(raw, this.sky * bal, this.imgMax * bal)
+                            : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - this.sky * bal) / (this.soft * bal)) / asinhK * 255)));
                     }
                     data[dst + 3] = 255;
                     continue;

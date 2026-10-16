@@ -37,6 +37,13 @@ CAMERA_PROPERTIES = {
 # 12 bits : le RAW8 écrase les étoiles faibles quantifiées à zéro).
 PIXEL_DEPTH_UPGRADE = {"RAW8": "RAW16", "Y8": "Y16"}
 
+# Dernier EXPOSE START (monotonic) par NOM de caméra. Tous les chemins
+# d'exposition passent par Camera.expose() — une seule écriture, lue par
+# le serveur web pour tagger preview+final d'une même pose. Par nom (et
+# non par objet) : guidage + imagerie simultanés restent attribués
+# chacun à leur caméra, même après re-connexion (doublons d'objets).
+_EXPOSE_STARTS: dict[str, float] = {}
+
 
 def raw16_upgrade(items: list[tuple[str, bool]]) -> str | None:
     """Item à activer pour passer en 16 bits, ou None si rien à faire.
@@ -51,6 +58,27 @@ def raw16_upgrade(items: list[tuple[str, bool]]) -> str | None:
     for src8, dst16 in PIXEL_DEPTH_UPGRADE.items():
         if src8 in active and dst16 in norm:
             return norm[dst16]
+    return None
+
+
+def raw16_mode_upgrade(items: list[tuple[str, bool]]) -> str | None:
+    """Variante pour CCD_MODE quand le driver encode la profondeur dans le
+    mode (ex. SVBONY : "RAW 8 1x1" vs "RAW 16 1x1", sans X_PIXEL_FORMAT).
+
+    On ne change QUE la profondeur : le candidat reprend le suffixe exact
+    du mode actif (géométrie/binning inchangés). "RGB08_1" et autres modes
+    non-RAW ne sont jamais touchés. Retourne le nom EXACT à activer.
+    """
+    norm = {n.upper().replace(" ", ""): n for n, _ in items}
+    active = [n for n, v in items if v]
+    if any("16" in n.upper().replace(" ", "") for n in active):
+        return None  # déjà en 16 bits
+    for a in active:
+        na = a.upper().replace(" ", "")
+        if na.startswith("RAW8"):
+            cand = "RAW16" + na[len("RAW8"):]
+            if cand in norm:
+                return norm[cand]
     return None
 
 
@@ -188,6 +216,10 @@ class Camera(BaseDevice):
         self.frame_type = frame_type.upper()
         import time as _time
         self._last_expose_start = _time.monotonic()
+        # Registre partagé par NOM (pas par objet) : survit aux doublons
+        # d'objets caméra (re-connexion) et attribue chaque pose à la bonne
+        # caméra quand guidage + imagerie tournent en simultané.
+        _EXPOSE_STARTS[self.name] = self._last_expose_start
         log.info("[%s] EXPOSE START: duration=%.1fs frame_type=%s blob_prop=%s",
                  self.name, duration, self.frame_type, self.blob_prop_name)
         # Vecteur switch COMPLET (tous les items connus, cible On) : certains

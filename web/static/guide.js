@@ -21,6 +21,9 @@ function initGuidePanel() {
 
     if (_guideCameraSelect) {
         _refreshGuideCameraList();
+        _guideCameraSelect.addEventListener('change', () => {
+            if (typeof notifyCameraChanged === 'function') notifyCameraChanged();
+        });
     }
 
     const aggrSlider = document.getElementById('guide-aggressiveness');

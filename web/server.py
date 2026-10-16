@@ -184,6 +184,8 @@ class WebServer:
         retry_count: dict[str, int] = {}       # per-camera getProperties retry count
         last_connect: int = -1                # compteur de connexion vu (détecte les reconnects)
         last_try: dict[tuple, float] = {}     # cooldown d'envoi par (caméra, réglage)
+        pixdiag_logged: set[str] = set()      # diagnostic profondeur déjà émis par caméra
+        settings_applied: set[str] = set()    # devices aux réglages profil déjà appliqués
 
         def _reset():
             blob_requested.clear()
@@ -191,6 +193,8 @@ class WebServer:
             blob_enabled_dev.clear()
             retry_count.clear()
             last_try.clear()
+            pixdiag_logged.clear()
+            settings_applied.clear()
 
         def _due(key: tuple) -> bool:
             # Les réglages switch sont refusés pendant une acquisition
@@ -336,6 +340,88 @@ class WebServer:
                                 for it in px_pv.items
                             ])
 
+                # Step 3c: profondeur via CCD_MODE quand le driver n'a pas
+                # X_PIXEL_FORMAT (ex. SVBONY : "RAW 8 1x1" → "RAW 16 1x1").
+                # Même philosophie : seule la profondeur change, jamais la
+                # nature ni la géométrie. Réémis si désaccord (même cooldown).
+                mode_pv = dev.get_prop("CCD_MODE")
+                if mode_pv and getattr(self, "prefer_raw16", True):
+                    try:
+                        from indigo.devices.camera import raw16_mode_upgrade
+                        mode_target = raw16_mode_upgrade(
+                            [(it.name, bool(it.value)) for it in mode_pv.items])
+                        if mode_target and _due((name, "mode")):
+                            log.info("CCD_MODE for %s: %s → %s (16 bits)",
+                                     name,
+                                     [it.name for it in mode_pv.items if it.value],
+                                     mode_target)
+                            await dev.send_switch("CCD_MODE", [
+                                {"name": it.name, "value": it.name == mode_target}
+                                for it in mode_pv.items
+                            ])
+                            # Un changement de mode peut réinitialiser le
+                            # driver (BLOB setup perdu) : on force sa
+                            # redécouverte au prochain tick.
+                            blob_requested.discard(name)
+                            blob_enabled.discard(name)
+                            blob_enabled_dev.discard(name)
+                            pixdiag_logged.discard(name)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+                # Diagnostic profondeur (une fois par caméra) : si le driver
+                # n'expose pas X_PIXEL_FORMAT (ou refuse RAW16), on le voit
+                # ici au lieu de découvrir du BITPIX=8 après coup. Certains
+                # drivers encodent la profondeur dans CCD_MODE.
+                if name not in pixdiag_logged and hasattr(dev, "on_image"):
+                    pixdiag_logged.add(name)
+                    try:
+                        _px = dev.get_prop("X_PIXEL_FORMAT")
+                        _px_info = ([(it.name, bool(it.value)) for it in _px.items]
+                                    if _px else "ABSENT")
+                        _mode_pv = dev.get_prop("CCD_MODE")
+                        _mode_on = ([it.name for it in _mode_pv.items if it.value]
+                                    if _mode_pv else "ABSENT")
+                        _mode_all = ([it.name for it in _mode_pv.items]
+                                     if _mode_pv else [])
+                        _last = self._camera_images.get(name, b"")
+                        _bp = "?"
+                        if len(_last) >= 2880 and _last[:6].startswith(b"SIMPLE"):
+                            import re as _re2
+                            _m = _re2.search(rb"BITPIX\s*=\s*(-?\d+)",
+                                             _last[:2880])
+                            _bp = _m.group(1).decode() if _m else "?"
+                        log.info("PIXDIAG %s: X_PIXEL_FORMAT=%s CCD_MODE=%s modes=%s last_BITPIX=%s",
+                                 name, _px_info, _mode_on, _mode_all, _bp)
+                    except Exception:  # noqa: BLE001
+                        pass
+
+            # Réglages sauvegardés (profil actif) : appliqués une fois par
+            # session à chaque device connecté (best-effort, props connues
+            # uniquement). Le flag est levé à la déconnexion pour réappliquer
+            # au prochain connect.
+            try:
+                _active = self.profiles.list_profiles().get("active")
+                _prof = self.profiles.get(_active) if _active else None
+                _ds_all = (_prof.get("device_settings") or {}) if _prof else {}
+            except Exception:  # noqa: BLE001
+                _ds_all = {}
+            if _ds_all:
+                for _dname, _ddev in self.registry.all_devices().items():
+                    _want = _ds_all.get(_dname)
+                    if not _want:
+                        continue
+                    if not bool(getattr(_ddev, "connected", False)):
+                        settings_applied.discard(_dname)
+                        continue
+                    if _dname in settings_applied:
+                        continue
+                    _res = await self._apply_device_settings(_dname, _want)
+                    if _res.get("ok"):
+                        settings_applied.add(_dname)
+                    else:
+                        log.warning("Settings apply deferred for %s", _dname)
+
     def _on_camera_discovered(self, dev):
         """Wire the image callback as soon as a camera device appears."""
         if hasattr(dev, "on_image") and dev.on_image is None:
@@ -345,9 +431,14 @@ class WebServer:
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
-        # App + skymap code + viewer/preview : no-cache, mais pas les données (stars/mw/dsos)
-        if (request.url.path in ("/", "/app.js", "/preview.js", "/viewer.js", "/capture.js")
-                or request.url.path.startswith("/skymap/sky-engine")):
+        # App + skymap code + viewer/preview : no-cache, mais pas les données (stars/mw/dsos).
+        # + tous les JS/CSS maison : un pin ?v= oublié sur UN fichier = navigateur
+        # qui tourne du code vieux de plusieurs semaines (vécu : api.js non pinné,
+        # hardware.js épinglé à septembre). Seul /lib/ garde son cache.
+        _p = request.url.path
+        if (_p in ("/", "/app.js", "/preview.js", "/viewer.js", "/capture.js")
+                or _p.startswith("/skymap/sky-engine")
+                or ((_p.endswith(".js") or _p.endswith(".css")) and "/lib/" not in _p)):
             response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
             response.headers["Pragma"] = "no-cache"
             response.headers["Expires"] = "0"
@@ -773,6 +864,24 @@ class WebServer:
         try:
             work = _np.ascontiguousarray(arr_u8)
             if is_color:
+                work = work.astype(_np.float32)
+                # Balance des blancs display-only (gris-moyen sur médianes) :
+                # un éclairage chaud (plafond tungstène → orange immonde) sort
+                # neutre, comme le frontend d'indigo_server. Sur fond de ciel
+                # les médianes sont ~égales → balance ≈ identité (couleurs
+                # d'étoiles préservées, cf. test_rgb_planar_keeps_color).
+                # FITS sauvegardé et mesures inchangés. Limite connue :
+                # bande étroite (Ha) : le fond G/B est remonté (bruit chroma).
+                try:
+                    _s = work[::8, ::8]
+                    _meds = [float(_np.median(_s[:, :, c])) for c in range(3)]
+                    _ref = max(_meds)
+                    if _ref > 0:
+                        for _c in range(3):
+                            if _meds[_c] > 0:
+                                work[:, :, _c] *= (_ref / _meds[_c])
+                except Exception:
+                    pass
                 luma = work.mean(axis=2).astype(_np.float32)
             else:
                 luma = work.astype(_np.float32)
@@ -782,8 +891,17 @@ class WebServer:
             med = float(_np.median(sample))
             mad = float(_np.median(_np.abs(sample - med)))
             sigma = 1.4826 * mad
-            lo = med + 3.0 * sigma
             hi = float(_np.percentile(sample, 99.5))
+            # Plancher adaptatif : ciel astro (queue brillante : étoiles, max
+            # loin de la médiane) → médiane + 3σ, le fond reste noir sans
+            # amplifier le bruit ; champ plat (plafond, bias/flat : max dans
+            # le bruit) → min des données, sinon le champ lui-même serait
+            # écrasé au noir. (Le max décide, pas un percentile : quelques
+            # étoiles faibles ne pèsent pas 0,5 % des pixels.)
+            if (float(_np.max(sample)) - med) <= max(50.0, 20.0 * sigma):
+                lo = float(_np.min(sample))
+            else:
+                lo = med + 3.0 * sigma
             if not hi > lo:
                 hi = lo + 1.0
             if is_color:
@@ -843,6 +961,13 @@ class WebServer:
             bayerpat = m_bayer.group(1).upper() if m_bayer else ""
             m_bzero = _re.search(r"BZERO\s*=\s*([-\d\.]+)", hdr)
             bzero = float(m_bzero.group(1)) if m_bzero else 0.0
+            m_bscale = _re.search(r"BSCALE\s*=\s*([-\d\.eE]+)", hdr)
+            try:
+                bscale = float(m_bscale.group(1)) if m_bscale else 1.0
+            except Exception:
+                bscale = 1.0
+            if not (bscale > 0 or bscale < 0):
+                bscale = 1.0
             bpp = 2 if bitpix == 16 else 1 if bitpix == 8 else 4 if bitpix == -32 else 2
             naxis3 = _geti("NAXIS3")
             planes = naxis3 if naxis == 3 and naxis3 else 1
@@ -883,8 +1008,11 @@ class WebServer:
                 # bilinéaire pleine résolution.
                 try:
                     m = arr.reshape((h, w))
-                    if int(bzero):
-                        m = m.astype(_np.int32) - int(bzero)
+                    # Échelle physique : brut*BSCALE + BZERO (le signe compte :
+                    # un shift uniforme conserve les différences mais fausse
+                    # les RATIOS, donc la balance des blancs).
+                    if bzero != 0.0 or bscale != 1.0:
+                        m = m.astype(_np.float32) * bscale + float(bzero)
                     if scale > 1:
                         color = self._bin_bayer(m, bayerpat)
                     else:
@@ -966,10 +1094,51 @@ class WebServer:
                     except Exception: return -1
                 log.info("FITS geometry %s: NAXIS1=%d NAXIS2=%d NAXIS3=%d BITPIX=%d",
                          device_name, _hi("NAXIS1"), _hi("NAXIS2"), _hi("NAXIS3"), _hi("BITPIX"))
+                # Diagnostic Bayer : motif déclaré + moyennes des 4 phases de
+                # la mosaïque. Tranche motif/phase d'un coup (ex. plafond
+                # blanc rendu orange = phases inattendues ou BAYERPAT faux).
+                try:
+                    import numpy as _np2
+                    _mb = _re.search(r"BAYERPAT\s*=\s*'?\s*([A-Za-z]+)", _hdr)
+                    _bpat = _mb.group(1).upper() if _mb else "-"
+                    _xo = _re.search(r"XBAYEROFF\s*=\s*([-\d\.]+)", _hdr)
+                    _yo = _re.search(r"YBAYEROFF\s*=\s*([-\d\.]+)", _hdr)
+                    _w, _h, _bpix = _hi("NAXIS1"), _hi("NAXIS2"), _hi("BITPIX")
+                    if _w > 0 and _h > 0 and _w * _h < 50_000_000:
+                        _he = data.find(b"END" + b" " * 77)
+                        _off = ((_he // 2880) + 1) * 2880 if _he != -1 else 2880
+                        _bpp = 2 if _bpix == 16 else 1 if _bpix == 8 else 0
+                        if _bpp and len(data) >= _off + _w * _h * _bpp:
+                            _raw = data[_off:_off + _w * _h * _bpp]
+                            _mbz = _re.search(r"BZERO\s*=\s*([-\d\.]+)", _hdr)
+                            _mbs = _re.search(r"BSCALE\s*=\s*([-\d\.eE]+)", _hdr)
+                            try: _bz = float(_mbz.group(1)) if _mbz else 0.0
+                            except Exception: _bz = 0.0
+                            _m = (_np2.frombuffer(_raw, dtype=">i2" if _bpp == 2 else _np2.uint8)
+                                  .reshape((_h, _w)).astype(_np2.float32) + _bz)
+                            _q = [round(float(_m[y::2, x::2].mean()), 1)
+                                  for y in (0, 1) for x in (0, 1)]
+                            _mu = (_np2.frombuffer(_raw, dtype=">u2" if _bpp == 2 else _np2.uint8)
+                                   .reshape((_h, _w)).astype(_np2.float32).mean()
+                                if _bpp == 2 else float(_m.mean()))
+                            log.info("BAYER %s: pat=%s xoff=%s yoff=%s quads00/01/10/11=%s bzero=%s bscale=%s umean=%.1f",
+                                     device_name, _bpat,
+                                     _xo.group(1) if _xo else "0",
+                                     _yo.group(1) if _yo else "0", _q,
+                                     _mbz.group(1) if _mbz else "-",
+                                     _mbs.group(1) if _mbs else "-",
+                                     round(float(_mu), 1))
+                except Exception:  # noqa: BLE001
+                    pass
             except Exception:  # noqa: BLE001
                 pass
         if not self._ws_clients:
             log.warning("No WS clients for %s — image kept for save, preview will retry on next WS connect", device_name)
+        # Id de pose pour la déduplication côté UI (preview + final = 1 affichage).
+        exp_id = self._exposure_id(device_name)
+        # Durée acquisition→transfert (EXPOSE START → BLOB reçu) : affichée
+        # dans l'UI (ligne d'info aperçu) en plus du log BUDGET.
+        xfer_s = round(t_inline - t_expose, 1) if t_expose else None
         # >2 Mo FITS → JPEG vignette + pleine résolution (évite 77 Mo FITS sur WS)
         if fmt.lower().endswith("fits") and len(data) > 2 * 1024 * 1024:
             # Vignette 1024 synchrone (rapide, aperçu immédiat) ; pleine
@@ -984,7 +1153,7 @@ class WebServer:
             except Exception as e:  # noqa: BLE001
                 log.warning("vignette thread failed: %s", e)
             if thumb_vignette:
-                self._push_jpg(device_name, thumb_vignette, "vignette", "final")
+                self._push_jpg(device_name, thumb_vignette, "vignette", "final", exp_id, xfer_s)
                 import time as _t3
                 _dt_v = _t3.monotonic() - t_inline
                 log.info("Broadcast JPEG vignette %d KB for %s (src FITS %d KB)", len(thumb_vignette)//1024, device_name, len(data)//1024)
@@ -996,7 +1165,7 @@ class WebServer:
             if _old is not None and not _old.done():
                 _old.cancel()
             self._pleine_task = asyncio.get_running_loop().create_task(
-                self._build_and_broadcast_pleine(device_name, data))
+                self._build_and_broadcast_pleine(device_name, data, exp_id, xfer_s))
             return
         if is_jpeg:
             # Preview JPEG du driver (ex. CCD_PREVIEW_IMAGE, ~7s après la
@@ -1023,18 +1192,18 @@ class WebServer:
                     _pv = None
                     log.warning("preview vignette failed for %s: %s", device_name, e)
                 if _pv:
-                    self._push_jpg(device_name, _pv, "vignette", "preview")
+                    self._push_jpg(device_name, _pv, "vignette", "preview", exp_id, xfer_s)
                     log.info("Preview JPEG %s: vignette dérivée %d KB",
                              device_name, len(_pv)//1024)
                     self._last_thumb = _pv
                     self._last_thumb_device = device_name
                     self._last_thumb_vignette = _pv
-                self._push_jpg(device_name, data, "pleine", "preview")
+                self._push_jpg(device_name, data, "pleine", "preview", exp_id, xfer_s)
                 self._last_thumb_pleine = data
                 self._last_thumb_pleine_device = device_name
                 return
             if variant:
-                self._push_jpg(device_name, data, variant, "preview")
+                self._push_jpg(device_name, data, variant, "preview", exp_id, xfer_s)
                 return
             # Dimensions illisibles : diffusion brute sans variant (legacy).
         b64 = base64.b64encode(data).decode("ascii")
@@ -1042,6 +1211,8 @@ class WebServer:
             "type": "image",
             "device": device_name,
             "format": fmt,
+            "exposure": exp_id,
+            "xfer": xfer_s,
             "data": b64,
         })
         loop = asyncio.get_running_loop()
@@ -1066,19 +1237,155 @@ class WebServer:
         except Exception:
             return None
 
-    def _push_jpg(self, device_name: str, jpg: bytes, variant: str, stage: str = "final") -> None:
+    def _exposure_id(self, device_name: str):
+        """Identifiant de la pose en cours (EXPOSE START du driver).
+
+        Le preview JPEG et le FITS final d'une même pose partagent le même
+        id — l'UI n'affiche que la première image reçue par pose (plus de
+        double affichage aperçu → définitif). Les mesures (HFR, stats)
+        restent calculées sur le FITS côté serveur, en pleine dynamique.
+        """
+        try:
+            from indigo.devices.camera import _EXPOSE_STARTS
+            exp = _EXPOSE_STARTS.get(device_name) or 0
+            if exp:
+                return exp
+            cam = self.registry.get_camera(device_name)
+            exp = getattr(cam, "_last_expose_start", 0) or 0
+            if exp:
+                return exp
+            # Dernier recours : la caméra qui expose en ce moment est celle
+            # au timestamp le plus récent. (Dégrade en double affichage au
+            # pire, jamais en écran noir.)
+            best = 0
+            for dev in self.registry.all_devices().values():
+                try:
+                    v = getattr(dev, "_last_expose_start", 0) or 0
+                    if v > best:
+                        best = v
+                except Exception:  # noqa: BLE001
+                    continue
+            return best
+        except Exception:  # noqa: BLE001
+            return 0
+
+    # ── Réglages par device (persistés dans le profil actif) ──────
+
+    # Props exclues du snapshot : connexion, état d'expo en cours, transfert
+    # BLOB (géré serveur), port monture (champ dédié mount_endpoint).
+    _SETTINGS_SKIP = ("CONNECTION", "CCD_EXPOSURE", "CCD_PREVIEW",
+                      "UPLOAD_MODE", "UPLOAD_SETTINGS", "DEVICE_PORT",
+                      "DEVICE_PORTS", "CONNECTION_PORT")
+
+    def _snapshot_device_settings(self, device_name: str) -> dict:
+        """Photographie les réglages modifiables d'un device.
+
+        switch/number/text inscriptibles uniquement. Retourne
+        {PROP: {item: value}}.
+        """
+        dev = self.registry.get(device_name)
+        if not dev:
+            return {"error": f"device '{device_name}' not found"}
+        out: dict = {}
+        try:
+            props = dev.all_properties()
+        except Exception:  # noqa: BLE001
+            return {"error": "no properties known yet"}
+        for pname, pv in props.items():
+            try:
+                if pname in self._SETTINGS_SKIP:
+                    continue
+                vtype = pv.vector_type.value
+                if vtype not in ("switch", "number", "text"):
+                    continue
+                if getattr(pv, "perm", "ro") == "ro":
+                    continue
+                items = {}
+                for it in pv.items:
+                    v = it.value
+                    if isinstance(v, bool):
+                        items[it.name] = v
+                    elif isinstance(v, (int, float)):
+                        items[it.name] = v
+                    elif isinstance(v, str) and v:
+                        items[it.name] = v
+                if items:
+                    out[pname] = items
+            except Exception:  # noqa: BLE001
+                continue
+        return {"ok": True, "device": device_name, "settings": out}
+
+    async def _apply_device_settings(self, device_name: str, settings: dict) -> dict:
+        """Rejoue des réglages sauvegardés (best-effort, par item connu)."""
+        dev = self.registry.get(device_name)
+        if not dev:
+            return {"error": f"device '{device_name}' not found"}
+        if not isinstance(settings, dict) or not settings:
+            return {"ok": True, "applied": [], "skipped": []}
+        applied, skipped = [], []
+        for pname, items in settings.items():
+            if pname in self._SETTINGS_SKIP or not isinstance(items, dict):
+                skipped.append(pname)
+                continue
+            try:
+                pv = dev.get_prop(pname)
+                if not pv:
+                    skipped.append(pname)
+                    continue
+                vtype = pv.vector_type.value
+                if vtype == "switch":
+                    is_many = getattr(pv, "rule", None) == "AnyOfMany"
+                    full = []
+                    for it in pv.items:
+                        if it.name in items:
+                            full.append({"name": it.name, "value": bool(items[it.name])})
+                        elif is_many:
+                            full.append({"name": it.name, "value": bool(it.value)})
+                        else:
+                            full.append({"name": it.name, "value": False})
+                    await dev.send_switch(pname, full)
+                    applied.append(pname)
+                elif vtype == "number":
+                    nums = [{"name": it.name, "value": float(items[it.name])}
+                            for it in pv.items if it.name in items]
+                    if not nums:
+                        skipped.append(pname)
+                        continue
+                    await dev.send_number(pname, nums)
+                    applied.append(pname)
+                elif vtype == "text":
+                    txts = [{"name": it.name, "value": str(items[it.name])}
+                            for it in pv.items if it.name in items]
+                    if not txts:
+                        skipped.append(pname)
+                        continue
+                    await dev.send_text(pname, txts)
+                    applied.append(pname)
+                else:
+                    skipped.append(pname)
+            except Exception as e:  # noqa: BLE001
+                log.warning("Apply settings %s.%s failed: %s", device_name, pname, e)
+                skipped.append(pname)
+        log.info("Applied settings for %s: %s (skipped: %s)",
+                 device_name, applied, skipped)
+        return {"ok": True, "applied": applied, "skipped": skipped}
+
+    def _push_jpg(self, device_name: str, jpg: bytes, variant: str, stage: str = "final", exposure=None, xfer=None) -> None:
         """Diffuse un JPEG (vignette/pleine) à tous les clients WS.
 
         stage: 'preview' (JPEG driver, rapide, provisoire) ou 'final'
-        (dérivé du FITS) — l'UI l'affiche en badge pour éviter la
-        confusion quand l'image change d'aspect quelques secondes après.
+        (dérivé du FITS). exposure: id de pose (cf. _exposure_id).
         """
+        if exposure is None:
+            exposure = self._exposure_id(device_name)
         payload = json.dumps({
             "type": "image",
             "device": device_name,
             "format": "jpg",
             "variant": variant,
             "stage": stage,
+            "exposure": exposure,
+            "xfer": xfer,
             "data": base64.b64encode(jpg).decode("ascii"),
         })
         try:
@@ -1094,7 +1401,7 @@ class WebServer:
         except Exception:
             self._safe_remove_client(ws)
 
-    async def _build_and_broadcast_pleine(self, device_name: str, data: bytes) -> None:
+    async def _build_and_broadcast_pleine(self, device_name: str, data: bytes, exposure=0, xfer=None) -> None:
         """Fabrique le JPEG pleine résolution en fond et le diffuse.
 
         N'est jamais sur le chemin critique : le FITS est déjà stocké et
@@ -1110,7 +1417,7 @@ class WebServer:
         if not thumb:
             log.warning("pleine thumb empty for %s — skipped", device_name)
             return
-        self._push_jpg(device_name, thumb, "pleine")
+        self._push_jpg(device_name, thumb, "pleine", "final", exposure, xfer)
         log.info("Broadcast JPEG pleine résolution %d KB for %s (src FITS %d KB) [fond]",
                  len(thumb)//1024, device_name, len(data)//1024)
         self._last_thumb_pleine = thumb

@@ -67,6 +67,43 @@ def _scan_serial_ports() -> list[dict]:
     return ports
 
 
+async def _wait_connected_state(server, device_name: str, want: bool, timeout_s: float = 5.0) -> bool:
+    """Attend la confirmation du driver (connecté/déconnecté).
+
+    Sans ça, l'UI annonce un succès que le driver n'a jamais confirmé
+    (cas SVBONY : disconnect ignoré en silence après changement de mode).
+    """
+    import asyncio as _aio
+    import time as _t
+    deadline = _t.monotonic() + timeout_s
+    while _t.monotonic() < deadline:
+        dev = server.registry.get(device_name)
+        if dev is not None and bool(dev.connected) == want:
+            return True
+        await _aio.sleep(0.2)
+    return False
+
+
+def complete_switch_vector(rule, known_items: list, want: dict) -> list:
+    """Complète un vecteur switch partiel pour l'envoi driver.
+
+    rule: valeur de règle ("AnyOfMany" ou autre) ; known_items: [(name, value)]
+    connus du def ; want: {name: value} demandés. Règle exclusive : les
+    autres items à Off ; AnyOfMany : valeurs courantes conservées.
+    Pure (testable sans INDIGO).
+    """
+    is_many = rule == "AnyOfMany"
+    full = []
+    for name, cur in known_items:
+        if name in want:
+            full.append({"name": name, "value": bool(want[name])})
+        elif is_many:
+            full.append({"name": name, "value": bool(cur)})
+        else:
+            full.append({"name": name, "value": False})
+    return full
+
+
 def register(app, server: "WebServer") -> None:
     async def _connect_device(device_name: str) -> dict:
         if not device_name:
@@ -97,7 +134,9 @@ def register(app, server: "WebServer") -> None:
                         break
         except Exception:  # noqa: BLE001
             pass
-        # Determine the correct item name for CONNECT
+        # Vecteur CONNECTION complet (CONNECTED On, DISCONNECTED Off) —
+        # un partiel est ignoré par certains drivers.
+        from indigo.registry import connection_vector
         item_name = server.registry._connect_item_names.get(device_name, "CONNECT")
         conn_prop = dev.get_prop("CONNECTION")
         if conn_prop:
@@ -108,7 +147,17 @@ def register(app, server: "WebServer") -> None:
         # remonte via ws:state (pv.message) pour demander le port à l'utilisateur.
         server.registry._auto_connecting.discard(device_name)
         log.info("Manual connect: %s (item=%s)", device_name, item_name)
-        server.registry._schedule_connect(device_name, item_name)
+        if not server.registry.client.connected:
+            return {"error": "not connected to INDIGO server"}
+        server.registry._disconnecting.discard(device_name)
+        _payload = (connection_vector([it.name for it in conn_prop.items], True)
+                    if conn_prop and conn_prop.items
+                    else [{"name": item_name, "value": True}])
+        if not server.registry._schedule_connect(device_name, _payload):
+            return {"error": "connect not sent (client event loop unavailable)"}
+        if not await _wait_connected_state(server, device_name, True, timeout_s=8.0):
+            return {"error": f"device '{device_name}' did not confirm connection "
+                             "(driver not responding — restart it on the INDIGO server?)"}
         return {"ok": True, "device": device_name}
 
     async def _disconnect_device(device_name: str) -> dict:
@@ -119,16 +168,31 @@ def register(app, server: "WebServer") -> None:
             return {"error": f"device '{device_name}' not found"}
         item_name = server.registry._connect_item_names.get(device_name, "CONNECT")
         conn_prop = dev.get_prop("CONNECTION")
+        from indigo.registry import connection_vector
         if conn_prop:
             connect_item = conn_prop.get_item("CONNECT") or conn_prop.get_item("CONNECTED")
             if connect_item:
                 item_name = connect_item.name
         server.registry._auto_connecting.discard(device_name)
+        server.registry._disconnecting.add(device_name)
+        # Déconnecter = DISCONNECTED On (un vecteur tout-Off est ignoré).
+        _payload = (connection_vector([it.name for it in conn_prop.items], False)
+                    if conn_prop and conn_prop.items
+                    else [{"name": item_name, "value": False}])
+        try:
+            from indigo.protocol import build_new_switch_vector
+            log.info("TX %s", build_new_switch_vector(
+                device_name, "CONNECTION", _payload).replace("\n", " "))
+        except Exception:  # noqa: BLE001
+            log.info("TX %s CONNECTION <= %s", device_name, _payload)
         await server.registry.client.send_new_switch(
-            device_name, "CONNECTION", [{"name": item_name, "value": False}])
+            device_name, "CONNECTION", _payload)
         # Marque comme déjà tenté pour éviter un re-connect auto sur le prochain def
         server.registry._auto_connecting.add(device_name)
         log.info("Manual disconnect: %s (item=%s)", device_name, item_name)
+        if not await _wait_connected_state(server, device_name, False, timeout_s=5.0):
+            return {"error": f"device '{device_name}' did not confirm disconnection "
+                             "(driver not responding — restart it on the INDIGO server?)"}
         return {"ok": True, "device": device_name}
 
     @app.get("/api/devices")
@@ -264,6 +328,49 @@ def register(app, server: "WebServer") -> None:
     async def delete_profile(body: dict):
         return server.profiles.delete(body.get("name", ""))
 
+    @app.post("/api/profiles/device-settings")
+    async def save_device_settings(body: dict):
+        """Mémorise les réglages d'un device dans un profil.
+
+        body = {"device": "...", "profile": "..." (défaut: actif),
+                "settings": {...} (défaut: snapshot actuel du device)}.
+        Persisté dans profiles.yaml → réappliqué à chaque connexion.
+        """
+        device_name = body.get("device", "")
+        if not device_name:
+            return {"error": "no device specified"}
+        profile_name = body.get("profile") or (
+            server.profiles.list_profiles().get("active"))
+        if not profile_name:
+            return {"error": "no active profile (create one first)"}
+        settings = body.get("settings")
+        if settings is None:
+            snap = server._snapshot_device_settings(device_name)
+            if snap.get("error"):
+                return snap
+            settings = snap["settings"]
+        res = server.profiles.set_device_settings(profile_name, device_name, settings)
+        if res.get("ok"):
+            res["profile"] = profile_name
+            res["device"] = device_name
+        return res
+
+    @app.post("/api/profiles/apply-settings")
+    async def apply_device_settings(body: dict):
+        """Rejoue immédiatement les réglages sauvegardés d'un device."""
+        device_name = body.get("device", "")
+        if not device_name:
+            return {"error": "no device specified"}
+        profile_name = body.get("profile") or (
+            server.profiles.list_profiles().get("active"))
+        prof = server.profiles.get(profile_name) if profile_name else None
+        if not prof:
+            return {"error": f"profile '{profile_name}' not found"}
+        settings = (prof.get("device_settings") or {}).get(device_name)
+        if not settings:
+            return {"error": f"no saved settings for '{device_name}'"}
+        return await server._apply_device_settings(device_name, settings)
+
     @app.post("/api/profiles/apply")
     async def apply_profile(body: dict):
         """Activate a profile and connect all devices it references."""
@@ -398,7 +505,17 @@ def register(app, server: "WebServer") -> None:
 
         vtype = pv.vector_type.value
         if vtype == "switch":
-            await dev.send_switch(prop_name, items)
+            # Vecteur COMPLET exigé par les drivers (cf. expose() : un
+            # vecteur partiel est rejeté — c'est ce qui rendait le clic
+            # CCD_MODE inopérant). Règle exclusive : les autres items à Off ;
+            # AnyOfMany : on conserve les valeurs courantes connues.
+            # (PropRule est un str-Enum : comparaison par valeur dans le helper.)
+            want = {it.get("name"): bool(it.get("value")) for it in items
+                    if isinstance(it, dict) and it.get("name")}
+            known = [(it.name, bool(it.value)) for it in pv.items]
+            full = complete_switch_vector(getattr(pv, "rule", None), known, want)
+            await dev.send_switch(prop_name, full)
+            items = full
         elif vtype == "number":
             await dev.send_number(prop_name, items)
         elif vtype == "text":

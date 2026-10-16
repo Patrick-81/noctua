@@ -893,7 +893,19 @@ function renderHardwareModeProps(force) {
     const propsEl = hwPropsContainer();
     const titleEl = document.getElementById('hwprops-title-name');
     if (!propsEl) return;
-    if (document.activeElement && propsEl.contains(document.activeElement)) return;
+    // Ne fige le panneau que pendant une saisie texte/nombre (évite de
+    // perdre la frappe). Boutons et cases : la reconstruction suit le clic,
+    // sinon l'affichage reste figé sur l'ancien état (le bouton cliqué garde
+    // le focus et bloquait tout rebuild du stream).
+    const _ae = document.activeElement;
+    if (_ae && propsEl.contains(_ae) && _ae.tagName === 'INPUT'
+        && (_ae.type === 'text' || _ae.type === 'number')) return;
+    // Le stream reconstruit le DOM en continu : un rebuild entre mousedown
+    // et click remplace le bouton sous le curseur et le clic se perd
+    // (impression de boutons insensibles). On gèle tant que la souris est
+    // sur le panneau — le refresh suit dès qu'elle le quitte. Force explicite
+    // (ouverture panneau, réappliquer) : passe outre.
+    if (!force) try { if (propsEl.matches(':hover')) return; } catch (e) { /* match CSS KO */ }
     if (titleEl) titleEl.textContent = _hwModeDevice || '';
     // On ne touche au display que pour masquer (jamais de forçage visible sur
     // le stream : le layout/minimize de l'utilisateur reste maître).
@@ -925,6 +937,38 @@ function initHardwareMode() {
         e.stopPropagation();
         const panel = document.getElementById('applet-hwprops');
         if (panel) panel.style.display = 'none';
+    });
+    // Sauvegarde / réapplication des réglages du device dans le profil actif.
+    const saveBtn = document.getElementById('hwprops-save');
+    if (saveBtn) saveBtn.addEventListener('click', async () => {
+        if (!_hwModeDevice) return;
+        try {
+            const r = await fetch('/api/profiles/device-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: _hwModeDevice }),
+            }).then(r => r.json());
+            if (r.error) addLog('error', 'hw', i18nFmt('hw.settings_error', { device: _hwModeDevice, err: r.error }));
+            else addLog('info', 'hw', i18nFmt('hw.settings_saved', { device: _hwModeDevice, profile: r.profile || '?' }));
+        } catch (e) {
+            addLog('error', 'hw', i18nFmt('hw.settings_error', { device: _hwModeDevice, err: e.message }));
+        }
+    });
+    const applyBtn = document.getElementById('hwprops-apply');
+    if (applyBtn) applyBtn.addEventListener('click', async () => {
+        if (!_hwModeDevice) return;
+        try {
+            const r = await fetch('/api/profiles/apply-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ device: _hwModeDevice }),
+            }).then(r => r.json());
+            if (r.error) addLog('error', 'hw', i18nFmt('hw.settings_error', { device: _hwModeDevice, err: r.error }));
+            else addLog('info', 'hw', i18nFmt('hw.settings_applied', { device: _hwModeDevice, applied: (r.applied || []).join(', ') || '—' }));
+            renderHardwareModeProps(true);
+        } catch (e) {
+            addLog('error', 'hw', i18nFmt('hw.settings_error', { device: _hwModeDevice, err: e.message }));
+        }
     });
 }
 
