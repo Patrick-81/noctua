@@ -783,6 +783,25 @@ class WebServer:
         return _cb
 
     @staticmethod
+    def _shift_bayer(pattern, xoff=0, yoff=0):
+        """Motif Bayer équivalent vu depuis un décalage de phase.
+
+        pattern indexé y*2+x. XBAYROFF/YBAYROFF impairs permutent les
+        colonnes/lignes du quad 2×2 (ex. GRBG + XBAYROFF=1 → RGGB).
+        """
+        pat = (pattern or "").upper()
+        if len(pat) != 4 or any(c not in "RGB" for c in pat):
+            return pat
+        if not (xoff & 1) and not (yoff & 1):
+            return pat
+        out = [""] * 4
+        for i, c in enumerate(pat):
+            y, x = i // 2, i % 2
+            ny, nx = (y + (yoff & 1)) % 2, (x + (xoff & 1)) % 2
+            out[ny * 2 + nx] = c
+        return "".join(out)
+
+    @staticmethod
     def _bin_bayer(mono, pattern=""):
         """Bayer -> RGB demi-résolution EXACTE (moyenne des quads 2x2).
 
@@ -850,13 +869,16 @@ class WebServer:
             return None
 
     @staticmethod
-    def _stretch_and_jpeg(arr_u8, max_side: int, is_color: bool):
+    def _stretch_and_jpeg(arr_u8, max_side: int, is_color: bool, full=None):
         """Étire (plancher bruit) + encode JPEG.
 
         arr_u8: tableau (H, W) gris ou (H, W, 3) couleur (uint8 de
         préférence, autre dtype numérique toléré). Plancher = médiane +
         3σ (MAD) : un fond sombre reste noir au lieu d'amplifier le bruit
         de lecture. Mêmes bornes sur les 3 canaux (balance préservée).
+        full: niveau de saturation capteur (ex. 65535) si connu — sert à
+        classer « champ plat/saturé » (aplat neutre) sans confondre une
+        scène réelle claire mais structurée.
         """
         import io as _io
         import numpy as _np
@@ -906,12 +928,20 @@ class WebServer:
             hi = float(_np.percentile(sample, 99.5))
             # Plancher adaptatif : ciel astro (queue brillante : étoiles, max
             # loin de la médiane) → médiane + 3σ, le fond reste noir sans
-            # amplifier le bruit ; champ plat (plafond, bias/flat, capteur
-            # saturé : max dans le bruit) → min des données.
-            flat_field = (float(_np.max(sample)) - med) <= max(50.0, 20.0 * sigma)
-            lo = float(_np.min(sample)) if flat_field else med + 3.0 * sigma
+            # amplifier le bruit ; champ plat/saturé UNIQUEMENT : capteur à
+            # saturation (med ≥ 90 % pleine échelle) ou uniforme dans le bruit
+            # (max−med ≤ 8σ). Un seuil large (20σ) classait à tort une scène
+            # réelle claire mais STRUCTURÉE (plafond SV305, σ gonflé par la
+            # structure) en champ plat → aplat gris quasi blanc.
+            _maxv = float(_np.max(sample))
+            _minv = float(_np.min(sample))
+            _full = float(full) if (full and full > 0) else max(hi, _maxv)
+            flat_field = (med >= 0.9 * _full) or ((_maxv - med) <= max(50.0, 8.0 * sigma))
+            lo = _minv if flat_field else med + 3.0 * sigma
             if not hi > lo:
-                hi = lo + 1.0
+                # Queue brillante < 0,5 % des pixels : le percentile est sous le
+                # plancher. Sans repli sur le max on écraserait TOUT en noir.
+                hi = max(_maxv, lo + 1.0)
             if flat_field:
                 # Aucune scène à étirer (champ plat/saturé) : étirer le bruit
                 # de lecture sur toute la dynamique le colore (moucheture
@@ -984,6 +1014,14 @@ class WebServer:
                 return None
             m_bayer = _re.search(r"BAYERPAT\s*=\s*'?\s*([A-Za-z]+)", hdr)
             bayerpat = m_bayer.group(1).upper() if m_bayer else ""
+            # XBAYROFF/YBAYROFF décalent la phase du motif (ex. SV305PRO :
+            # BAYERPAT=GRBG + XBAYROFF=1 ⇒ phase réelle RGGB). Les ignorer
+            # permute les canaux au dématriçage → dominante de couleur.
+            m_xb = _re.search(r"XBAYROFF\s*=\s*([-\d]+)", hdr)
+            m_yb = _re.search(r"YBAYROFF\s*=\s*([-\d]+)", hdr)
+            xoff = (int(m_xb.group(1)) & 1) if m_xb else 0
+            yoff = (int(m_yb.group(1)) & 1) if m_yb else 0
+            bayerpat = self._shift_bayer(bayerpat, xoff, yoff)
             # Notation scientifique tolérée (BZERO écrit « 3.2768E+04 » par
             # certains drivers) : sinon l'offset est tronqué (3.2768) et les
             # valeurs restent négatives → balance sautée → image teintée.
@@ -1000,6 +1038,9 @@ class WebServer:
             if not (bscale > 0 or bscale < 0):
                 bscale = 1.0
             bpp = 2 if bitpix == 16 else 1 if bitpix == 8 else 4 if bitpix == -32 else 2
+            # Niveau de saturation capteur (pour distinguer un champ plat/saturé
+            # d'une scène réelle sombre). Inconnu en float → None (dérivé).
+            _full = 65535.0 if bitpix == 16 else 255.0 if bitpix == 8 else None
             naxis3 = _geti("NAXIS3")
             planes = naxis3 if naxis == 3 and naxis3 else 1
             hdr_end = data.find(b"END" + b" " * 77)
@@ -1069,7 +1110,7 @@ class WebServer:
                 except Exception:
                     color = None
             if color is not None:
-                return self._stretch_and_jpeg(color, max_side, True)
+                return self._stretch_and_jpeg(color, max_side, True, _full)
             # Mono (ou repli) : pipeline historique, plancher anti-bruit.
             try:
                 arr = arr.reshape((h, w))
@@ -1077,7 +1118,7 @@ class WebServer:
                 return None
             if scale > 1:
                 arr = arr[::scale, ::scale]
-            return self._stretch_and_jpeg(arr, max_side, False)
+            return self._stretch_and_jpeg(arr, max_side, False, _full)
         except Exception as e:  # noqa: BLE001
             log.warning("thumb failed (fallback full): %s", e)
             return None

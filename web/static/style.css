@@ -766,9 +766,10 @@ body {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    flex: 1;
+    flex-basis: 100%;
     min-width: 0;
-    text-align: right;
+    text-align: left;
+    margin-top: 1px;
 }
 
 /* Preview viewport + zoom */

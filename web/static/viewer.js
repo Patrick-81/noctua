@@ -142,7 +142,7 @@ class Viewer {
 
     // Remise à zéro à changement de caméra : pas d'image périmée affichée.
     clear(msg) {
-        this.pixels = null; this.pixelsRGB = null; this.rgbBal = null;
+        this.pixels = null; this.pixelsRGB = null; this.skyC = null;
         this._statsHist = null; this.imgW = 0; this.imgH = 0;
         this.imgMax = 0; this.sky = 0;
         try {
@@ -245,7 +245,13 @@ class Viewer {
         // pleine dynamique (float, pas de passage 8 bits). Sans ça, la
         // mosaïque affichée en mono donne une « grille » sur les surfaces
         // claires. pixels = luma (mesure/HFR), pixelsRGB = couleur.
-        const bayerpat = String(get('BAYERPAT') || '').toUpperCase();
+        // XBAYROFF/YBAYROFF décalent la phase du motif (ex. SV305PRO :
+        // BAYERPAT=GRBG + XBAYROFF=1 ⇒ phase réelle RGGB). Les ignorer
+        // permute les canaux au dématriçage ⇒ dominante chaude (orange).
+        let bayerpat = String(get('BAYERPAT') || '').toUpperCase();
+        const xoff = (parseInt(get('XBAYROFF') || '0', 10) & 1) ? 1 : 0;
+        const yoff = (parseInt(get('YBAYROFF') || '0', 10) & 1) ? 1 : 0;
+        bayerpat = Viewer.shiftBayer(bayerpat, xoff, yoff);
         if (nplanes === 1 && /^[RGB]{4}$/.test(bayerpat)) {
             const deb = Viewer.debayer(pixels, w, h, bayerpat);
             if (deb) {
@@ -254,21 +260,13 @@ class Viewer {
                 pixelsRGB = deb;
             }
         }
-        // Balance des blancs d'affichage (display-only) : médiane par canal
-        // sur échantillon — sinon le stretch global teinte l'image (ex.
-        // surface blanche → orange si le canal B est plus faible). Les
-        // mesures (HFR, stats) restent sur la luma non modifiée.
-        let rgbBal = null;
-        if (pixelsRGB) {
-            const step = Math.max(1, Math.floor(planeSize / 200000));
-            const samples = [[], [], []];
-            for (let i = 0; i < planeSize; i += step)
-                for (let c = 0; c < 3; c++) samples[c].push(pixelsRGB[i * 3 + c]);
-            const med = (a) => { a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)] || 0; };
-            const skyC = [med(samples[0]), med(samples[1]), med(samples[2])];
-            const ref = Math.max(skyC[0], skyC[1], skyC[2]) || 1;
-            rgbBal = skyC.map((s) => (s > 0 ? ref / s : 1));
-        }
+        // Fond neutralisé pour l'affichage (display-only) : on soustrait
+        // la médiane PROPRE à chaque canal (et non une luma commune) au
+        // moment du stretch, sinon le canal au fond le plus élevé reste
+        // positif ⇒ dominante de couleur sur tout le fond. Les mesures
+        // (HFR, stats) restent sur la luma non modifiée. Calculé après
+        // résolution couleur (Bayer ci-dessus, RGB8 ci-dessous).
+        let skyC = null;
         if (nplanes === 3 && bitpix === 8) {
             const gchan = new Float32Array(planeSize);
             const bchan = new Float32Array(planeSize);
@@ -284,6 +282,18 @@ class Viewer {
                 }
                 pixelsRGB = rgb;
             }
+        }
+        if (pixelsRGB) {
+            // Pas IMPAIR obligatoire : un pas pair (ex. 10) n'échantillonne
+            // que les colonnes paires et, la mosaïque Bayer ayant une période
+            // de 2, biaise les médianes d'un canal (fond vert/teinté).
+            let step = Math.max(1, Math.floor(planeSize / 200000));
+            if (step % 2 === 0) step += 1;
+            const samples = [[], [], []];
+            for (let i = 0; i < planeSize; i += step)
+                for (let c = 0; c < 3; c++) samples[c].push(pixelsRGB[i * 3 + c]);
+            const med = (a) => { a.sort((x, y) => x - y); return a[Math.floor(a.length / 2)] || 0; };
+            skyC = [med(samples[0]), med(samples[1]), med(samples[2])];
         }
 
         let max = -Infinity, min = Infinity;
@@ -302,7 +312,21 @@ class Viewer {
         // Mode de stretch : 'asinh' (défaut, aperçu) ou 'linear' (MAP —
         // dynamique complète). Persisté par l'applet de MAP manuelle.
         if (this.stretchMode !== 'linear' && this.stretchMode !== 'asinh') this.stretchMode = 'asinh';
-        return { w, h, pixels, pixelsRGB, rgbBal, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma), max };
+        return { w, h, pixels, pixelsRGB, skyC, sky, soft: sigma * 0.5, k: Math.max(20, (max - sky) / sigma), max };
+    }
+
+    // Décalage de phase du motif Bayer (XBAYROFF/YBAYROFF). pattern indexé
+    // y*2+x ; on renvoie le motif équivalent vu depuis (xoff,yoff).
+    static shiftBayer(pattern, xoff, yoff) {
+        const pat = String(pattern || '').toUpperCase();
+        if (!/^[RGB]{4}$/.test(pat) || (!xoff && !yoff)) return pat;
+        const out = ['', '', '', ''];
+        for (let i = 0; i < 4; i++) {
+            const y = i >> 1, x = i & 1;
+            const ny = (y + yoff) & 1, nx = (x + xoff) & 1;
+            out[ny * 2 + nx] = pat[i];
+        }
+        return out.join('');
     }
 
     // ── Rendering ──
@@ -384,10 +408,10 @@ class Viewer {
     _renderFITS(bytes) {
         const result = this._parseFITS(bytes);
         if (!result) { this.setStatus(i18n('viewer.bad_fits'), '#ff4444'); return; }
-        const { w, h, pixels, pixelsRGB, rgbBal, sky, soft, k, max } = result;
+        const { w, h, pixels, pixelsRGB, skyC, sky, soft, k, max } = result;
         this.pixels = pixels;
         this.pixelsRGB = pixelsRGB || null;
-        this.rgbBal = rgbBal || null;
+        this.skyC = skyC || null;
         this.imgW = w;
         this.imgH = h;
         this.sky = sky;
@@ -486,11 +510,13 @@ class Viewer {
                 if (useRGB) {
                     const s = (y * w + x) * 3;
                     for (let c = 0; c < 3; c++) {
-                        const bal = (this.rgbBal && this.rgbBal[c]) || 1;
-                        const raw = this.pixelsRGB[s + c] * bal;
+                        // Fond propre au canal (display-only) : neutralise la
+                        // dominante sans affecter les mesures (luma intacte).
+                        const floor = (this.skyC && this.skyC[c] != null) ? this.skyC[c] : this.sky;
+                        const raw = this.pixelsRGB[s + c];
                         data[dst + c] = isLinear
-                            ? Viewer.linearNorm(raw, this.sky * bal, this.imgMax * bal)
-                            : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - this.sky * bal) / (this.soft * bal)) / asinhK * 255)));
+                            ? Viewer.linearNorm(raw, floor, this.imgMax)
+                            : Math.max(0, Math.min(255, Math.round(Math.asinh(Math.max(0, raw - floor) / this.soft) / asinhK * 255)));
                     }
                     data[dst + 3] = 255;
                     continue;
