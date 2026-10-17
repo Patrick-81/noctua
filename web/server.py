@@ -877,9 +877,21 @@ class WebServer:
                     _meds = [float(_np.median(_s[:, :, c])) for c in range(3)]
                     _ref = max(_meds)
                     if _ref > 0:
+                        _ratios = [(round(_ref / m, 2) if m > 0 else 1.0)
+                                   for m in _meds]
                         for _c in range(3):
                             if _meds[_c] > 0:
                                 work[:, :, _c] *= (_ref / _meds[_c])
+                        # Traçabilité terrain : une correction forte (>1.5×)
+                        # signale une dominante (éclairage chaud / offsets
+                        # mal lus) — visible dans le log serveur.
+                        if max(_ratios) > 1.5:
+                            log.info("thumb WB: medians=%s ratios=%s",
+                                     [round(m, 1) for m in _meds], _ratios)
+                    else:
+                        log.warning("thumb WB skipped: medians=%s (≤0, "
+                                    "BZERO/BSCALE non appliqué ?)",
+                                    [round(m, 1) for m in _meds])
                 except Exception:
                     pass
                 luma = work.mean(axis=2).astype(_np.float32)
@@ -894,16 +906,29 @@ class WebServer:
             hi = float(_np.percentile(sample, 99.5))
             # Plancher adaptatif : ciel astro (queue brillante : étoiles, max
             # loin de la médiane) → médiane + 3σ, le fond reste noir sans
-            # amplifier le bruit ; champ plat (plafond, bias/flat : max dans
-            # le bruit) → min des données, sinon le champ lui-même serait
-            # écrasé au noir. (Le max décide, pas un percentile : quelques
-            # étoiles faibles ne pèsent pas 0,5 % des pixels.)
-            if (float(_np.max(sample)) - med) <= max(50.0, 20.0 * sigma):
-                lo = float(_np.min(sample))
-            else:
-                lo = med + 3.0 * sigma
+            # amplifier le bruit ; champ plat (plafond, bias/flat, capteur
+            # saturé : max dans le bruit) → min des données.
+            flat_field = (float(_np.max(sample)) - med) <= max(50.0, 20.0 * sigma)
+            lo = float(_np.min(sample)) if flat_field else med + 3.0 * sigma
             if not hi > lo:
                 hi = lo + 1.0
+            if flat_field:
+                # Aucune scène à étirer (champ plat/saturé) : étirer le bruit
+                # de lecture sur toute la dynamique le colore (moucheture
+                # arc-en-ciel) alors qu'indigo_server montre un gris plat. On
+                # rend donc un aplat neutre au niveau moyen du champ.
+                x = float(_np.clip((med - lo) * (255.0 / (hi - lo)), 0.0, 255.0))
+                lvl = int(round(float(_np.arcsinh(x / 255.0 * 10) / _np.arcsinh(10)) * 255))
+                if is_color:
+                    img = _PIL.fromarray(_np.full((work.shape[0], work.shape[1], 3),
+                                                  lvl, dtype=_np.uint8), mode="RGB")
+                else:
+                    img = _PIL.fromarray(_np.full((work.shape[0], work.shape[1]),
+                                                  lvl, dtype=_np.uint8), mode="L")
+                img.thumbnail((max_side, max_side), _PIL.BILINEAR)
+                out = _io.BytesIO()
+                img.save(out, format="JPEG", quality=80, optimize=True)
+                return out.getvalue()
             if is_color:
                 out = _np.empty(work.shape, dtype=_np.uint8)
                 scale = 255.0 / (hi - lo)
@@ -959,8 +984,14 @@ class WebServer:
                 return None
             m_bayer = _re.search(r"BAYERPAT\s*=\s*'?\s*([A-Za-z]+)", hdr)
             bayerpat = m_bayer.group(1).upper() if m_bayer else ""
-            m_bzero = _re.search(r"BZERO\s*=\s*([-\d\.]+)", hdr)
-            bzero = float(m_bzero.group(1)) if m_bzero else 0.0
+            # Notation scientifique tolérée (BZERO écrit « 3.2768E+04 » par
+            # certains drivers) : sinon l'offset est tronqué (3.2768) et les
+            # valeurs restent négatives → balance sautée → image teintée.
+            m_bzero = _re.search(r"BZERO\s*=\s*([-\d\.eE+]+)", hdr)
+            try:
+                bzero = float(m_bzero.group(1)) if m_bzero else 0.0
+            except Exception:
+                bzero = 0.0
             m_bscale = _re.search(r"BSCALE\s*=\s*([-\d\.eE]+)", hdr)
             try:
                 bscale = float(m_bscale.group(1)) if m_bscale else 1.0
@@ -983,6 +1014,17 @@ class WebServer:
                 arr = _np.frombuffer(raw, dtype=">f4")
             else:
                 arr = _np.frombuffer(raw, dtype=">i2")
+            # Entête muet sur BZERO mais données 16 bits franchement
+            # négatives : unsigned stocké en int16 (offset 32768 non déclaré,
+            # vu sur certains drivers). Sans ce repli, médianes ≤ 0 → balance
+            # sautée → vignette teintée. Heuristique display-only.
+            if bitpix == 16 and bzero == 0.0 and bscale == 1.0 and arr.size:
+                try:
+                    _samp = arr[::max(1, arr.size // 200_000)]
+                    if float(_np.median(_samp)) < -1000.0:
+                        bzero = 32768.0
+                except Exception:
+                    pass
             # Échelle de travail : sous-échantillonne AVANT tout float
             # (vignette 26 Mpx → ~0.7 Mpx : 36× moins de RAM/CPU).
             scale = max(1, int(max(w, h) / max_side))
@@ -990,14 +1032,21 @@ class WebServer:
             if planes == 3:
                 # RGB INDIGO = planaire (transposé par le driver), repli
                 # entrelacé toléré. Profondeur native conservée (pas de
-                # //257 : l'étirement travaille en float).
+                # //257 : l'étirement travaille en float). BZERO/BSCALE
+                # appliqués ici AUSSI : un float négatif (unsigned 16 bits
+                # avec offset) fausse la balance gris-moyen, qui saute
+                # (médianes ≤ 0) et laisse une dominante de couleur.
                 try:
                     if arr.size == planes * h * w:
                         rgb = arr.reshape((planes, h, w)).transpose(1, 2, 0)
                     else:
                         rgb = arr.reshape((h, w, planes))
                     if rgb.shape == (h, w, 3):
-                        color = _np.ascontiguousarray(rgb[::scale, ::scale] if scale > 1 else rgb)
+                        sub = rgb[::scale, ::scale] if scale > 1 else rgb
+                        sub = _np.ascontiguousarray(sub)
+                        if bzero != 0.0 or bscale != 1.0:
+                            sub = sub.astype(_np.float32) * bscale + float(bzero)
+                        color = sub
                     else:
                         color = None
                 except Exception:

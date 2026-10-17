@@ -133,10 +133,104 @@ def test_tungsten_ceiling_balanced():
     assert sum(meds) / 3 > 100, meds  # fond clair, pas noir
 
 
+def _warm_mosaic(bzero_card, bscale_card, V):
+    """Mosaïque GRBG 16 bits d'un fond chaud R>G>B (cas SV305PRO)."""
+    rng = np.random.default_rng(21)
+    phys = np.zeros((H, W, 3))
+    phys[:, :, 0] = 12473.0
+    phys[:, :, 1] = 9689.0
+    phys[:, :, 2] = 2615.0
+    phys += rng.normal(0, 50, phys.shape)
+    mos = np.zeros((H, W), np.int32)
+    if bzero_card:
+        mos[0::2, 0::2] = (phys[0::2, 0::2, 1] - V)
+        mos[0::2, 1::2] = (phys[0::2, 1::2, 0] - V)
+        mos[1::2, 0::2] = (phys[1::2, 0::2, 2] - V)
+        mos[1::2, 1::2] = (phys[1::2, 1::2, 1] - V)
+    else:
+        for (yy, xx), ch in [((0, 0), 1), ((0, 1), 0), ((1, 0), 2), ((1, 1), 1)]:
+            mos[yy::2, xx::2] = phys[yy::2, xx::2, ch]
+    return mos
+
+
+def _neutral(jpg, tol=45):
+    d = thumb_img(jpg)
+    meds = [float(np.median(d[:, :, c])) for c in range(3)]
+    assert max(meds) - min(meds) < tol, meds
+    assert sum(meds) / 3 > 80, meds
+    return meds
+
+
+def test_rgb_planar_16bit_bzero_applies_scaling():
+    # RGB planaire (RisingCam) : le BZERO doit s'appliquer comme en Bayer,
+    # sinon les valeurs restent négatives → balance sautée → canaux inversés.
+    rng = np.random.default_rng(3)
+    phys = np.zeros((H, W, 3))
+    phys[:, :, 0], phys[:, :, 1], phys[:, :, 2] = 12473.0, 9689.0, 2615.0
+    phys += rng.normal(0, 50, phys.shape)
+    stored = (phys - 32768).astype(np.int16)
+    planar = np.stack([stored[:, :, 0], stored[:, :, 1], stored[:, :, 2]], axis=0)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    16",
+                    "NAXIS   =                    3", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "NAXIS3  =                    3",
+                    "BZERO   =                32768", "END"])
+    _neutral(WS._jpeg_thumb(hdr + planar.astype(">i2").tobytes(), 320))
+
+
+def test_bayer_bzero_scientific_notation():
+    # Certains drivers écrivent BZERO en notation scientifique (E). Sans
+    # prise en charge, l'offset est tronqué (3.2768) et la vignette teinte.
+    mos = _warm_mosaic(True, False, 32768)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    16",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'",
+                    "BZERO   =        3.2768000000000E+04", "END"])
+    _neutral(WS._jpeg_thumb(hdr + mos.astype(">i2").tobytes(), 320))
+
+
+def test_bayer_negative_int16_autodetect_offset():
+    # Entête sans BZERO mais données 16 bits négatives (offset 32768 non
+    # déclaré) : le repli doit rétablir un rendu neutre, pas saturer R/G.
+    mos = _warm_mosaic(False, False, 0)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    16",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'", "END"])
+    _neutral(WS._jpeg_thumb(hdr + mos.astype(">i2").tobytes(), 320))
+
+
+def test_saturated_flat_field_stays_neutral():
+    # Cas terrain : capteur saturé (~99 % plein-échelle), champ quasi
+    # uniforme (plafond lumineux). Le bruit de lecture ne doit PAS être
+    # étiré sur toute la dynamique (moucheture arc-en-ciel) : aplat neutre.
+    rng = np.random.default_rng(9)
+    phys = np.full((H, W, 3), 64631.0)
+    phys[:, :, 0] += 300.0
+    phys[:, :, 2] -= 800.0
+    phys += rng.normal(0, 120, phys.shape)
+    mos = np.zeros((H, W), np.int32)
+    mos[0::2, 0::2] = (phys[0::2, 0::2, 1] - 32768)
+    mos[0::2, 1::2] = (phys[0::2, 1::2, 0] - 32768)
+    mos[1::2, 0::2] = (phys[1::2, 0::2, 2] - 32768)
+    mos[1::2, 1::2] = (phys[1::2, 1::2, 1] - 32768)
+    hdr = fits_hdr(["SIMPLE  =                    T", "BITPIX  =                    16",
+                    "NAXIS   =                    2", f"NAXIS1  =                 {W}",
+                    f"NAXIS2  =                 {H}", "BAYERPAT= 'GRBG'",
+                    "BZERO   =                32768", "END"])
+    d = thumb_img(WS._jpeg_thumb(hdr + mos.astype(">i2").tobytes(), 320))
+    meds = [float(np.median(d[:, :, c])) for c in range(3)]
+    assert max(meds) - min(meds) < 12, meds
+    spread = float(np.percentile(d, 99)) - float(np.percentile(d, 1))
+    assert spread < 20, spread
+
+
 if __name__ == "__main__":
     for fn in (test_rgb_planar_keeps_color, test_bayer_debayer_color,
                 test_bayer_16bit_faint_stars_survive, test_dark_stays_black,
-                test_tungsten_ceiling_balanced):
+                test_tungsten_ceiling_balanced,
+                test_rgb_planar_16bit_bzero_applies_scaling,
+                test_bayer_bzero_scientific_notation,
+                test_bayer_negative_int16_autodetect_offset,
+                test_saturated_flat_field_stays_neutral):
         print(f"{fn.__name__} ...")
         fn()
     print("THUMB OK")
