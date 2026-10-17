@@ -1083,13 +1083,13 @@ class WebServer:
             return None
 
     def _fits_bin(self, data: bytes, factor: int = 2) -> bytes | None:
-        """FITS 16 bits → FITS binning « factor » (moyenne de blocs).
+        """FITS → FITS binning « factor » (moyenne de blocs), tout BITPIX.
 
-        Sert l'AFFICHAGE navigateur des gros capteurs (ex. RisingCam ~58 Mo) :
-        le transfert et la mémoire du viewer sont divisés par factor². Les
-        analyses (astrométrie, tilt, mise au point, autoguidage) restent sur le
-        FITS complet conservé côté serveur — ce binning ne les touche pas.
-        Retourne None si non applicable (BITPIX≠16, entête illisible).
+        Sert l'AFFICHAGE navigateur des gros capteurs (ex. RisingCam ATR2600C :
+        8 bits RGB 6224×4168 = 74 Mo) : le transfert et la mémoire du viewer
+        sont divisés par factor². Les analyses (astrométrie, tilt, mise au point,
+        autoguidage) restent sur le FITS complet conservé côté serveur — ce
+        binning ne les touche pas. Retourne None si non applicable.
         """
         try:
             import numpy as _np
@@ -1120,14 +1120,23 @@ class WebServer:
             w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS")
             bitpix = _geti("BITPIX"); naxis3 = _geti("NAXIS3")
             planes = naxis3 if naxis == 3 and naxis3 else 1
-            if bitpix != 16 or not w or not h or w * h * planes > 100_000_000:
+            if not w or not h or w * h * planes > 200_000_000:
                 return None
+            # (dtype lecture, dtype sortie, BITPIX sortie)
+            _tmap = {8: (_np.uint8, _np.uint8, 8), 16: (">i2", ">i2", 16),
+                     32: (">i4", ">i4", 32), -32: (">f4", ">f4", -32),
+                     -64: (">f8", ">f8", -64), 64: (">f8", ">f8", -64)}
+            if bitpix not in _tmap:
+                return None
+            in_dt, out_dt, out_bitpix = _tmap[bitpix]
+            bpp = _np.dtype(in_dt).itemsize
             hdr_end = data.find(b"END" + b" " * 77)
             off = ((hdr_end // 2880) + 1) * 2880 if hdr_end != -1 else 2880
-            need = w * h * planes * 2
+            need = w * h * planes * bpp
             if len(data) < off + need:
                 return None
-            arr = _np.frombuffer(data[off:off + need], dtype=">i2").astype(_np.float32)
+            fdt = _np.float64 if out_bitpix == -64 else _np.float32
+            arr = _np.frombuffer(data[off:off + need], dtype=in_dt).astype(fdt)
             if bzero != 0.0 or bscale != 1.0:
                 arr = arr * bscale + float(bzero)
             arr = arr.reshape((planes, h, w)) if planes == 3 else arr.reshape((h, w))
@@ -1137,11 +1146,20 @@ class WebServer:
                 return None
             a = arr[..., :hh, :ww].reshape(arr.shape[:-2] + (hh // f, f, ww // f, f)).mean(axis=(-1, -3))
             nh, nw = hh // f, ww // f
-            stored = _np.rint((a - float(bzero)) / bscale) if bscale != 0 else (a - float(bzero))
-            body = _np.clip(stored, -32768, 32767).astype(">i2").tobytes()
-            cards = ["SIMPLE  =                    T", "BITPIX  =                   16"]
+            vals = (a - float(bzero)) / bscale if bscale != 0 else (a - float(bzero))
+            if out_bitpix == 8:
+                body = _np.clip(_np.rint(vals), 0, 255).astype(">u1").tobytes()
+            elif out_bitpix == 16:
+                body = _np.clip(_np.rint(vals), -32768, 32767).astype(">i2").tobytes()
+            elif out_bitpix == 32:
+                body = _np.clip(_np.rint(vals), -2**31, 2**31 - 1).astype(">i4").tobytes()
+            elif out_bitpix == -32:
+                body = vals.astype(">f4").tobytes()
+            else:
+                body = vals.astype(">f8").tobytes()
+            cards = ["SIMPLE  =                    T", f"BITPIX  = {out_bitpix:>21}"]
             if planes == 3:
-                cards += [f"NAXIS   =                    3",
+                cards += ["NAXIS   =                    3",
                           f"NAXIS1  = {nw:>20}", f"NAXIS2  = {nh:>20}", f"NAXIS3  = {planes:>20}"]
             else:
                 cards += ["NAXIS   =                    2", f"NAXIS1  = {nw:>20}", f"NAXIS2  = {nh:>20}"]
