@@ -18,7 +18,8 @@ let _captureAborted = false;        // last capture run was aborted (not complet
 // Save
 let _saveDir = '';
 // Preview format : vignette (1024, rapide) vs pleine (6224, détaillé)
-var _capturePreviewFormat = 'full'; // 'vignette' | 'full'
+var _capturePreviewFormat = 'full'; // 'vignette' | 'full' | 'raw'
+var _captureBin2 = false;           // option FITS : binning 2×2 (affichage seul)
 
 function initCapturePanel() {
     // Camera selector
@@ -136,30 +137,61 @@ function initCapturePanel() {
         });
     }
 
-    // Preview format (vignette vs pleine)
-    const fmtSel = document.getElementById('cap-preview-format');
-    if (fmtSel) {
-        const saved = currentModeConfig().preview_format;
-        if (saved === 'vignette' || saved === 'full') _capturePreviewFormat = saved;
-        else if (saved === 'vignette' || saved === 'pleine') _capturePreviewFormat = saved;
-        fmtSel.value = _capturePreviewFormat;
-        fmtSel.addEventListener('change', async () => {
-            _capturePreviewFormat = fmtSel.value;
-            currentModeConfig().preview_format = _capturePreviewFormat;
-            saveUiConfig();
-            addLog('info','capture', `Aperçu: ${_capturePreviewFormat === 'vignette' ? 'Vignette 1024' : 'Pleine 6224'}`);
-            // Si une image est déjà en mémoire, rebascule immédiatement via HTTP
-            const cam = findCamera();
-            if (cam && typeof _lastWsImageAt !== 'undefined' && Date.now() - _lastWsImageAt < 300000) {
-                try {
-                    const variant = _capturePreviewFormat === 'vignette' ? 'vignette' : 'pleine';
-                    const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=1&variant=${variant}`);
-                    const j = await r.json();
-                    if (j && j.ok && j.data) handleCameraImage(j.data, j.format, j.variant);
-                } catch(e) {}
-            }
-        });
-    }
+    // Format d'aperçu (bandeau viewer) : vignette | pleine JPEG | FITS brut
+    const savedFmt = currentModeConfig().preview_format;
+    if (savedFmt === 'vignette' || savedFmt === 'full' || savedFmt === 'raw') _capturePreviewFormat = savedFmt;
+    else if (savedFmt === 'pleine') _capturePreviewFormat = 'full';
+    _captureBin2 = currentModeConfig().preview_bin === true;
+    const fmtBtns = document.querySelectorAll('#cap-preview-banner .cap-fmt-btn');
+    const binBtn = document.querySelector('#cap-preview-banner .cap-bin-btn');
+    const syncFmt = () => fmtBtns.forEach(b => b.classList.toggle('active', b.dataset.fmt === _capturePreviewFormat));
+    // L'option ×2 n'a de sens qu'en mode FITS brut.
+    const syncBin = () => {
+        if (!binBtn) return;
+        const raw = _capturePreviewFormat === 'raw';
+        binBtn.classList.toggle('active', raw && _captureBin2);
+        binBtn.disabled = !raw;
+        binBtn.title = raw ? 'FITS binning 2×2 (demi-résolution, ~4× plus léger)'
+                           : 'Binning 2×2 disponible en mode FITS brut';
+    };
+    syncFmt();
+    syncBin();
+    fmtBtns.forEach(btn => btn.addEventListener('click', async () => {
+        _capturePreviewFormat = btn.dataset.fmt;
+        currentModeConfig().preview_format = _capturePreviewFormat;
+        syncFmt();
+        syncBin();
+        saveUiConfig();
+        const label = _capturePreviewFormat === 'vignette' ? 'Vignette 1024'
+            : _capturePreviewFormat === 'full' ? 'Pleine résolution (JPEG)' : 'FITS brut';
+        addLog('info', 'capture', `Aperçu: ${label}`);
+        await _captureReloadPreview();
+    }));
+    if (binBtn) binBtn.addEventListener('click', async () => {
+        _captureBin2 = !_captureBin2;
+        currentModeConfig().preview_bin = _captureBin2;
+        syncBin();
+        saveUiConfig();
+        addLog('info', 'capture', `Aperçu FITS: binning 2×2 ${_captureBin2 ? 'activé' : 'désactivé'}`);
+        await _captureReloadPreview();
+    });
+}
+
+// Recharge l'aperçu courant selon le format choisi (sans nouvelle pose).
+async function _captureReloadPreview() {
+    const cam = findCamera();
+    if (!cam) return;
+    if (typeof _lastWsImageAt === 'undefined' || Date.now() - _lastWsImageAt > 300000) return;
+    try {
+        if (_capturePreviewFormat === 'raw') {
+            if (typeof _rawFetchFull === 'function') await _rawFetchFull(cam.name, _captureBin2 ? 2 : 1);
+            return;
+        }
+        const variant = _capturePreviewFormat === 'vignette' ? 'vignette' : 'pleine';
+        const r = await fetch(`/api/camera/last_image?device=${encodeURIComponent(cam.name)}&thumb=1&variant=${variant}`);
+        const j = await r.json();
+        if (j && j.ok && j.data) handleCameraImage(j.data, j.format, j.variant);
+    } catch (e) { /* ignore */ }
 }
 
 function findCamera() {

@@ -1082,6 +1082,77 @@ class WebServer:
             log.warning("thumb failed (fallback full): %s", e)
             return None
 
+    def _fits_bin(self, data: bytes, factor: int = 2) -> bytes | None:
+        """FITS 16 bits → FITS binning « factor » (moyenne de blocs).
+
+        Sert l'AFFICHAGE navigateur des gros capteurs (ex. RisingCam ~58 Mo) :
+        le transfert et la mémoire du viewer sont divisés par factor². Les
+        analyses (astrométrie, tilt, mise au point, autoguidage) restent sur le
+        FITS complet conservé côté serveur — ce binning ne les touche pas.
+        Retourne None si non applicable (BITPIX≠16, entête illisible).
+        """
+        try:
+            import numpy as _np
+            import re as _re
+            f = int(factor)
+            if f < 2 or len(data) < 2880 or not data[:6].startswith(b"SIMPLE"):
+                return None
+            hdr = data[:2880].decode("ascii", errors="ignore")
+
+            def _geti(k):
+                m = _re.search(rf"{k}\s*=\s*([-\d\.]+)", hdr)
+                try:
+                    return int(float(m.group(1))) if m else 0
+                except Exception:
+                    return 0
+            m_bzero = _re.search(r"BZERO\s*=\s*([-\d\.eE+]+)", hdr)
+            m_bscale = _re.search(r"BSCALE\s*=\s*([-\d\.eE+]+)", hdr)
+            try:
+                bzero = float(m_bzero.group(1)) if m_bzero else 0.0
+            except Exception:
+                bzero = 0.0
+            try:
+                bscale = float(m_bscale.group(1)) if m_bscale else 1.0
+            except Exception:
+                bscale = 1.0
+            if not (bscale > 0 or bscale < 0):
+                bscale = 1.0
+            w = _geti("NAXIS1"); h = _geti("NAXIS2"); naxis = _geti("NAXIS")
+            bitpix = _geti("BITPIX"); naxis3 = _geti("NAXIS3")
+            planes = naxis3 if naxis == 3 and naxis3 else 1
+            if bitpix != 16 or not w or not h or w * h * planes > 100_000_000:
+                return None
+            hdr_end = data.find(b"END" + b" " * 77)
+            off = ((hdr_end // 2880) + 1) * 2880 if hdr_end != -1 else 2880
+            need = w * h * planes * 2
+            if len(data) < off + need:
+                return None
+            arr = _np.frombuffer(data[off:off + need], dtype=">i2").astype(_np.float32)
+            if bzero != 0.0 or bscale != 1.0:
+                arr = arr * bscale + float(bzero)
+            arr = arr.reshape((planes, h, w)) if planes == 3 else arr.reshape((h, w))
+            hh = (h // f) * f
+            ww = (w // f) * f
+            if hh < f or ww < f:
+                return None
+            a = arr[..., :hh, :ww].reshape(arr.shape[:-2] + (hh // f, f, ww // f, f)).mean(axis=(-1, -3))
+            nh, nw = hh // f, ww // f
+            stored = _np.rint((a - float(bzero)) / bscale) if bscale != 0 else (a - float(bzero))
+            body = _np.clip(stored, -32768, 32767).astype(">i2").tobytes()
+            cards = ["SIMPLE  =                    T", "BITPIX  =                   16"]
+            if planes == 3:
+                cards += [f"NAXIS   =                    3",
+                          f"NAXIS1  = {nw:>20}", f"NAXIS2  = {nh:>20}", f"NAXIS3  = {planes:>20}"]
+            else:
+                cards += ["NAXIS   =                    2", f"NAXIS1  = {nw:>20}", f"NAXIS2  = {nh:>20}"]
+            cards += [f"BZERO   = {float(bzero):>20.1f}", f"BSCALE  = {float(bscale):>20.1f}", "END"]
+            header = "".join(c.ljust(80)[:80] for c in cards).ljust(2880).encode("ascii")
+            pad = (-len(body)) % 2880
+            return header + body + (b"\x00" * pad)
+        except Exception as e:  # noqa: BLE001
+            log.warning("fits bin failed: %s", e)
+            return None
+
     async def _on_camera_image(self, device_name: str, data: bytes, fmt: str, url: str = "") -> None:
         """Forward camera image to all WebSocket clients."""
         import base64

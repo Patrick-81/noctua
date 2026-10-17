@@ -10,7 +10,7 @@
     <link rel="apple-touch-icon" href="/icon-192.png">
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#020205">
-    <link rel="stylesheet" href="/style.css?v=20261016o">
+    <link rel="stylesheet" href="/style.css?v=20261017b">
     <script src="/lib/d3.min.js"></script>
     <script src="/i18n.fr.js?v=20261016o"></script>
     <script src="/i18n.en.js?v=20261016o"></script>
@@ -19,19 +19,19 @@
     <script src="/utils.js"></script>
     <script src="/state.js?v=20261016o"></script>
     <script src="/hub.js"></script>
-    <script src="/layout.js?v=20261016o"></script>
-    <script src="/viewer.js?v=20261016o"></script>
+    <script src="/layout.js?v=20261017a"></script>
+    <script src="/viewer.js?v=20261017b"></script>
     <script src="/api.js?v=20261016o"></script>
     <script src="/mount.js?v=20260919b"></script>
     <script src="/controls.js?v=20260918i"></script>
     <script src="/ws.js?v=20261016o"></script>
     <script src="/objects.js?v=20260918c"></script>
     <script src="/hardware.js?v=20261016o"></script>
-    <script src="/capture.js?v=20261016o"></script>
+    <script src="/capture.js?v=20261017b"></script>
     <script src="/sequence.js"></script>
     <script src="/sequencer-timeline.js"></script>
     <script src="/stacking.js"></script>
-    <script src="/preview.js?v=20261016o"></script>
+    <script src="/preview.js?v=20261017b"></script>
     <script src="/solver.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
@@ -883,17 +883,6 @@
                 <button id="cap-abort-btn" class="btn-glass danger cap-action-btn" data-i18n="seq.stop">⏹ STOP</button>
             </div>
 
-            <!-- Aperçu : vignette vs pleine -->
-            <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
-                <div class="cap-label">Aperçu</div>
-                <div class="cap-row">
-                    <select id="cap-preview-format" class="cap-select" style="flex:1;">
-                        <option value="vignette">Vignette (1024)</option>
-                        <option value="full" selected>Pleine résolution (6224)</option>
-                    </select>
-                </div>
-            </div>
-
             <!-- Save -->
             <div class="cap-section" style="margin-top:6px; padding-top:6px; border-top:1px solid rgba(0,255,204,0.08);">
                 <div class="cap-label" data-i18n="cap.save">Sauvegarde</div>
@@ -1059,8 +1048,17 @@
 
         <div id="applet-capture-preview" class="glass-panel applet mode-specific" style="display:none; top:200px; left:50%; transform:translateX(-50%); width:500px; height:420px;">
             <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0; font-size:0.7rem;" id="viewer-title">◎ Aperçu</span><button class="applet-minimize" title="Réduire / étendre" data-i18n-title="log.minimize"></button></div>
+            <div id="cap-preview-banner" class="cap-banner">
+                <div class="cap-fmt-group" role="group" aria-label="Format d'aperçu">
+                    <button class="cap-fmt-btn" data-fmt="vignette" title="Vignette rapide (1024) — rapide, basse résolution">Vignette</button>
+                    <button class="cap-fmt-btn active" data-fmt="full" title="Pleine résolution (JPEG) — détaillé">Pleine</button>
+                    <button class="cap-fmt-btn" data-fmt="raw" title="FITS brut — pleine dynamique 16 bits, dématricé côté navigateur">FITS brut</button>
+                    <button class="cap-bin-btn" data-bin="2" title="Binning 2×2 disponible en mode FITS brut">×2</button>
+                </div>
+                <div class="cap-stats" id="cap-stats-line">—</div>
+            </div>
             <div id="cap-preview-empty" style="color:#666; font-size:0.65rem; padding:20px; text-align:center;" data-i18n="prev.waiting">En attente d'image…</div>
-            <div id="cap-preview-wrap" style="display:none; position:absolute; top:10%; left:7%; right:7%; bottom:6%; flex-direction:column; min-height:0;">
+            <div id="cap-preview-wrap" style="display:none; position:absolute; top:52px; left:7%; right:7%; bottom:6%; flex-direction:column; min-height:0;">
                 <div id="cap-preview-viewport" style="flex:1; min-height:0; overflow:hidden; position:relative; border-radius:4px; touch-action:none;">
                     <canvas id="cap-preview-canvas" style="width:100%; height:100%; display:block; border-radius:4px;"></canvas>
                     <canvas id="offset-overlay-canvas" style="position:absolute; top:0; left:0; pointer-events:none; display:none;"></canvas>
@@ -1939,6 +1937,6 @@
     </nav>
     <div id="mobile-dock" aria-label="Panneaux"></div>
 
-    <script type="module" src="/app.js?v=20260918b"></script>
+    <script type="module" src="/app.js?v=20261017a"></script>
 </body>
 </html>

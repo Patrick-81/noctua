@@ -101,12 +101,14 @@ def register(app, server: "WebServer") -> None:
         return {"ok": True, "path": filepath, "size": len(img)}
 
     @app.get("/api/camera/last_image")
-    async def camera_last_image(device: str = "", thumb: int = 1, variant: str = "", pleine: int = 0):
+    async def camera_last_image(device: str = "", thumb: int = 1, variant: str = "", pleine: int = 0, bin: int = 1):
         """Retourne la dernière image capturée (thumb JPEG si dispo, sinon FITS) en base64.
 
         Fallback HTTP quand le WS a raté la poussée (ws=0, réseau, etc.).
         Le viewer capture l'appelle en fallback après waitExposureDone.
         variant=pleine ou pleine=1 → JPEG pleine 8192, sinon vignette 1024.
+        bin≥2 (mode FITS uniquement) → FITS binning n×n, AFFICHAGE seulement :
+        réduit fortement le poids réseau/mémoire des gros capteurs (RisingCam).
         """
         # thumb=1 → préfère le JPEG (vignette ou pleine selon variant)
         if thumb:
@@ -188,6 +190,17 @@ def register(app, server: "WebServer") -> None:
             img = getattr(server, "_last_image_data", b"")
         if not img:
             return {"ok": False, "error": "no image captured yet"}
+        # Binning d'affichage (gros capteurs) : le FITS complet reste intact
+        # côté serveur pour astrométrie / analyse / mise au point / autoguidage.
+        binned = False
+        if bin and int(bin) >= 2 and img[:6].startswith(b"SIMPLE"):
+            try:
+                _b = await asyncio.to_thread(server._fits_bin, img, int(bin))
+            except Exception:
+                _b = None
+            if _b:
+                img = _b
+                binned = True
         import base64 as _b64
         return SanitizedJSONResponse({
             "ok": True,
@@ -196,6 +209,7 @@ def register(app, server: "WebServer") -> None:
             "data": _b64.b64encode(img).decode("ascii"),
             "size": len(img),
             "thumb": False,
+            "bin": int(bin) if binned else 1,
         })
 
     @app.get("/api/camera/last_image/stats")
@@ -258,10 +272,20 @@ def register(app, server: "WebServer") -> None:
                 sample = flat[::step]
                 vmin = float(_np.min(sample)); vmax = float(_np.max(sample))
                 median = float(_np.median(sample))
+                mean = float(_np.mean(sample)); std = float(_np.std(sample))
+                # Saturation : fraction de pixels à la limite représentable
+                # (16 bits après BZERO/BSCALE → 65535 ; 8 bits → 255).
+                if bitpix == 16: sat_level = 65535.0
+                elif bitpix == 8: sat_level = 255.0
+                else: sat_level = vmax
+                saturated = int(_np.count_nonzero(sample >= sat_level)) if sat_level > 0 else 0
+                saturation_pct = round(100.0 * saturated / sample.size, 3) if sample.size else 0.0
                 hist, edges = _np.histogram(sample, bins=256, range=(vmin, vmax))
                 return {
                     "w": w, "h": h, "bitpix": bitpix,
                     "min": vmin, "max": vmax, "median": median,
+                    "mean": mean, "std": std,
+                    "saturation_pct": saturation_pct, "sat_level": sat_level,
                     "hist": hist.tolist(), "bins": 256,
                 }
             except Exception as e:

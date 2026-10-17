@@ -220,7 +220,7 @@ class Viewer {
         // mesure. Avant : seul le 1er plan (R, quasi noir) était affiché !
         const nplanes = (naxis === 3) ? (parseInt(get('NAXIS3') || '0') || 3) : 1;
         const planeSize = w * h;
-        const pixels = new Float64Array(planeSize);
+        const pixels = new Float32Array(planeSize);
         let pixelsRGB = null;
         const readPlane = (base, out, n) => {
             if (bitpix === 32 || bitpix === -32)
@@ -270,8 +270,8 @@ class Viewer {
             rgbBal = skyC.map((s) => (s > 0 ? ref / s : 1));
         }
         if (nplanes === 3 && bitpix === 8) {
-            const gchan = new Float64Array(planeSize);
-            const bchan = new Float64Array(planeSize);
+            const gchan = new Float32Array(planeSize);
+            const bchan = new Float32Array(planeSize);
             if (readPlane(planeSize, gchan, planeSize) &&
                 readPlane(planeSize * 2, bchan, planeSize)) {
                 const rgb = new Uint8Array(planeSize * 3);
@@ -317,7 +317,7 @@ class Viewer {
             if (!/^[RGB]{4}$/.test(pat) || w < 4 || h < 4) return null;
             const at = (x, y) => mono[Math.max(0, Math.min(h - 1, y)) * w + Math.max(0, Math.min(w - 1, x))];
             const colAt = (x, y) => pat[(((y % 2) + 2) % 2) * 2 + (((x % 2) + 2) % 2)];
-            const out = new Float64Array(w * h * 3);
+            const out = new Float32Array(w * h * 3);
             for (let y = 0; y < h; y++) {
                 for (let x = 0; x < w; x++) {
                     const o = (y * w + x) * 3;

@@ -732,6 +732,45 @@ body {
     display: block;
 }
 
+/* Bandeau haut du viewer : format d'aperçu + stats */
+.cap-banner {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 4px 0;
+    flex-wrap: wrap;
+}
+.cap-fmt-group { display: flex; gap: 2px; }
+.cap-fmt-btn, .cap-bin-btn {
+    background: transparent;
+    color: #888;
+    border: 1px solid var(--border-default);
+    border-radius: 3px;
+    padding: 2px 6px;
+    font-size: 0.55rem;
+    cursor: pointer;
+    transition: all 0.15s;
+}
+.cap-fmt-btn:hover, .cap-bin-btn:not(:disabled):hover { color: #ccc; border-color: var(--border-strong); }
+.cap-fmt-btn.active, .cap-bin-btn.active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+.cap-bin-btn { margin-left: 4px; font-weight: 600; }
+.cap-bin-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.cap-stats {
+    font-family: monospace;
+    font-size: 0.5rem;
+    color: #00ffcc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
+    text-align: right;
+}
+
 /* Preview viewport + zoom */
 #cap-preview-viewport {
     cursor: default;

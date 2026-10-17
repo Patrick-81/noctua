@@ -301,11 +301,84 @@ let _guideAutoStar = null;
 
 var _lastWsImageAt = 0;
 var _lastWsImageByDev = {};
+
+// Rapatrie le FITS brut (thumb=0) de la caméra et l'affiche dans le viewer
+// capture. Utilisé par le mode d'aperçu « FITS brut » : pleine dynamique,
+// dématriçage côté navigateur (BAYERPAT), sans passage 8 bits.
+let _rawFetching = false;
+let _rawWarned = false;
+async function _rawFetchFull(devName, bin) {
+    if (_rawFetching) return false;
+    if (typeof captureViewer === 'undefined' || !captureViewer) return false;
+    _rawFetching = true;
+    try {
+        const cam = devName || (typeof findCamera === 'function' ? (findCamera()?.name || '') : '');
+        const b = (bin && bin >= 2) ? `&bin=${bin}` : '';
+        const q = `?thumb=0${cam ? `&device=${encodeURIComponent(cam)}` : ''}${b}`;
+        const j = await fetch('/api/camera/last_image' + q).then(r => r.json()).catch(() => null);
+        if (!j?.ok || !j.data) return false;
+        // Garde-fou gros capteurs : prévient une fois si le FITS complet est
+        // très lourd (ex. RisingCam ~58 Mo) et que le binning ×2 n'est pas actif.
+        if (!b && !_rawWarned && j.size > 24 * 1024 * 1024) {
+            _rawWarned = true;
+            if (typeof addLog === 'function')
+                addLog('warning', 'capture', `FITS lourd (${(j.size / 1048576).toFixed(0)} Mo) — activez « ×2 » pour réduire le transfert`);
+        }
+        const raw = atob(j.data);
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        _lastWsImageAt = Date.now();
+        captureViewer.render(bytes, j.format || 'fits');
+        return true;
+    } catch (e) {
+        console.warn('raw full-FITS fetch failed', e);
+        return false;
+    } finally {
+        _rawFetching = false;
+    }
+}
+
+// Ligne de stats compacte du bandeau viewer (min/méd/moy/max/σ/saturation).
+function renderStatsLine(s) {
+    const el = document.getElementById('cap-stats-line');
+    if (!el) return;
+    if (!s || !s.ok) { el.textContent = '—'; return; }
+    const fmtV = v => Number.isFinite(v) ? (Math.abs(v) >= 1000 ? v.toFixed(0) : v.toFixed(1)) : '?';
+    const parts = [
+        `min ${fmtV(s.min)}`,
+        `méd ${fmtV(s.median)}`,
+        s.mean != null ? `moy ${fmtV(s.mean)}` : null,
+        `max ${fmtV(s.max)}`,
+        s.std != null ? `σ ${fmtV(s.std)}` : null,
+        s.saturation_pct != null ? `sat ${s.saturation_pct.toFixed(2)}%` : null,
+        `${s.w}×${s.h}`,
+    ].filter(Boolean);
+    // Stats = FITS complet (analyses intactes) ; préciser si l'image est binnée.
+    if (typeof _captureBin2 !== 'undefined' && _captureBin2 &&
+        typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'raw')
+        parts.push('image ×2');
+    el.textContent = parts.join(' · ');
+}
+
 function handleCameraImage(b64Data, fmt, variant, stage = 'final', devName = '', xferS = null) {
     const norm = String(fmt||'').toLowerCase();
     const isFits = norm.includes('fits');
     const wantVignette = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'vignette');
+    const wantRaw = (typeof _capturePreviewFormat !== 'undefined' && _capturePreviewFormat === 'raw');
     const varNorm = String(variant||'').toLowerCase();
+    // Mode « FITS brut » : on ignore les JPEG (vignette/pleine) et on
+    // rapatrie le FITS natif (pleine dynamique), dématricé par le viewer.
+    if (wantRaw && !isFits) {
+        const _fallback = () => { try { _paintBytes(b64Data, fmt); } catch (e) { /* ignore */ } };
+        if (typeof _rawFetchFull === 'function') {
+            if (captureViewer && xferS != null) captureViewer.pendingXfer = xferS;
+            _rawFetchFull(devName, (typeof _captureBin2 !== 'undefined' && _captureBin2) ? 2 : 1).then(ok => { if (!ok) _fallback(); });
+        } else _fallback();
+        document.getElementById('applet-capture-settings')?.classList.remove('cap-loading');
+        document.getElementById('applet-capture-preview')?.classList.remove('cap-preview-loading');
+        setTimeout(() => fetchStatsWithRetry(3), 700);
+        return true;
+    }
     function _paintBytes(b64, f) {
         const raw = atob(b64);
         const bytes = new Uint8Array(raw.length);
@@ -385,9 +458,11 @@ function handleCameraImage(b64Data, fmt, variant, stage = 'final', devName = '',
                         return;
                     }
                     captureViewer.renderHistogramFromStats(s);
+                    renderStatsLine(s);
                     console.log('histo rendu');
                 } else if (s && !s.ok) {
                     console.warn('stats error', s.error);
+                    renderStatsLine(null);
                     // Pas de stats pour cette caméra : purge l'histo périmé
                     // (sinon niveaux d'une autre caméra affichés).
                     try {
