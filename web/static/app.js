@@ -19,54 +19,10 @@ function switchMode(mode) {
     const dashEl = document.getElementById('applet-status');
     if (dashEl) dashEl.style.display = '';
 
-    for (const id of MODES[mode].applets) {
-        const el = document.getElementById(id);
-        if (el) el.style.display = '';
-    }
-    // Mobile : repli latéral par défaut pour libérer la carte
-    if (window.innerWidth < 1100) {
-        const ids = MODES[mode].applets;
-        // Garde le 1er panneau ouvert, replie les autres en onglet latéral
-        ids.slice(1).forEach(id => {
-            const el = document.getElementById(id);
-            if (el && !el.classList.contains('collapsed')) {
-                el.classList.add('collapsed');
-                const btn = el.querySelector('.applet-minimize');
-                if (btn) btn.classList.add('collapsed-label');
-            }
-        });
-        // Réduit aussi le tableau de bord si guidage (trop dense)
-        if (mode === 'guiding') {
-            const dash = document.getElementById('applet-status');
-            if (dash && !dash.classList.contains('collapsed')) {
-                dash.classList.add('collapsed');
-                const btn = dash.querySelector('.applet-minimize');
-                if (btn) btn.classList.add('collapsed-label');
-            }
-        }
-    }
-    // Desktop dense (>4 panneaux) : tout escamoté par défaut (display:none), ne garde que tableau de bord / légende / log
-    if (window.innerWidth >= 1100) {
-        const ids = MODES[mode].applets;
-        if (ids.length > 4) {
-            ids.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) {
-                    el.style.display = 'none';
-                    el.classList.remove('collapsed');
-                    const btn = el.querySelector('.applet-minimize');
-                    if (btn) btn.classList.remove('collapsed-label');
-                }
-            });
-            // Persiste l'état escamoté (tout masqué)
-            currentModeConfig().collapsed = {};
-            ids.forEach(id => { currentModeConfig().collapsed[id] = true; });
-            // Marqueur escamoté (display:none) vs replié (collapsed)
-            currentModeConfig().hidden = {};
-            ids.forEach(id => { currentModeConfig().hidden[id] = true; });
-            saveUiConfig();
-        }
-    }
+    // Visibilité des panneaux de l'atelier : état persisté par mode dans
+    // ui.yaml (ouverts par défaut). Un panneau ouvert/fermé par l'utilisateur
+    // le reste après un changement de mode, un redémarrage ou un reset.
+    applyModeVisibility(mode);
 
     document.querySelectorAll('#applet-mode-bar .mode-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);

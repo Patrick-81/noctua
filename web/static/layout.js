@@ -80,13 +80,61 @@ function getPanelTitle(id) {
     if (t && t.textContent.trim()) return t.textContent.trim().replace(/^[◈◎▣▦≡]+\s*/, '');
     return PANEL_TITLES[id] || id;
 }
+// ── Visibilité des panneaux d'un atelier ──────────────────────
+// Applique l'état ouvert/fermé persisté dans ui.yaml pour le mode courant.
+// Un panneau sans état enregistré est OUVERT par défaut (desktop) ; sur
+// mobile, à la toute première visite, seul le 1er panneau reste ouvert pour
+// libérer la carte. Toute décision utilisateur est ensuite mémorisée.
+const _modeVisibilitySeen = new Set();
+
+function applyModeVisibility(mode) {
+    mode = mode || currentMode;
+    if (!MODES[mode]) return;
+    const cfg = currentModeConfig();
+    const ids = MODES[mode].applets || [];
+    const isDesktop = window.innerWidth >= 1100;
+    const hidden = cfg.hidden || {};
+    const collapsed = cfg.collapsed || {};
+    const firstVisit = !_modeVisibilitySeen.has(mode);
+    _modeVisibilitySeen.add(mode);
+
+    ids.forEach((id, idx) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        // Le tableau de bord n'est jamais masqué par l'atelier.
+        if (id === 'applet-status') {
+            el.style.display = '';
+            return;
+        }
+        const saved = (id in hidden) || (id in collapsed);
+        let isHidden, isCollapsed;
+        if (saved) {
+            isHidden = !!hidden[id];
+            isCollapsed = !!collapsed[id];
+        } else if (firstVisit && !isDesktop && idx > 0) {
+            isHidden = false;
+            isCollapsed = true;
+        } else {
+            isHidden = false;
+            isCollapsed = false;
+        }
+        el.style.display = isHidden ? 'none' : '';
+        const btn = el.querySelector('.applet-minimize');
+        if (isCollapsed) {
+            el.classList.add('collapsed');
+            if (btn) btn.classList.add('collapsed-label');
+        } else {
+            el.classList.remove('collapsed');
+            if (btn) btn.classList.remove('collapsed-label');
+        }
+    });
+    updateMobileDock();
+}
+
 function updateMobileDock() {
     const dock = document.getElementById('mobile-dock');
     if (!dock) return;
     const isDesktop = window.innerWidth >= 1100;
-    const appletCount = (MODES[currentMode]?.applets || []).length;
-    // Desktop: n'afficher le dock que pour les modes denses (>4 panneaux) — ex. astrometry 6, guiding 5, capture 4
-    if (isDesktop && appletCount <= 4) { dock.innerHTML = ''; dock.style.display = 'none'; dock.classList.remove('dense'); return; }
     dock.classList.toggle('dense', isDesktop);
     dock.style.display = 'flex';
     const ids = (MODES[currentMode]?.applets || []).slice();
@@ -95,14 +143,11 @@ function updateMobileDock() {
         ids.unshift('applet-status');
     }
     dock.innerHTML = '';
-    const isDenseDesktop = isDesktop && appletCount > 4;
+    // Sur desktop, un panneau fermé est display:none ; sur mobile, replié.
+    const isDenseDesktop = isDesktop;
     ids.forEach(id => {
         const panel = document.getElementById(id);
         if (!panel) return;
-        // En dense desktop les panneaux sont escamotés (display:none) mais doivent rester dans le dock
-        if (!isDenseDesktop && panel.style.display === 'none' && panel.classList.contains('mode-specific')) return;
-        // Ne pas dupliquer les panneaux masqués par le mode (display none)
-        if (getComputedStyle(panel).display === 'none' && !ids.includes(id)) return;
         const isVisible = !panel.classList.contains('collapsed') && getComputedStyle(panel).display !== 'none' && panel.offsetParent !== null;
         // Sur mobile, offsetParent null si display none, mais on veut quand même une icône pour les cachés
         const isHidden = isDenseDesktop ? (panel.style.display === 'none') : (panel.classList.contains('collapsed') || panel.style.display === 'none');
