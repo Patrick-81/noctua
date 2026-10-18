@@ -115,6 +115,16 @@ Si vous avez un serveur INDI (`indiserver`) existant :
 
 ## Démarrage rapide
 
+Installation en une ligne (clone + venv + dépendances + config) :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Patrick-81/noctua/master/get.sh | sh
+```
+
+Options utiles : `sh -s -- --dir ~/noctua --dev --run` (voir `sh get.sh --help`).
+
+Sinon, depuis un dépôt déjà cloné :
+
 ```bash
 # 1. Installation (venv + dépendances) — ou voir section « Installation »
 ./install.sh
@@ -149,8 +159,16 @@ sudo apt install python3 python3-venv python3-pip git
 
 ## Installation
 
-La manière la plus simple est d'utiliser le script dédié (crée `.venv`,
-installe les dépendances et copie `config.example.yaml` si besoin) :
+La manière la plus simple est le script d'amorçage `get.sh`, qui clone (ou met
+à jour) le dépôt puis exécute `install.sh` :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Patrick-81/noctua/master/get.sh | sh
+# ou, avec options :  sh -s -- --dir ~/noctua --dev --run
+```
+
+Ou, depuis un dépôt déjà présent, le script dédié (crée `.venv`, installe les
+dépendances et copie `config.example.yaml` si besoin) :
 
 ```bash
 ./install.sh
