@@ -33,6 +33,7 @@
     <script src="/stacking.js"></script>
     <script src="/preview.js?v=20261017b"></script>
     <script src="/solver.js"></script>
+    <script src="/recenter_math.js"></script>
     <script src="/target.js"></script>
     <script src="/polar.js"></script>
     <script src="/focuser.js?v=20261016o"></script>
@@ -1378,6 +1379,7 @@
 
             <!-- Center button -->
             <div class="solver-actions">
+                <button id="target-click-recenter-btn" class="btn-glass solver-action-btn" title="Cliquez un point de l'aperçu pour le recentrer (solve → slew via la boucle de centrage)" data-i18n-title="tgt.click_recenter.title" data-i18n="tgt.click_recenter">⌖ Recentrer au clic</button>
                 <button id="target-center-btn" class="btn-glass warning solver-action-btn" title="Centrage itératif: solve → nudge → re-solve" data-i18n-title="tgt.center.title" data-i18n="tgt.center">⟳ Centrer</button>
                 <button id="target-stop-btn" class="btn-glass solver-action-btn" title="Arrêter le centrage" data-i18n-title="tgt.stop_btn.title" style="display:none;" data-i18n="tgt.stop_btn">⏹ Stop</button>
             </div>

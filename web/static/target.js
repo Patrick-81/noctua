@@ -9,6 +9,7 @@ let _centeringActive = false;
 let _centeringMaxSteps = 10;
 let _centeringThresholdArcmin = 0.5;
 let _centeringWaitingSlew = false;  // la monture est en train de pointer
+let _clickRecenterActive = false;   // « recentrer au clic » armé (one-shot)
 
 function initTargetPanel() {
     // Set target from inputs
@@ -44,6 +45,10 @@ function initTargetPanel() {
     // Stop button
     const stopBtn = document.getElementById('target-stop-btn');
     if (stopBtn) stopBtn.addEventListener('click', targetCenterStop);
+
+    // Recenter-on-click toggle (one-shot)
+    const clickRecenterBtn = document.getElementById('target-click-recenter-btn');
+    if (clickRecenterBtn) clickRecenterBtn.addEventListener('click', () => setClickRecenter(!_clickRecenterActive));
 
     // Fill RA/DEC from mount position if available
     _targetAutoFillFromMount();
@@ -213,6 +218,52 @@ function updateTargetOffset() {
         const dirs = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
         dirEl.textContent = dirs[Math.round(angle / 22.5) % 16];
     }
+}
+
+// ── Recenter on click (Lot 3) ───────────────────────────────────
+
+function setClickRecenter(on) {
+    _clickRecenterActive = !!on;
+    const btn = document.getElementById('target-click-recenter-btn');
+    if (btn) btn.classList.toggle('active', _clickRecenterActive);
+    const vp = document.getElementById('cap-preview-viewport');
+    if (vp) vp.style.cursor = _clickRecenterActive ? 'crosshair' : '';
+    if (_clickRecenterActive) addLog('info', 'target', i18n('log.target.recenter_arm'));
+}
+
+// Appelé par viewer.js au relâchement de la souris sans drag (mode capture).
+// relX/relY sont relatifs au viewport ; vp est l'élément viewport.
+function _captureClick(relX, relY, vp) {
+    if (!_clickRecenterActive) return;
+    setClickRecenter(false);
+
+    if (!_lastSolverResult || !_lastSolverResult.ok) {
+        addLog('warning', 'target', i18n('log.target.no_solve'));
+        return;
+    }
+    if (typeof RecenterMath === 'undefined') {
+        addLog('error', 'target', 'recenter_math.js non chargé');
+        return;
+    }
+
+    const canvas = document.getElementById('cap-preview-canvas');
+    const viewport = vp || document.getElementById('cap-preview-viewport');
+    if (!canvas || !viewport) return;
+    const cRect = canvas.getBoundingClientRect();
+    if (!cRect.width || !cRect.height) return;
+    const vpRect = viewport.getBoundingClientRect();
+
+    const clientX = vpRect.left + relX, clientY = vpRect.top + relY;
+    const u = (clientX - cRect.left) / cRect.width;
+    const v = (clientY - cRect.top) / cRect.height;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return;
+
+    const sky = RecenterMath.pixelToSky(u, v, _lastSolverResult);
+    setOffsetTarget(sky.ra, sky.dec);
+    updateTargetOffset();
+    addLog('info', 'target', i18nFmt('log.target.recenter_click',
+        { ra: sky.ra.toFixed(4), dec: sky.dec.toFixed(4) }));
+    targetCenterStart();
 }
 
 // ── Centering loop ──────────────────────────────────────────────

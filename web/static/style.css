@@ -1708,6 +1708,11 @@ body {
 .solver-action-btn {
     flex: 1; padding: 6px 10px; font-size: 0.65rem;
 }
+#target-click-recenter-btn.active {
+    background: var(--accent-subtle);
+    color: var(--accent);
+    border-color: var(--accent);
+}
 
 .solver-progress-bar {
     height: 4px; background: var(--accent-faint);

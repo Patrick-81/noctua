@@ -654,9 +654,13 @@ class Viewer {
         window.addEventListener('mouseup', (e) => {
             if (!dragging) return;
             dragging = false; vp.style.cursor = ''; vp.classList.remove('panning');
-            if (!didDrag && isGuide && typeof _guideClick === 'function') {
+            if (!didDrag) {
                 const rect = vp.getBoundingClientRect();
-                _guideClick(e.clientX - rect.left, e.clientY - rect.top);
+                if (isGuide && typeof _guideClick === 'function') {
+                    _guideClick(e.clientX - rect.left, e.clientY - rect.top);
+                } else if (typeof _captureClick === 'function') {
+                    _captureClick(e.clientX - rect.left, e.clientY - rect.top, vp);
+                }
             }
         });
 
