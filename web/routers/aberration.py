@@ -59,13 +59,11 @@ def register(app, server: "WebServer") -> None:
         except Exception as e:
             return SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
-    @app.post("/api/aberration/analyze")
-    async def aberr_analyze(body: dict = {}):
-        """
-        Body :
-          {"source": "last"}                      -> dernière capture (défaut)
-          {"source": "load_path", "path": "/..."} -> fichier/ dossier serveur
-          {"source": "base64", "data": "base64...", "filename": "image.fits"}
+    async def _resolve_image(body: dict):
+        """Résout la source d'image d'une requête.
+
+        Retourne (data, filename, err) : soit data non-None, soit err = réponse
+        d'erreur JSON. Gère source=last / load_path (fichier ou dossier) / base64.
         """
         src = (body or {}).get("source", "last")
         data: bytes | None = None
@@ -74,53 +72,69 @@ def register(app, server: "WebServer") -> None:
         if src == "last":
             data = getattr(server, "_last_image_data", b"")
             if not data:
-                return SanitizedJSONResponse({"ok": False, "error": "Aucune image capturée — capturez ou chargez un FITS"}, status_code=404)
+                return None, "", SanitizedJSONResponse(
+                    {"ok": False, "error": "Aucune image capturée — capturez ou chargez un FITS"},
+                    status_code=404)
             filename = "last_capture.fits"
         elif src == "load_path":
             path = (body or {}).get("path", "").strip()
             if not path:
-                return SanitizedJSONResponse({"ok": False, "error": "Chemin vide"}, status_code=400)
+                return None, "", SanitizedJSONResponse({"ok": False, "error": "Chemin vide"}, status_code=400)
             p = Path(path)
             if not p.exists():
-                return SanitizedJSONResponse({"ok": False, "error": f"Chemin introuvable : {path}"}, status_code=404)
+                return None, "", SanitizedJSONResponse({"ok": False, "error": f"Chemin introuvable : {path}"}, status_code=404)
             if p.is_dir():
                 exts = (".fit", ".fits", ".png", ".jpg", ".jpeg", ".tif", ".tiff", ".npy")
                 files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() in exts],
                                key=lambda f: f.stat().st_mtime, reverse=True)
                 if not files:
-                    return SanitizedJSONResponse({"ok": False, "error": f"Aucun FITS dans {path}"}, status_code=404)
+                    return None, "", SanitizedJSONResponse({"ok": False, "error": f"Aucun FITS dans {path}"}, status_code=404)
                 p = files[0]
             ext = p.suffix.lower()
             if ext in (".fit", ".fits"):
                 data = p.read_bytes()
             elif ext in (".png", ".jpg", ".jpeg", ".tif", ".tiff", ".npy"):
-                # Pour PNG/NPY on passe par analyze_file directement
                 try:
                     from indigo.devices.aberration import analyze_file
                     res = analyze_file(str(p))
                     res["filename"] = p.name
                     res["path"] = str(p)
-                    return SanitizedJSONResponse(res)
+                    return res, "", None
                 except Exception as e:
                     traceback.print_exc()
-                    return SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
+                    return None, "", SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
             else:
-                return SanitizedJSONResponse({"ok": False, "error": f"Format non supporté : {ext}"}, status_code=400)
+                return None, "", SanitizedJSONResponse({"ok": False, "error": f"Format non supporté : {ext}"}, status_code=400)
             filename = p.name
         elif src == "base64":
             b64 = (body or {}).get("data", "")
             if not b64:
-                return SanitizedJSONResponse({"ok": False, "error": "data base64 vide"}, status_code=400)
+                return None, "", SanitizedJSONResponse({"ok": False, "error": "data base64 vide"}, status_code=400)
             try:
                 data = base64.b64decode(b64)
             except Exception as e:
-                return SanitizedJSONResponse({"ok": False, "error": f"base64 invalide: {e}"}, status_code=400)
+                return None, "", SanitizedJSONResponse({"ok": False, "error": f"base64 invalide: {e}"}, status_code=400)
             filename = (body or {}).get("filename", "upload.fits")
         else:
-            return SanitizedJSONResponse({"ok": False, "error": f"source inconnue: {src}"}, status_code=400)
+            return None, "", SanitizedJSONResponse({"ok": False, "error": f"source inconnue: {src}"}, status_code=400)
 
         if not data:
-            return SanitizedJSONResponse({"ok": False, "error": "Aucune donnée image"}, status_code=400)
+            return None, "", SanitizedJSONResponse({"ok": False, "error": "Aucune donnée image"}, status_code=400)
+        return data, filename, None
+
+    @app.post("/api/aberration/analyze")
+    async def aberr_analyze(body: dict = {}):
+        """
+        Body :
+          {"source": "last"}                      -> dernière capture (défaut)
+          {"source": "load_path", "path": "/..."} -> fichier/ dossier serveur
+          {"source": "base64", "data": "base64...", "filename": "image.fits"}
+        """
+        data, filename, err = await _resolve_image(body or {})
+        if err is not None:
+            return err
+        if isinstance(data, dict):  # analyze_file a déjà retourné un résultat
+            return SanitizedJSONResponse(data)
 
         try:
             from indigo.devices.aberration import analyze_image
@@ -132,6 +146,41 @@ def register(app, server: "WebServer") -> None:
         except Exception as e:
             traceback.print_exc()
             return SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+    @app.post("/api/aberration/distortion")
+    async def aberr_distortion(body: dict = {}):
+        """Distorsion optique radiale via solve astrométrique.
+
+        Body : {"source": "last"|"load_path"|"base64", "path"|"data",
+                "ra_hint","dec_hint","scale_hint","order","sigma"} (hints optionnels).
+        Nécessite le catalogue solveur chargé (POST /api/solver/catalogs).
+        """
+        data, filename, err = await _resolve_image(body or {})
+        if err is not None:
+            return err
+        if isinstance(data, dict):
+            return SanitizedJSONResponse({
+                "ok": False,
+                "error": "La distorsion nécessite un FITS (analyse astrométrique)",
+            }, status_code=400)
+
+        try:
+            from indigo.devices.distortion import analyze_distortion
+            import asyncio
+            res = await asyncio.to_thread(
+                analyze_distortion, data, server.solver,
+                ra_hint=(body or {}).get("ra_hint"),
+                dec_hint=(body or {}).get("dec_hint"),
+                scale_hint=(body or {}).get("scale_hint"),
+                order=int((body or {}).get("order", 3)),
+                sigma=float((body or {}).get("sigma", 2.0)),
+            )
+            res["filename"] = filename
+            return SanitizedJSONResponse(res)
+        except Exception as e:
+            traceback.print_exc()
+            return SanitizedJSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
 
     @app.get("/api/aberration/image")
     async def aberr_image(path: str = Query(...), max_bytes: int = Query(50 * 1024 * 1024)):

@@ -61,6 +61,11 @@ class Solver:
         return self._index is not None
 
     @property
+    def catalog(self):
+        """Catalogue d'étoiles chargé (seiza.StarCatalog) ou None."""
+        return self._catalog
+
+    @property
     def is_solving(self) -> bool:
         return self._solving
 

@@ -24,7 +24,7 @@
             'mode.collimation': 'Collim',
             'mode.collimation.title': 'Collimation',
             'mode.aberration': 'Aberr',
-            'mode.aberration.title': 'Aberration & Tilt',
+            'mode.aberration.title': 'Aberration, Tilt & Distortion',
             'conn.protocol.title': 'INDIGO protocol',
             'conn.host': 'Host',
             'conn.port': 'Port',

@@ -15,6 +15,7 @@ function initAberrationPanel() {
             const tab = btn.dataset.aberrTab;
             document.getElementById('aberr-pane-aber').style.display = tab==='aber' ? '' : 'none';
             document.getElementById('aberr-pane-tilt').style.display = tab==='tilt' ? '' : 'none';
+            document.getElementById('aberr-pane-dist').style.display = tab==='dist' ? '' : 'none';
         });
     });
 
@@ -54,6 +55,10 @@ function initAberrationPanel() {
         const el=document.getElementById(id);
         if(el) el.addEventListener('change', ()=>{ if(_aberrLast) aberrDrawPreviewOverlay(_aberrLast); });
     });
+
+    // Distorsion (solve astrométrique)
+    const btnDist=document.getElementById('aberr-btn-dist');
+    if(btnDist) btnDist.addEventListener('click', ()=>aberrDistAnalyze());
 
     Hub.subscribe('mode:changed', 'aberration', (env)=>{
         if(env.payload.mode==='aberration'){
@@ -271,6 +276,151 @@ function renderAberrResults(r){
         hdrEl.innerHTML = keys.length ? keys.map(k=>`<span style="color:#0af">${k}</span>=${hdr[k]}`).join(' · ') : 'Header minimal';
     }
     drawTiltCanvas(r);
+    renderAberrExtra(r);
+}
+
+// ── Courbure / résidus / grille (onglet Tilt) ──────────────────
+function renderAberrExtra(r){
+    const box=document.getElementById('aberr-extra');
+    if(box) box.style.display='';
+    const g=r.global||{};
+    const c=g.curvature||{}; const t=g.tilt||{};
+    const set=(id,val)=>{ const e=document.getElementById(id); if(e&&val!=null) e.textContent=val; };
+    set('aberr-curv-center', c.center_hfr); set('aberr-curv-edge', c.edge_hfr);
+    set('aberr-curv-k', c.k); set('aberr-curv-ratio', c.edge_ratio);
+    set('aberr-tilt-r2', t.r2); set('aberr-tilt-rms', t.rms);
+    drawCurvatureCanvas(r);
+    drawResidCanvas(r);
+    drawGridCanvas(r);
+}
+
+function drawCurvatureCanvas(r){
+    const cvs=document.getElementById('aberr-curv-canvas'); if(!cvs) return;
+    const ctx=cvs.getContext('2d'); const W=cvs.width, H=cvs.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle='#05080f'; ctx.fillRect(0,0,W,H);
+    const cx=r.width/2, cy=r.height/2, rmax=Math.hypot(cx,cy)||1;
+    const stars=(r.stars||[]).filter(s=>s.hfr>0);
+    const c=r.global.curvature||{};
+    if(!stars.length) return;
+    let hmin=Infinity, hmax=-Infinity;
+    stars.forEach(s=>{ hmin=Math.min(hmin,s.hfr); hmax=Math.max(hmax,s.hfr); });
+    if(c.center_hfr!=null){ hmin=Math.min(hmin,c.center_hfr); hmax=Math.max(hmax,c.edge_hfr||c.center_hfr); }
+    hmax=Math.max(hmax,hmin+0.5);
+    const pad=28;
+    const X=u=>pad+(W-2*pad)*u;
+    const Y=h=>H-pad-(H-2*pad)*((h-hmin)/(hmax-hmin));
+    ctx.strokeStyle='rgba(255,255,255,0.2)'; ctx.beginPath(); ctx.moveTo(pad,H-pad); ctx.lineTo(W-pad,H-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,H-pad); ctx.stroke();
+    ctx.fillStyle='#888'; ctx.font='9px monospace';
+    ctx.fillText('HFR',4,pad-8); ctx.fillText('u (0→1)',W-46,H-6);
+    stars.forEach(s=>{ const u=Math.hypot(s.x-cx,s.y-cy)/rmax; ctx.fillStyle=s.saturated?'#f0f':'#0af'; ctx.beginPath(); ctx.arc(X(u),Y(s.hfr),2.4,0,Math.PI*2); ctx.fill(); });
+    if(c.center_hfr!=null){
+        ctx.strokeStyle='#fa0'; ctx.lineWidth=1.6; ctx.beginPath();
+        for(let i=0;i<=40;i++){ const u=i/40; const h=c.center_hfr+(c.k||0)*u*u; if(i===0)ctx.moveTo(X(u),Y(h)); else ctx.lineTo(X(u),Y(h)); }
+        ctx.stroke();
+        ctx.fillStyle='#fa0'; ctx.fillText(`k=${c.k}  R²=${c.r2}`, pad+6, pad+12);
+    }
+}
+
+function drawResidCanvas(r){
+    const cvs=document.getElementById('aberr-resid-canvas'); if(!cvs) return;
+    const ctx=cvs.getContext('2d'); const W=cvs.width, H=cvs.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle='#05080f'; ctx.fillRect(0,0,W,H);
+    const stars=(r.stars||[]).filter(s=>s.tilt_resid!=null);
+    if(!stars.length) return;
+    const pad=24, mid=H/2;
+    const rms=(r.global.tilt||{}).rms||0;
+    let m=0; stars.forEach(s=>m=Math.max(m,Math.abs(s.tilt_resid))); m=Math.max(m,rms*2,0.5);
+    const Y=v=>mid-(v/m)*(H/2-pad);
+    const X=i=>pad+(W-2*pad)*(stars.length===1?0.5:i/(stars.length-1));
+    ctx.fillStyle='rgba(250,170,0,0.10)'; ctx.fillRect(pad,Y(rms),W-2*pad,Math.max(1,Y(-rms)-Y(rms)));
+    ctx.strokeStyle='rgba(255,255,255,0.25)'; ctx.beginPath(); ctx.moveTo(pad,mid); ctx.lineTo(W-pad,mid); ctx.stroke();
+    stars.forEach((s,i)=>{ ctx.fillStyle=Math.abs(s.tilt_resid)>rms*2?'#f66':'#0f8'; ctx.beginPath(); ctx.arc(X(i),Y(s.tilt_resid),2.2,0,Math.PI*2); ctx.fill(); });
+    ctx.fillStyle='#fa0'; ctx.font='9px monospace'; ctx.fillText(`±${rms} HFR (RMS)`, pad+6, pad+10);
+    ctx.fillStyle='#888'; ctx.fillText(`${stars.length} étoiles`, W-84, H-6);
+}
+
+function drawGridCanvas(r){
+    const cvs=document.getElementById('aberr-grid-canvas'); if(!cvs) return;
+    const ctx=cvs.getContext('2d'); const W=cvs.width, H=cvs.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle='#05080f'; ctx.fillRect(0,0,W,H);
+    const grid=r.global.grid||[]; if(!grid.length) return;
+    const vals=grid.filter(c=>c.count>0).map(c=>c.median_hfr);
+    const vmin=vals.length?Math.min(...vals):0, vmax=vals.length?Math.max(...vals):1;
+    const pad=10, cw=(W-2*pad)/3, ch=(H-2*pad-12)/3;
+    grid.forEach(cell=>{
+        const x=pad+cell.col*cw, y=pad+cell.row*ch;
+        let col='#12202a';
+        if(cell.count>0){
+            const t=(cell.median_hfr-vmin)/((vmax-vmin)||1);
+            const rr=Math.round(40+215*t), gg=Math.round(120+80*(1-Math.abs(t-0.5)*2)), bb=Math.round(200-180*t);
+            col=`rgb(${rr},${gg},${bb})`;
+        }
+        ctx.fillStyle=col; ctx.fillRect(x+1,y+1,cw-2,ch-2);
+        ctx.textAlign='center';
+        if(cell.count>0){ ctx.fillStyle='#fff'; ctx.font='11px monospace'; ctx.fillText(cell.median_hfr.toFixed(2), x+cw/2, y+ch/2+4); }
+        ctx.fillStyle='#888'; ctx.font='8px monospace'; ctx.fillText(`n=${cell.count}`, x+cw/2, y+ch-6);
+        ctx.textAlign='left';
+    });
+    ctx.fillStyle='#fa0'; ctx.font='9px monospace'; ctx.fillText(`HFR médian par cellule · min ${vmin.toFixed(2)} → max ${vmax.toFixed(2)}`, pad+2, H-3);
+}
+
+// ── Distorsion (solve astrométrique) ───────────────────────────
+async function aberrDistAnalyze(){
+    const info=document.getElementById('aberr-dist-info');
+    const results=document.getElementById('aberr-dist-results');
+    if(info) info.textContent='Résolution astrométrique...';
+    if(results) results.style.display='none';
+    const path=(document.getElementById('aberr-inp-path')?.value||'').trim();
+    const body = path ? {source:'load_path', path} : {source:'last'};
+    body.order=parseInt(document.getElementById('aberr-dist-order')?.value||'2',10);
+    try{
+        const resp=await fetch('/api/aberration/distortion',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        const r=await resp.json().catch(async()=>({ok:false,error:await resp.text()}));
+        if(!r.ok){ const msg=r.error||`HTTP ${resp.status}`; if(info) info.textContent='Erreur: '+msg; addLog('error','aberration',`Distorsion: ${msg}`); return; }
+        renderDistortion(r);
+        if(info) info.textContent=`${r.pairs} paires · ${r.matched_stars} matches · ${r.width}×${r.height}`;
+        addLog('info','aberration',`Distorsion: max ${r.distortion.max_distortion_percent}% — RMS ${r.distortion.rms_relative}`);
+    }catch(e){ if(info) info.textContent='Erreur: '+e.message; addLog('error','aberration',`Distorsion échouée: ${e.message}`); }
+}
+
+function renderDistortion(r){
+    const res=document.getElementById('aberr-dist-results'); if(res) res.style.display='';
+    const d=r.distortion||{}; const coeff=d.coefficients||[];
+    const fmt=v=>(v==null?'—':Number(v).toFixed(6));
+    const set=(id,v)=>{ const e=document.getElementById(id); if(e) e.textContent=(v==null?'—':v); };
+    set('aberr-dist-k1', coeff[0]!=null?fmt(coeff[0]):'—');
+    set('aberr-dist-k2', coeff[1]!=null?fmt(coeff[1]):'—');
+    set('aberr-dist-k3', coeff[2]!=null?fmt(coeff[2]):'—');
+    set('aberr-dist-max', d.max_distortion_percent!=null?d.max_distortion_percent+' %':'—');
+    set('aberr-dist-rms', d.rms_relative);
+    set('aberr-dist-pairs', r.pairs);
+    set('aberr-dist-scale', r.scale_arcsec_px!=null?r.scale_arcsec_px+' ″/px':'—');
+    set('aberr-dist-rot', r.rotation_deg!=null?r.rotation_deg+'°':'—');
+    set('aberr-dist-solverms', r.rms_arcsec!=null?r.rms_arcsec+' ″':'—');
+    drawDistortionCanvas(r);
+}
+
+function drawDistortionCanvas(r){
+    const cvs=document.getElementById('aberr-dist-canvas'); if(!cvs) return;
+    const ctx=cvs.getContext('2d'); const W=cvs.width, H=cvs.height;
+    ctx.clearRect(0,0,W,H); ctx.fillStyle='#05080f'; ctx.fillRect(0,0,W,H);
+    const d=r.distortion||{}; const prof=d.radial_profile||[];
+    if(!prof.length) return;
+    const pad=34;
+    const vals=prof.map(p=>p[1]);
+    let vmin=Math.min(0,...vals), vmax=Math.max(0,...vals);
+    if(vmax-vmin<1e-6) vmax=vmin+1;
+    const X=u=>pad+(W-2*pad)*u;
+    const Y=v=>H-pad-(H-2*pad)*((v-vmin)/(vmax-vmin));
+    ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.beginPath(); ctx.moveTo(pad,H-pad); ctx.lineTo(W-pad,H-pad); ctx.moveTo(pad,pad); ctx.lineTo(pad,H-pad); ctx.stroke();
+    if(vmin<0&&vmax>0){ ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.beginPath(); ctx.moveTo(pad,Y(0)); ctx.lineTo(W-pad,Y(0)); ctx.stroke(); }
+    const cx=r.width/2, cy=r.height/2, rmax=Math.hypot(cx,cy)||1;
+    (r.pairs_xy||[]).forEach(p=>{ const [xm,ym,xr,yr]=p; const rr=Math.hypot(xr-cx,yr-cy); if(rr<1e-6) return; const u=rr/rmax; const rm=Math.hypot(xm-cx,ym-cy); const dist=(rm-rr)/rr*100; ctx.fillStyle='rgba(0,170,255,0.5)'; ctx.beginPath(); ctx.arc(X(u),Y(dist),2,0,Math.PI*2); ctx.fill(); });
+    ctx.strokeStyle='#0af'; ctx.lineWidth=1.6; ctx.beginPath();
+    prof.forEach((p,i)=>{ const x=X(p[0]), y=Y(p[1]); if(i===0)ctx.moveTo(x,y); else ctx.lineTo(x,y); }); ctx.stroke();
+    ctx.fillStyle='#0af'; ctx.font='9px monospace'; ctx.fillText('distorsion %',4,pad-8);
+    ctx.fillStyle='#888'; ctx.fillText('u = r/r_max',W-70,H-6);
+    ctx.fillStyle='#fa0'; ctx.fillText(`max ${d.max_distortion_percent}% · ${r.pairs} paires`, pad+6, pad+10);
 }
 
 function drawTiltCanvas(r){

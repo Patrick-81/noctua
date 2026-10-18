@@ -1756,12 +1756,13 @@
 
         <!-- APPLET: ABERRATION & TILT (mode aberration, réutilise capture viewer) -->
         <div id="applet-aberration" class="glass-panel applet mode-specific" data-modes="aberration" style="display:none; top:80px; left:16px; width:640px; max-height:calc(100vh - 120px); overflow-y:auto;">
-            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◉ ABERRATION & TILT</span><span id="aberr-badge" style="margin-left:8px; font-size:0.55rem; color:#888;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
+            <div class="applet-drag"><span class="drag-icon">⣿⣿</span><span class="hud-title" style="margin:0; border:none; padding:0;">◉ ABERRATION · TILT · DISTORSION</span><span id="aberr-badge" style="margin-left:8px; font-size:0.55rem; color:#888;"></span><button class="applet-minimize" title="Réduire / étendre"></button></div>
             <div style="padding:6px 8px;">
                 <div id="aberr-header-info" style="font-size:0.55rem; color:#888; margin-bottom:4px; padding:4px 6px; background:rgba(255,255,255,0.03); border-radius:4px;">Aucune capture</div>
                 <div style="display:flex; gap:4px; margin-bottom:6px;">
                     <button class="btn-glass aberr-tab active" data-aberr-tab="aber" style="flex:1;">◎ Aberrations</button>
                     <button class="btn-glass aberr-tab" data-aberr-tab="tilt" style="flex:1;">◉ Tilt capteur</button>
+                    <button class="btn-glass aberr-tab" data-aberr-tab="dist" style="flex:1;">⬡ Distorsion</button>
                 </div>
                 <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center;">
                     <button id="aberr-btn-last" class="btn-glass success" style="font-size:0.62rem;">Analyser dernière capture (viewer)</button>
@@ -1815,7 +1816,55 @@
                         <span style="margin-left:auto; color:#666; font-size:0.52rem;">Overlay sur l'aperçu (viewer)</span>
                     </div>
                     <canvas id="aberr-viewer-overlay" width="600" height="340" style="display:none;"></canvas>
+
+                    <!-- Courbure de champ + grille HFR + courbe de résidus -->
+                    <div id="aberr-extra" style="display:none;">
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px; padding:6px; background:rgba(255,170,0,0.06); border:1px solid rgba(255,170,0,0.15); border-radius:6px;">
+                            <div>HFR centre <b id="aberr-curv-center">—</b></div>
+                            <div>HFR bord <b id="aberr-curv-edge">—</b></div>
+                            <div>Courbure k <b id="aberr-curv-k">—</b></div>
+                            <div>Ratio bord/centre <b id="aberr-curv-ratio">—</b></div>
+                            <div>Plan R² <b id="aberr-tilt-r2">—</b></div>
+                            <div>Résidu RMS <b id="aberr-tilt-rms">—</b></div>
+                        </div>
+                        <div style="font-size:0.55rem; color:#666; margin-bottom:3px;">Courbure de champ — HFR vs rayon (fit HFR = h₀ + k·r²)</div>
+                        <canvas id="aberr-curv-canvas" width="600" height="180" style="width:100%; height:180px; background:#05080f; border-radius:4px; display:block; margin-bottom:6px;"></canvas>
+                        <div style="font-size:0.55rem; color:#666; margin-bottom:3px;">Courbe de tilt + résidus — plan HFR = c + a·x + b·y, résidu par étoile</div>
+                        <canvas id="aberr-resid-canvas" width="600" height="150" style="width:100%; height:150px; background:#05080f; border-radius:4px; display:block; margin-bottom:6px;"></canvas>
+                        <div style="font-size:0.55rem; color:#666; margin-bottom:3px;">Grille 3×3 — HFR médian par cellule (parallelogramme tilt)</div>
+                        <canvas id="aberr-grid-canvas" width="600" height="200" style="width:100%; height:200px; background:#05080f; border-radius:4px; display:block;"></canvas>
+                    </div>
                 </div>
+
+                <!-- Sous-onglet Distorsion -->
+                <div id="aberr-pane-dist" style="display:none;">
+                    <div style="display:flex; gap:4px; margin-bottom:6px; align-items:center; font-size:0.56rem;">
+                            <button id="aberr-btn-dist" class="btn-glass success" style="font-size:0.62rem;">Analyser distorsion (solve astrométrique)</button>
+                            <label style="color:#888;">Ordre SIP
+                                <select id="aberr-dist-order" class="input-glass" style="font-size:0.56rem;">
+                                    <option value="1">1</option>
+                                    <option value="2" selected>2</option>
+                                    <option value="3">3</option>
+                                </select>
+                            </label>
+                            <span id="aberr-dist-info" style="color:#888; margin-left:6px;"></span>
+                        </div>
+                        <div id="aberr-dist-results" style="display:none;">
+                            <div style="display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px; font-size:0.58rem; margin-bottom:6px; padding:6px; background:rgba(0,180,255,0.06); border:1px solid rgba(0,180,255,0.18); border-radius:6px;">
+                                <div>k₁ <b id="aberr-dist-k1">—</b></div>
+                                <div>k₂ <b id="aberr-dist-k2">—</b></div>
+                                <div>k₃ <b id="aberr-dist-k3">—</b></div>
+                                <div>Distortion max <b id="aberr-dist-max">—</b></div>
+                                <div>RMS radial <b id="aberr-dist-rms">—</b></div>
+                                <div>Paires <b id="aberr-dist-pairs">—</b></div>
+                                <div>Scale <b id="aberr-dist-scale">—</b></div>
+                                <div>Rotation <b id="aberr-dist-rot">—</b></div>
+                                <div>RMS solve <b id="aberr-dist-solverms">—</b></div>
+                            </div>
+                            <canvas id="aberr-dist-canvas" width="600" height="220" style="width:100%; height:220px; background:#05080f; border-radius:4px; display:block;"></canvas>
+                            <div style="font-size:0.52rem; color:#666; margin-top:3px;">Courbe radiale : distorsion relative (%) selon le rayon normalisé u = r/r_max · fit r<sub>mes</sub> = r<sub>ref</sub>·(1 + k₁u² + k₂u⁴ + …). Nécessite le catalogue solveur chargé.</div>
+                        </div>
+                        </div>
             </div>
         </div>
         </div> <!-- /mobile-stack -->
