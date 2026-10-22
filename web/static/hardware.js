@@ -624,7 +624,7 @@ function initHardwarePanel() {
             b.classList.toggle('active', on);
             b.setAttribute('aria-selected', on ? 'true' : 'false');
         });
-        for (const t of ['devices', 'drivers', 'profile']) {
+        for (const t of ['devices', 'drivers', 'profile', 'server']) {
             const panel = document.getElementById(`hw-tab-${t}`);
             if (!panel) continue;
             const on = t === tab;
@@ -838,6 +838,113 @@ function initHardwarePanel() {
     if (drvSelect) drvSelect.addEventListener('change', () => {
         hwSelectDriver(drvSelect.value);
     });
+
+    // ── Serveur tab ───────────────────────────────────────────────
+    const srvStart = document.getElementById('hw-server-start');
+    const srvStop = document.getElementById('hw-server-stop');
+    const srvRefresh = document.getElementById('hw-server-refresh');
+    const srvStatus = document.getElementById('hw-server-status');
+    const srvProfile = document.getElementById('hw-server-profile');
+    const srvPort = document.getElementById('hw-server-port');
+    const srvWeb = document.getElementById('hw-server-web');
+    const srvPid = document.getElementById('hw-server-pid');
+
+    async function hwFetchServerStatus() {
+        try {
+            const data = await fetch('/api/indiweb/status').then(r => r.json());
+            if (srvStatus) {
+                if (data.status === 'running') {
+                    srvStatus.textContent = '● ' + i18n('hw.server_running');
+                    srvStatus.className = 'status-online';
+                } else if (data.status === 'stopped') {
+                    srvStatus.textContent = '● ' + i18n('hw.server_stopped');
+                    srvStatus.className = 'status-offline';
+                } else {
+                    srvStatus.textContent = '● ' + i18n('hw.server_status_unknown');
+                    srvStatus.className = 'status-offline';
+                }
+            }
+            if (srvPort) srvPort.textContent = data.port || '—';
+            if (srvWeb) srvWeb.textContent = data.web || '—';
+            if (srvPid) srvPid.textContent = data.pid || '—';
+            if (srvStart) srvStart.disabled = data.status === 'running';
+            if (srvStop) srvStop.disabled = data.status !== 'running';
+        } catch (e) {
+            if (srvStatus) {
+                srvStatus.textContent = '● ' + i18n('hw.server_status_error');
+                srvStatus.className = 'status-offline';
+            }
+        }
+    }
+
+    async function hwFetchServerProfiles() {
+        try {
+            const data = await fetch('/api/indiweb/profiles').then(r => r.json());
+            if (!srvProfile) return;
+            const current = srvProfile.value;
+            srvProfile.innerHTML = '';
+            const optDefault = document.createElement('option');
+            optDefault.value = '';
+            optDefault.textContent = i18n('hw.server_profile_select');
+            srvProfile.appendChild(optDefault);
+            for (const p of (data.profiles || [])) {
+                const opt = document.createElement('option');
+                opt.value = p;
+                opt.textContent = p;
+                srvProfile.appendChild(opt);
+            }
+            if (current && data.profiles.includes(current)) {
+                srvProfile.value = current;
+            }
+        } catch (e) { /* silencieux */ }
+    }
+
+    async function hwLoadServer() {
+        await Promise.all([hwFetchServerStatus(), hwFetchServerProfiles()]);
+    }
+
+    if (srvStart) srvStart.addEventListener('click', async () => {
+        try {
+            await fetch('/api/indiweb/start', { method: 'POST' });
+            addLog('info', 'hw', i18n('log.hw.server_starting'));
+            await hwLoadServer();
+        } catch (e) { addLog('error', 'hw', e.message); }
+    });
+
+    if (srvStop) srvStop.addEventListener('click', async () => {
+        try {
+            await fetch('/api/indiweb/stop', { method: 'POST' });
+            addLog('info', 'hw', i18n('log.hw.server_stopping'));
+            await hwLoadServer();
+        } catch (e) { addLog('error', 'hw', e.message); }
+    });
+
+    if (srvRefresh) srvRefresh.addEventListener('click', async () => {
+        await hwLoadServer();
+    });
+
+    if (srvProfile) srvProfile.addEventListener('change', async () => {
+        const profile = srvProfile.value;
+        if (!profile) return;
+        try {
+            const res = await fetch('/api/indiweb/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile }),
+            }).then(r => r.json());
+            if (res?.ok) {
+                addLog('info', 'hw', i18nFmt('log.hw.server_profile_loaded', { profile }));
+                await hwLoadServer();
+            } else if (res?.error) {
+                addLog('error', 'hw', i18nFmt('log.hw.server_profile_error', { err: res.error }));
+            }
+        } catch (e) { addLog('error', 'hw', e.message); }
+    });
+
+    // Polling toutes les 10s pour le statut serveur
+    let _hwServerPoll = setInterval(hwLoadServer, 10000);
+
+    // ── End: Serveur tab ──────────────────────────────────────────
 
     hwCheckDom();
     hwLoad().then(() => { renderHardwarePanel(); renderConnLeds(); });

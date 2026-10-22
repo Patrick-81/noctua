@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from ..registry import DeviceRegistry
 
 from indigo.profiles import ProfileStore
+from indigo.server_list import ServerStore
 
 from .routers.common import _mount_flip_status, _sanitize
 
@@ -43,7 +44,8 @@ SKYMAP_SRC_DIR = (Path(__file__).parent.parent / "packages" / "skymap" / "src").
 class WebServer:
     def __init__(self, registry: DeviceRegistry, site_config: dict | None = None,
                  config_path: Path | None = None, ui_path: Path | None = None,
-                 profiles_path: Path | None = None, telescope_config: dict | None = None,
+                 profiles_path: Path | None = None, server_list_path: Path | None = None,
+                 telescope_config: dict | None = None,
                  sequence_config: dict | None = None, exposure_config: dict | None = None,
                  templates_path: Path | None = None, masters_config: dict | None = None,
                  blob_mode: str = "Also", prefer_raw16: bool = True):
@@ -73,6 +75,7 @@ class WebServer:
         self.config_path = config_path
         self.ui_path = ui_path
         self.profiles = ProfileStore(profiles_path)
+        self.server_list = ServerStore(server_list_path)
         # Sequence templates (Lot C3) : défaut = à côté du fichier de config.
         from indigo.devices.templates import SequenceTemplateStore
         if templates_path is None:
@@ -1931,11 +1934,9 @@ class WebServer:
             await asyncio.shield(_pulse_guarded(m, direction, ms))
 
         async def _pulse_guarded(m, direction: str, ms: int) -> None:
-            await m.move(direction)
-            try:
-                await asyncio.sleep(max(0, ms) / 1000.0)
-            finally:
-                await m.halt_move()
+            # Prefer INDI TELESCOPE_TIMED_GUIDE_* inside Mount.pulse();
+            # falls back to Guide-rate move + sleep + halt.
+            await m.pulse(direction, ms)
 
         async def set_rate(rate: str) -> None:
             m = server.registry.get_mount()

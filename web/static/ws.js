@@ -449,7 +449,7 @@ function initConnectionBar() {
     setInterval(async () => {
         try {
             const data = await fetch('/api/connection').then(r => r.json());
-            const statusEl = document.getElementById('indigo-status');
+            const statusEl = document.getElementById('hw-conn-status');
             isConnected = !!data.connected;
             if (statusEl) {
                 statusEl.textContent = data.connected ? i18n('ws.connected') : i18n('hw.offline');
@@ -469,6 +469,132 @@ function initConnectionBar() {
             }
         } catch (e) {}
     }, 3000);
+
+    // ── Server selector ────────────────────────────────────────
+    const serverSelect = document.getElementById('server-select');
+    const serverAddBtn = document.getElementById('btn-server-add');
+    const serverDelBtn = document.getElementById('btn-server-delete');
+    let _serverList = [];
+
+    async function loadServers() {
+        try {
+            const res = await fetch('/api/servers');
+            const data = await res.json();
+            _serverList = data.servers || [];
+        } catch (e) {
+            _serverList = [];
+        }
+    }
+
+    function renderServerSelect() {
+        if (!serverSelect) return;
+        const current = serverSelect.value;
+        serverSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = '';
+        opt.textContent = i18n('conn.server_none');
+        serverSelect.appendChild(opt);
+        for (const s of _serverList) {
+            const o = document.createElement('option');
+            o.value = s.name;
+            o.textContent = `${s.name} (${s.host}:${s.port})`;
+            serverSelect.appendChild(o);
+        }
+        if (current && _serverList.find(s => s.name === current)) {
+            serverSelect.value = current;
+        }
+        if (serverDelBtn) {
+            serverDelBtn.style.display = serverSelect.value ? '' : 'none';
+        }
+    }
+
+    if (serverSelect) {
+        serverSelect.addEventListener('change', async () => {
+            const name = serverSelect.value;
+            if (!name) return;
+            const srv = _serverList.find(s => s.name === name);
+            if (!srv) return;
+            // Auto-fill host/port/protocol
+            if (ipInput) ipInput.value = srv.host;
+            if (portInput) portInput.value = srv.port;
+            if (protoSelect) protoSelect.value = srv.protocol || 'connect';
+            // Ping before connect
+            try {
+                const pingRes = await fetch('/api/servers/ping', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ host: srv.host, port: srv.port }),
+                });
+                const pingData = await pingRes.json();
+                if (!pingData.reachable) {
+                    addLog('warning', 'ws', i18nFmt('log.ws.server_unreachable', { name: srv.name, err: pingData.error || 'unreachable' }));
+                    return;
+                }
+            } catch (e) {
+                addLog('warning', 'ws', i18nFmt('log.ws.server_ping_error', { name: srv.name, err: e.message }));
+                return;
+            }
+            // Reconnect
+            if (connectBtn) connectBtn.click();
+        });
+    }
+
+    if (serverAddBtn) {
+        serverAddBtn.addEventListener('click', async () => {
+            const name = prompt(i18n('conn.server_add_name'), '');
+            if (!name || !name.trim()) return;
+            const host = ipInput?.value || '127.0.0.1';
+            const port = parseInt(portInput?.value || '7624', 10);
+            const protocol = protoSelect?.value || 'connect';
+            try {
+                const res = await fetch('/api/servers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim(), host, port, protocol }),
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    await loadServers();
+                    renderServerSelect();
+                    addLog('info', 'ws', i18nFmt('log.ws.server_added', { name: name.trim() }));
+                } else {
+                    addLog('error', 'ws', i18nFmt('log.ws.server_add_error', { err: JSON.stringify(data) }));
+                }
+            } catch (e) {
+                addLog('error', 'ws', i18nFmt('log.ws.server_add_error', { err: e.message }));
+            }
+        });
+    }
+
+    if (serverDelBtn) {
+        serverDelBtn.addEventListener('click', async () => {
+            const name = serverSelect?.value;
+            if (!name) return;
+            if (!confirm(i18nFmt('conn.server_del_confirm', { name }))) return;
+            try {
+                const res = await fetch('/api/servers', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name }),
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    await loadServers();
+                    renderServerSelect();
+                    addLog('info', 'ws', i18nFmt('log.ws.server_deleted', { name }));
+                } else {
+                    addLog('error', 'ws', i18nFmt('log.ws.server_del_error', { err: JSON.stringify(data) }));
+                }
+            } catch (e) {
+                addLog('error', 'ws', i18nFmt('log.ws.server_del_error', { err: e.message }));
+            }
+        });
+    }
+
+    // Load servers on init
+    if (serverSelect) {
+        loadServers().then(renderServerSelect).catch(() => {});
+    }
 }
 
 function initLocationUpdate() {

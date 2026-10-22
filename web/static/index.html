@@ -112,16 +112,7 @@
 
         <!-- Bandeau connexion — pleine largeur en haut (hors stack, ne contraint pas les panneaux) -->
         <div id="applet-connection" class="glass-panel applet">
-            <div id="conn-row-top">
-                <select id="indigo-protocol" title="Protocole INDIGO" data-i18n-title="conn.protocol.title">
-                    <option value="connect">Connect</option>
-                    <option value="attach">Attach</option>
-                </select>
-                <input id="indigo-ip" placeholder="Hôte" value="127.0.0.1" style="width:110px;" data-i18n-placeholder="conn.host">
-                <input id="indigo-port" placeholder="Port" value="7624" style="width:55px;" data-i18n-placeholder="conn.port">
-                <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
-                <span id="indigo-status" class="status-offline">● Hors ligne</span>
-                <button id="btn-bandeau-menu" class="btn-glass" style="font-size:0.7rem; padding:2px 6px; margin-left:4px;" title="Réglages" aria-label="Réglages">⋮</button>
+            <div id="conn-row-top" style="display:none;">
                 <div id="bandeau-menu" class="bandeau-menu" style="display:none;">
                     <label style="display:flex; align-items:center; gap:6px; font-size:0.6rem; color:#aaa;">Langue
                         <select id="i18n-lang" title="Langue" style="font-size:0.6rem;">
@@ -152,6 +143,12 @@
                 <datalist id="serial-port-list"></datalist>
                 <button id="btn-indigo-apply-port" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.apply">APPLIQUER</button>
             </div>
+            <div id="conn-row-server">
+                <span style="color:#666; font-size:0.6rem;" data-i18n="conn.server_label">Serveur:</span>
+                <select id="server-select" style="width:160px;" title="Serveur INDI/INDIGO"></select>
+                <button id="btn-server-add" class="btn-glass" style="font-size:0.6rem; padding:2px 6px;" title="Ajouter un serveur" data-i18n-title="conn.server_add">＋</button>
+                <button id="btn-server-delete" class="btn-glass warning" style="font-size:0.6rem; padding:2px 6px;" title="Supprimer ce serveur" data-i18n-title="conn.server_delete">✕</button>
+            </div>
             <div id="conn-row-location">
                 <span style="color:#88ff88;">📍</span>
                 <input id="obs-lat" value="43.952" style="width:60px;">
@@ -160,6 +157,7 @@
                 <span style="color:#666;">°E</span>
                 <button id="btn-update-location" class="btn-glass" style="font-size:0.6rem;" data-i18n="conn.update">MAJ</button>
                 <span id="conn-device-leds" class="conn-leds" title="Devices"></span>
+                <button id="btn-bandeau-menu" class="btn-glass" style="font-size:0.7rem; padding:2px 6px;" title="Réglages" aria-label="Réglages">⋮</button>
             </div>
         </div>
         <div id="mobile-stack">
@@ -179,16 +177,26 @@
                 <button type="button" class="hw-tab active" data-tab="devices" data-i18n="hw.tab_devices" role="tab" aria-selected="true">Devices</button>
                 <button type="button" class="hw-tab" data-tab="drivers" data-i18n="hw.tab_drivers" role="tab" aria-selected="false">Drivers</button>
                 <button type="button" class="hw-tab" data-tab="profile" data-i18n="hw.tab_profile" role="tab" aria-selected="false">Profil</button>
+                <button type="button" class="hw-tab" data-tab="server" data-i18n="hw.tab_server" role="tab" aria-selected="false">Serveur</button>
             </div>
 
             <!-- Onglet Devices : tableur (rôles + endpoint inline, générique) -->
             <div id="hw-tab-devices" class="hw-tab-panel active" role="tabpanel">
-                <div class="hw-row" style="padding-top:4px;">
+                <div class="hw-row" style="padding-top:4px; gap:4px;">
+                    <select id="indigo-protocol" title="Protocole INDIGO" data-i18n-title="conn.protocol.title" style="font-size:0.6rem; padding:2px 4px;">
+                        <option value="connect">Connect</option>
+                        <option value="attach">Attach</option>
+                    </select>
+                    <input id="indigo-ip" placeholder="Hôte" value="127.0.0.1" style="width:90px; font-size:0.6rem; padding:2px 5px;" data-i18n-placeholder="conn.host">
+                    <input id="indigo-port" placeholder="Port" value="7624" style="width:48px; font-size:0.6rem; padding:2px 5px;" data-i18n-placeholder="conn.port">
+                    <button id="btn-indigo-connect" class="btn-glass success" style="font-size:0.6rem;">● CONN</button>
+                    <span id="hw-conn-status" class="status-offline" style="margin-left:auto; font-size:0.6rem;">● Hors ligne</span>
+                </div>
+                <div class="hw-row" style="padding-top:2px;">
                     <button id="hw-connect-all" class="btn-glass success" style="font-size:0.6rem;" data-i18n="hw.connect_all">Tout connecter</button>
                     <button id="hw-disconnect-all" class="btn-glass danger" style="font-size:0.6rem;" data-i18n="hw.disconnect_all">Tout déconnecter</button>
                     <button id="hw-refresh" class="btn-glass" style="font-size:0.6rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
                     <button id="hw-scan-serial" class="btn-glass" style="font-size:0.6rem;" data-i18n="hw.scan_serial">⟳ Ports</button>
-                    <span id="hw-conn-status" class="status-offline" style="margin-left:auto;">● Hors ligne</span>
                 </div>
                 <div id="hw-serial-hint" class="hw-serial-hint"></div>
                 <div class="hw-table-head" aria-hidden="true">
@@ -224,6 +232,27 @@
                     <input id="hw-optics" placeholder="ex. Newton 200/800" title="Optique (optionnel)">
                 </div>
                 <div style="font-size:0.55rem; color:#666; padding:4px 8px 8px;" data-i18n="hw.profile_hint">Rôles et endpoint monture se règlent dans l'onglet Devices (une ligne = un device). Profil = cartographie persistante.</div>
+            </div>
+
+            <!-- Onglet Serveur : gestion du serveur INDI/INDIGO -->
+            <div id="hw-tab-server" class="hw-tab-panel" role="tabpanel" hidden>
+                <div class="hw-row" style="padding-top:8px; gap:8px;">
+                    <button id="hw-server-start" class="btn-glass success" style="font-size:0.7rem;" data-i18n="hw.server_start">▶ Démarrer</button>
+                    <button id="hw-server-stop" class="btn-glass danger" style="font-size:0.7rem;" data-i18n="hw.server_stop">⏹ Arrêter</button>
+                    <button id="hw-server-refresh" class="btn-glass" style="font-size:0.7rem;" title="Rafraîchir" data-i18n-title="hw.refresh">⟳</button>
+                    <span id="hw-server-status" class="status-offline" style="margin-left:auto;" data-i18n="hw.server_status_unknown">● État inconnu</span>
+                </div>
+                <div class="hw-row" style="padding-top:4px;">
+                    <label class="hw-label" data-i18n="hw.server_profile" style="font-size:0.75rem;">Profil INDIGO:</label>
+                    <select id="hw-server-profile" class="hw-select" style="flex:1;">
+                        <option value="" data-i18n="hw.server_profile_select">— Sélectionner un profil —</option>
+                    </select>
+                </div>
+                <div id="hw-server-info" class="hw-server-info" style="padding:8px; font-size:0.75rem; line-height:1.6;">
+                    <div><span data-i18n="hw.server_port">Port:</span> <span id="hw-server-port">—</span></div>
+                    <div><span data-i18n="hw.server_web">Web:</span> <span id="hw-server-web">—</span></div>
+                    <div><span data-i18n="hw.server_pid">PID:</span> <span id="hw-server-pid">—</span></div>
+                </div>
             </div>
         </div>
 

@@ -7,6 +7,8 @@ import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from indigo.server_list import ServerStore
+
 from .common import SanitizedJSONResponse, log
 
 if TYPE_CHECKING:
@@ -148,7 +150,7 @@ def register(app, server: "WebServer") -> None:
         server.registry._auto_connecting.discard(device_name)
         log.info("Manual connect: %s (item=%s)", device_name, item_name)
         if not server.registry.client.connected:
-            return {"error": "not connected to INDIGO server"}
+            return {"error": "not connected to INDI server"}
         server.registry._disconnecting.discard(device_name)
         _payload = (connection_vector([it.name for it in conn_prop.items], True)
                     if conn_prop and conn_prop.items
@@ -157,7 +159,7 @@ def register(app, server: "WebServer") -> None:
             return {"error": "connect not sent (client event loop unavailable)"}
         if not await _wait_connected_state(server, device_name, True, timeout_s=8.0):
             return {"error": f"device '{device_name}' did not confirm connection "
-                             "(driver not responding — restart it on the INDIGO server?)"}
+                             "(driver not responding — restart it in indiweb?)"}
         return {"ok": True, "device": device_name}
 
     async def _disconnect_device(device_name: str) -> dict:
@@ -192,7 +194,7 @@ def register(app, server: "WebServer") -> None:
         log.info("Manual disconnect: %s (item=%s)", device_name, item_name)
         if not await _wait_connected_state(server, device_name, False, timeout_s=5.0):
             return {"error": f"device '{device_name}' did not confirm disconnection "
-                             "(driver not responding — restart it on the INDIGO server?)"}
+                             "(driver not responding — restart it in indiweb?)"}
         return {"ok": True, "device": device_name}
 
     @app.get("/api/devices")
@@ -204,43 +206,112 @@ def register(app, server: "WebServer") -> None:
 
     @app.get("/api/drivers")
     async def get_drivers():
-        return SanitizedJSONResponse(server.registry.drivers_list())
+        return SanitizedJSONResponse(await server.registry.refresh_drivers())
 
     @app.get("/api/drivers/grouped")
     async def get_drivers_grouped():
         """Drivers loadables groupés par catégorie (mount, camera, …).
 
-        Chaque entrée: {name, label, loaded, category}. Le groupement
-        reflète la diversité des drivers exposés par le serveur INDIGO
-        (indigo_mount_*, indigo_ccd_*, indigo_wheel_*, …).
+        Chaque entrée: {name, label, loaded, category}. En mode INDI la
+        liste vient de l'INDI Web Manager (indiweb) ; en mode INDIGO elle
+        reflète les vecteurs ``Server/DRIVERS``.
         """
+        await server.registry.refresh_drivers()
         return SanitizedJSONResponse(server.registry.drivers_grouped())
 
     @app.post("/api/drivers/attach")
     async def attach_driver(body: dict):
-        """Attach (load) a driver on the INDIGO server."""
+        """Start/load a driver via the INDI Web Manager."""
         driver_name = body.get("driver", "")
         if not driver_name:
             return {"error": "no driver specified"}
-        c = server.registry.client
-        if not c.connected:
-            return {"error": "not connected to INDIGO server"}
-        await c.send_attach_driver(driver_name)
-        log.info("Attach driver: %s", driver_name)
-        return {"ok": True, "driver": driver_name}
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"error": "driver loading is managed by indiweb; "
+                             "set indi.web_manager in config.yaml"}
+        try:
+            res = await manager.start_driver(driver_name)
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb start %s failed: %s", driver_name, e)
+            return {"error": str(e), "driver": driver_name}
+        log.info("Start driver (indiweb): %s", driver_name)
+        return res
 
     @app.post("/api/drivers/detach")
     async def detach_driver(body: dict):
-        """Detach (unload) a driver from the INDIGO server (best effort)."""
+        """Stop/unload a driver via the INDI Web Manager."""
         driver_name = body.get("driver", "")
         if not driver_name:
             return {"error": "no driver specified"}
-        c = server.registry.client
-        if not c.connected:
-            return {"error": "not connected to INDIGO server"}
-        await c.send_detach_driver(driver_name)
-        log.info("Detach driver: %s", driver_name)
-        return {"ok": True, "driver": driver_name}
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"error": "driver loading is managed by indiweb; "
+                             "set indi.web_manager in config.yaml"}
+        try:
+            res = await manager.stop_driver(driver_name)
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb stop %s failed: %s", driver_name, e)
+            return {"error": str(e), "driver": driver_name}
+        log.info("Stop driver (indiweb): %s", driver_name)
+        return res
+
+    @app.get("/api/indiweb/status")
+    async def indiweb_status():
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"configured": False, "server": None, "active_profile": None}
+        status = await manager.server_status()
+        return {"configured": True, **status}
+
+    @app.post("/api/indiweb/start")
+    async def indiweb_start(body: dict):
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"error": "indiweb not configured"}
+        profile = body.get("profile", "")
+        try:
+            res = await manager.start_server(profile)
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb start_server failed: %s", e)
+            return {"error": str(e)}
+        log.info("indiweb start_server profile=%s", profile)
+        return res
+
+    @app.post("/api/indiweb/stop")
+    async def indiweb_stop():
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"error": "indiweb not configured"}
+        try:
+            res = await manager.stop_server()
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb stop_server failed: %s", e)
+            return {"error": str(e)}
+        log.info("indiweb stop_server")
+        return res
+
+    @app.get("/api/indiweb/profiles")
+    async def indiweb_profiles():
+        """List available indiserver profiles from indiweb."""
+        manager = server.registry.indiweb
+        if manager is None:
+            return {"configured": False, "profiles": []}
+        try:
+            _status, data = await manager._request("GET", "/api/server/profiles")
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb profiles unavailable: %s", e)
+            return {"configured": True, "profiles": []}
+        profiles: list[dict] = []
+        if isinstance(data, list):
+            for p in data:
+                if isinstance(p, dict):
+                    profiles.append({"name": p.get("name", ""), "label": p.get("label", "")})
+                elif isinstance(p, str):
+                    profiles.append({"name": p, "label": p})
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                profiles.append({"name": k, "label": str(v) if v else k})
+        return {"configured": True, "profiles": profiles}
 
     @app.post("/api/device/connect")
     async def connect_device(body: dict):
@@ -402,7 +473,7 @@ def register(app, server: "WebServer") -> None:
         results = []
         # Auto-attach des drivers manquants : si un device du profil n'est
         # pas encore découvert mais qu'un driver de même catégorie existe
-        # côté INDIGO (déclaré non chargé), on demande son chargement.
+        # (déclaré non chargé), on demande son démarrage à indiweb.
         # L'appareil apparaîtra au prochain def et l'auto-connect le prendra.
         role_for_dev = {}
         if prof:
@@ -410,6 +481,20 @@ def register(app, server: "WebServer") -> None:
                 v = prof.get(role)
                 if v:
                     role_for_dev[v] = role
+        manager = server.registry.indiweb
+        await server.registry.refresh_drivers()
+
+        async def _start_driver(driver_name: str) -> bool:
+            try:
+                if manager is not None:
+                    await manager.start_driver(driver_name)
+                else:
+                    await server.registry.client.send_attach_driver(driver_name)
+                return True
+            except Exception as e:  # noqa: BLE001
+                log.warning("Auto-attach failed %s: %s", driver_name, e)
+                return False
+
         for dev_name in server.profiles.devices_for(name):
             if dev_name in server.registry.all_devices():
                 results.append(await _connect_device(dev_name))
@@ -420,32 +505,52 @@ def register(app, server: "WebServer") -> None:
                            "focuser": "focuser", "filter_wheel": "filter_wheel"}
                 wanted = cat_map.get(role, "")
                 attached = False
-                if wanted and server.registry.client.connected:
+                if wanted and (manager is not None or server.registry.client.connected):
                     for d in server.registry.drivers_list():
                         if not d.get("loaded") and d.get("category") == wanted:
-                            try:
-                                await server.registry.client.send_attach_driver(d["name"])
+                            if await _start_driver(d["name"]):
                                 log.info("Auto-attach driver %s for missing device %s (role %s)", d["name"], dev_name, role)
                                 attached = True
-                            except Exception as e:  # noqa: BLE001
-                                log.warning("Auto-attach failed %s: %s", d["name"], e)
                             break
                     # Fallback guide_camera → camera
                     if not attached and wanted == "guide_camera":
                         for d in server.registry.drivers_list():
                             if not d.get("loaded") and d.get("category") == "camera":
-                                try:
-                                    await server.registry.client.send_attach_driver(d["name"])
+                                if await _start_driver(d["name"]):
                                     log.info("Auto-attach driver %s for missing guide_camera %s", d["name"], dev_name)
                                     attached = True
-                                except Exception:  # noqa: BLE001
-                                    pass
                                 break
                 if attached:
-                    results.append({"ok": False, "device": dev_name, "error": "device not found — driver attach requested, retry connect after it appears"})
+                    results.append({"ok": False, "device": dev_name, "error": "device not found — driver start requested, retry connect after it appears"})
                 else:
                     results.append({"ok": False, "device": dev_name, "error": "device not found"})
         return {"ok": True, "active": name, "results": results}
+
+    # ── Server List ──────────────────────────────────────────────
+
+    @app.get("/api/servers")
+    async def list_servers():
+        """List known INDI/INDIGO servers."""
+        return {"servers": server.server_list.list_servers()}
+
+    @app.post("/api/servers")
+    async def upsert_server(body: dict):
+        """Create or update a server entry."""
+        return server.server_list.upsert(body)
+
+    @app.delete("/api/servers")
+    async def delete_server(body: dict):
+        """Delete a server entry."""
+        return server.server_list.delete(body.get("name", ""))
+
+    @app.post("/api/servers/ping")
+    async def ping_server(body: dict):
+        """Test TCP connectivity to a server."""
+        host = body.get("host")
+        port = int(body.get("port", 7624))
+        if not host:
+            return {"ok": False, "error": "host required"}
+        return await ServerStore.ping(host, port)
 
     # ── Filter Wheel ─────────────────────────────────────────
 
