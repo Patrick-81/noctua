@@ -1,7 +1,11 @@
 indigo:
   host: 192.168.1.25
   port: 7624
-web:
+  # --- Gestion du serveur (Nouveau) ---
+  # Si true, Noctua tentera de démarrer le processus du serveur (indiserver ou indigo_server).
+  # server_type: indigo # 'indigo' ou 'indi'
+  # auto_start: false   # true pour démarrer automatiquement le serveur
+  blob_mode: Also
   host: 0.0.0.0
   port: 8080
 site:

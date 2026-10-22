@@ -1,12 +1,20 @@
 # Noctua — Exemple de configuration
 # Copiez ce fichier vers config.yaml puis ajustez les valeurs.
-indigo:
-  host: 127.0.0.1        # adresse du serveur INDIGO (modifiez selon votre réseau)
+# Serveur INDI (indiserver, port 7624). Noctua reste compatible avec un
+# serveur INDIGO : le protocole XML/TCP est le même. La section `indigo:`
+# (ancien nom) est encore acceptée comme alias de `indi:`.
+indi:
+  host: 127.0.0.1        # adresse du serveur INDI (modifiez selon votre réseau)
   port: 7624
+  # INDI Web Manager (indi-web) : API REST utilisée pour lister/démarrer/
+  # arrêter les drivers. Mettre false pour désactiver le panneau Drivers.
+  # Accepte une URL ou un mapping {host, port}.
+  web_manager: http://127.0.0.1:8624
+  # --- Gestion du serveur (Nouveau) ---
+  # Si true, Noctua tentera de démarrer le processus du serveur (indiserver ou indigo_server).
+  # server_type: indigo # 'indigo' ou 'indi'
+  # auto_start: false   # true pour démarrer automatiquement le serveur
   # blob_mode: Also (défaut, inline base64, compatible INDI+INDIGO) ou URL
-  # (INDIGO v2 : le serveur garde l'image, Noctua la télécharge en HTTP —
-  # comme le panneau indigo_server, parfois bien plus rapide côté driver).
-  blob_mode: Also
   # prefer_raw16: true (défaut) bascule les caméras Bayer de RAW 8 vers
   # RAW 16 bits quand proposé (X_PIXEL_FORMAT) — indispensable à la mise
   # au point sur étoiles faibles (capteur 12 bits). Mettre false pour garder
