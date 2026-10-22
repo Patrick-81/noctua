@@ -70,8 +70,8 @@ fi
 echo
 echo "✔ Installation terminée."
 echo
-echo "  Lancement :   ./start.sh [indigo_host:port]"
+echo "  Lancement :   ./start.sh [indi_host:port]"
 echo "  Serveur web : http://localhost:8080"
 echo
-echo "  INDIGO : le serveur indigo_server doit être accessible sur le réseau."
+echo "  INDI : indiserver (port 7624) + INDI Web Manager (indi-web, port 8624)."
 echo "  Pour tester sans matériel :  ./start-mock-server.sh"

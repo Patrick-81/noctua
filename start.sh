@@ -1,6 +1,6 @@
 #!/bin/bash
-# Start INDIGO Devices server
-# Usage: ./start.sh [indigo_host:port] [--port 8080]
+# Start Noctua server
+# Usage: ./start.sh [indi_host:port] [--port 8080]
 #
 # Si une instance tourne déjà (même port web ou process run.py),
 # elle est arrêtée proprement avant de relancer — évite les doublons
