@@ -57,61 +57,45 @@ séquences d'acquisition multi-cibles (mosaïques incluses), bibliothèque de ma
 - **Frontend** : JS vanilla (scripts classiques, pas de build step), Canvas, CSS glassmorphisme, responsive `<1100px` (bandeau pleine largeur + bottom-nav + colonne d'icônes `124px` sous bandeau + stack `calc(100vw-66px)` scrollable, carte fixe derrière, LEDs `T C A F R/W` gris→vert)
 - **Protocole** : INDIGO/INDI XML via TCP (le client parlé INDI au serveur ; le navigateur rejoint le serveur web via WebSocket pour l'état temps réel)
 
-## Compatibilité matérielle — INDIGO comme passerelle universelle
+## Compatibilité matérielle — INDI (et INDIGO)
 
-Noctua communique avec **un seul protocole** : INDIGO/INDI (TCP XML sur le port 7624). Ce choix est architectural et délibéré.
-
-### Comment ça fonctionne
+Noctua communique avec **un seul protocole** : INDI/XML sur TCP (port `7624`).
+Les drivers sont lancés par `indiserver` et pilotés depuis l'interface via
+l'**INDI Web Manager** (`indi-web`, API REST sur le port `8624`).
 
 ```
-┌──────────────┐     TCP/INDIGO      ┌─────────────────┐
-│   Noctua     │ ◄──────────────────► │  indigo_server   │
-│  (navigateur)│                      │  (port 7624)     │
-└──────────────┘                      └────────┬─────────┘
-                                               │
-                              ┌─────────────────┼─────────────────┐
-                              │                 │                 │
-                     ┌────────▼──────┐ ┌────────▼──────┐ ┌───────▼───────┐
-                     │ Drivers natifs│ │ Drivers ASCOM │ │ Drivers INDI  │
-                     │   INDIGO      │ │  (Windows)    │ │  (legacy)     │
-                     └───────────────┘ └───────────────┘ └───────────────┘
+┌──────────────┐     TCP/INDI       ┌──────────────┐
+│   Noctua     │ ◄────────────────► │ indiserver   │
+│  (navigateur)│                    │  (port 7624) │
+└──────────────┘                    └──────┬───────┘
+                                           │
+                              ┌────────────┼────────────┐
+                              │            │            │
+                     ┌────────▼─────┐ ┌────▼─────┐ ┌────▼──────┐
+                     │ Drivers INDI │ │ ASCOM    │ │ Simulateurs│
+                     │ (natif)      │ │ (via     │ │ indi_*     │
+                     │              │ │ indi-ASCOM)│ │           │
+                     └──────────────┘ └──────────┘ └───────────┘
 ```
-
-**INDIGO est le middleware unique** qui abstraît la couche matérielle. Noctua n'a pas besoin de savoir si un driver est natif INDIGO, ASCOM ou INDI — il parle toujours le même langage.
 
 ### Écosystème supporté
 
 | Plateforme | Driver utilisé | Fonctionne avec Noctua ? |
 |---|---|---|
-| **INDIGO natif** (Linux, macOS, Windows) | Drivers CCD/ mount/ focuser INDIGO | **Oui** — natif |
-| **INDIGO + ASCOM** (Windows) | `indigo_server` charge les drivers ASCOM | **Oui** — via INDIGO |
-| **INDIGO + INDI** (Linux) | `indigo_server` charge les drivers INDI | **Oui** — via INDIGO |
-| **ASCOM pur** (Windows, sans INDIGO) | ASCOM COM direct | **Non** — nécessite `indigo_server` |
-| **INDI pur** (Linux, sans INDIGO) | indiserver direct | **Non** — nécessite `indigo_server` |
+| **INDI natif** (Linux, macOS) | Drivers `indi_*` via `indiserver` | **Oui** — natif |
+| **INDI + ASCOM** (Windows) | `indiserver` + drivers ASCOM/INDI | **Oui** |
+| **INDIGO** (Linux, macOS, Windows) | `indigo_server` (protocole compatible) | **Oui** — mode de secours |
 
-### Pour les utilisateurs ASCOM
+### Piloter les drivers
 
-Si vous utilisez des drivers ASCOM (ZWO ASI, QHY, etc.) sur Windows :
+1. Lancez l'INDI Web Manager (`indi-web`, port `8624`) et `indiserver`.
+2. Renseignez son URL dans `config.yaml` (`indi.web_manager`).
+3. Dans Noctua → panneau **Drivers** : chargez/déchargez les drivers
+   (monture, caméra, focuser, roue à filtres…), puis connectez les appareils.
 
-1. Installez [INDIGO](https://www.indigo-astronomy.org/) — il inclut un serveur INDIGO qui charge automatiquement vos drivers ASCOM existants
-2. Lancez `indigo_server` avec vos drivers ASCOM
-3. Noctua se connecte au serveur INDIGO et contrôle vos équipements ASCOM normalement
-
-**Rien ne change** — vos drivers ASCOM fonctionnent, Noctua les voit comme des appareils INDIGO.
-
-### Pour les utilisateurs INDI (legacy)
-
-Si vous avez un serveur INDI (`indiserver`) existant :
-
-1. INDIGO est compatible INDI v2 — `indigo_server` peut charger les drivers INDI
-2. Migrez progressivement vers les drivers INDIGO natifs (meilleure stabilité)
-
-### Pourquoi ce choix ?
-
-- **Un seul protocole** = un seul client, un seul code, moins de bugs
-- **Cross-platform** — INDIGO tourne sur Linux, macOS, Windows. ASCOM COM est Windows-only.
-- **Futur-proof** — INDIGO est activement développé et remplace INDI
-- **Communauté** — L'écosystème INDIGO grandit et intègre nativement les drivers ASCOM
+> Sans `indi-web`, Noctua se connecte quand même à `indiserver` : seuls les
+> drivers déjà lancés sont visibles et le panneau Drivers est désactivé
+> (`indi.web_manager: false`).
 
 ## Démarrage rapide
 
@@ -143,13 +127,13 @@ Puis ouvrir **http://<host>:8080** dans le navigateur.
 |---|---|
 | **Python 3.10+** | requis par le backend (FastAPI, numpy, seiza) |
 | **pip + venv** | fournis par `python3-venv` / `python3-pip` (Debian/Ubuntu) |
-| **INDIGO** (`indigo_server`) | un serveur INDIGO accessible sur le réseau (matériel réel ou simulateurs). Noctua parle INDIGO/INDI sur TCP **port 7624** — c'est le seul middleware supporté |
+| **INDI** (`indiserver`) | un serveur INDI accessible sur le réseau (matériel réel ou simulateurs) + **INDI Web Manager** (`indi-web`, port `8624`) pour charger les drivers. Noctua parle INDI/XML sur TCP **port 7624** |
 | **(optionnel) `seiza`** | solveur astrométrique. Installé automatiquement en général ; s'il échoue, le serveur fonctionne mais la résolution d'astrométrie est désactivée |
 
-> **Le port INDIGO est toujours `7624` — c'est l'hôte qui dépend de votre réseau.**
-> À l'installation, renseignez l'adresse IP du serveur INDIGO (réel ou
-> simulateurs) dans `config.yaml` sous `indigo.host`, ou passez-la en argument
-> à `./start.sh <indigo_host>:7624`.
+> **Le port INDI est toujours `7624` — c'est l'hôte qui dépend de votre réseau.**
+> Renseignez l'adresse du serveur INDI dans `config.yaml` sous `indi.host`, et
+> l'URL de l'INDI Web Manager sous `indi.web_manager` ; ou passez l'hôte en
+> argument à `./start.sh <indi_host>:7624`.
 
 Prérequis système (ex. Ubuntu/Debian) :
 
@@ -199,7 +183,7 @@ cp config.example.yaml config.yaml   # puis éditez selon votre réseau
 ```
 
 `config.yaml` :
-- `indigo` : **hôte `host:port` du serveur INDIGO** (port toujours `7624`) et protocole (`connect`)
+- `indi` : **hôte `host:port` du serveur INDI** (port `7624`), protocole (`connect`) et URL de l'INDI Web Manager (`web_manager`)
 - `web` : hôte/port d'écoute (défaut `0.0.0.0:8080`)
 - `site` : nom du site, coordonnées, fuseau (utilisés pour la distance LST et le flip méridien)
 - `telescope` : flip méridien, marge d'angle horaire, altitude min, taux de slew recherche
@@ -209,8 +193,8 @@ cp config.example.yaml config.yaml   # puis éditez selon votre réseau
 
 > **La référence complète de toutes les clés est dans [docs/CONFIGURATION.md](docs/CONFIGURATION.md)** (`config.example.yaml` sert de modèle).
 
-`profiles.yaml` : stocke les profils de matériel (monture/caméra/caméra guide/focuser/roue). Chemin surchargeable par `INDIGO_PROFILES_PATH`.
-`sequence_templates.yaml` : templates de séquences nommés (C3). Chemin surchargeable par `INDIGO_SEQUENCE_TEMPLATES_PATH`.
+`profiles.yaml` : stocke les profils de matériel (monture/caméra/caméra guide/focuser/roue). Chemin surchargeable par `NOCTUA_PROFILES_PATH` (alias `INDIGO_PROFILES_PATH`).
+`sequence_templates.yaml` : templates de séquences nommés (C3). Chemin surchargeable par `NOCTUA_SEQUENCE_TEMPLATES_PATH` (alias `INDIGO_SEQUENCE_TEMPLATES_PATH`).
 
 > **Attention** : par défaut l'interface se bind sur `0.0.0.0`. **Ne pas exposer
 > sur Internet** — réservez à un LAN local ou derrière authentification (état :

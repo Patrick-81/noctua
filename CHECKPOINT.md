@@ -586,3 +586,15 @@ Molette zoom centré souris, clic-glisser pan (quand zoomé), double-clic reset,
 - `80f915a` test: deterministic LST
 - `a84259f` fix: reject empty sequence plan
 - `c93a148` test: sequence unit + flow + Playwright (P2)
+
+## Session 2026-10-22 — Gestion du serveur (indiserver/indigo_server)
+
+### Feature
+- Support de `indiserver` ou `indigo_server` via `server_type` et `auto_start` dans `config.yaml`.
+- Implémentation de `indigo/server_manager.py` pour gérer le cycle de vie des processus serveurs (start/stop/monitor).
+- Intégration dans `run.py` pour démarrer le serveur si `auto_start` est activé et l'arrêter proprement à la fermeture.
+
+### Validation
+- `run.py` syntax OK.
+- `ServerManager` implémenté.
+- `config.yaml` mis à jour.

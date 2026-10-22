@@ -20,20 +20,23 @@ cp config.example.yaml config.yaml
 
 ---
 
-## 1. `indigo` — serveur INDIGO
+## 1. `indi` — serveur INDI (ou INDIGO)
 
 ```yaml
-indigo:
-  host: 127.0.0.1        # adresse du serveur INDIGO (réel ou simulateurs)
-  port: 7624             # le port INDIGO/INDI est toujours 7624
+indi:
+  host: 127.0.0.1        # adresse d'indiserver (réel ou simulateurs)
+  port: 7624             # le port INDI/INDIGO est toujours 7624
+  web_manager: http://127.0.0.1:8624   # API REST indi-web (drivers)
 ```
 
 | Clé | Défaut | Rôle |
 |-----|--------|------|
-| `host` | `127.0.0.1` | Hôte du serveur INDIGO |
+| `host` | `127.0.0.1` | Hôte du serveur INDI |
 | `port` | `7624` | Port TCP (protocole INDI/XML) |
 | `protocol` | `connect` | `connect` (connexion auto) ou `attach` (sélection manuelle d'un driver) |
+| `web_manager` | `http://127.0.0.1:8624` | URL de l'INDI Web Manager (`false` pour désactiver le panneau Drivers) |
 
+> La section `indigo:` reste acceptée comme alias de `indi:` (compatibilité).
 > `./start.sh <host>:7624` et `--port 8080` surchargent ces valeurs sans toucher au fichier.
 
 ---
