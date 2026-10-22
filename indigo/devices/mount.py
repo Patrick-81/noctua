@@ -23,7 +23,7 @@ from ..protocol import PropertyVector, parse_sexagesimal
 
 log = logging.getLogger("indigo.mount")
 
-# Property names that identify a mount (INDIGO v2.0 + INDI v1.7 legacy)
+# Property names that identify a mount (INDIGO v2.0 + INDI standard/legacy)
 MOUNT_PROPERTIES = {
     # INDIGO v2.0
     "MOUNT_EQUATORIAL_COORDINATES",
@@ -42,17 +42,35 @@ MOUNT_PROPERTIES = {
     "MOUNT_HOME",
     "MOUNT_HOME_SET",
     "MOUNT_PARK_SET",
-    # INDI legacy
+    # INDI standard (libindi Telescope / Guider interfaces)
     "EQUATORIAL_EOD_COORD",
     "HORIZONTAL_COORD",
+    "ON_COORD_SET",
     "TELESCOPE_TRACK_STATE",
     "TELESCOPE_PARK",
+    "TELESCOPE_PARK_OPTION",
+    "TELESCOPE_PARK_POSITION",
     "TELESCOPE_ABORT_MOTION",
     "TELESCOPE_SLEW_RATE",
     "TELESCOPE_HOME",
     "TELESCOPE_MOTION_NS",
     "TELESCOPE_MOTION_WE",
+    "TELESCOPE_TIMED_GUIDE_NS",
+    "TELESCOPE_TIMED_GUIDE_WE",
 }
+
+
+def _normalize_rate(name: str | None) -> str:
+    """Normalize a slew-rate name for INDI/INDIGO matching.
+
+    ``Centering`` ↔ ``SLEW_CENTERING`` ↔ ``CENTERING`` all collapse to
+    ``centering`` (INDI prefixes items with ``SLEW_``).
+    """
+    n = (name or "").strip().lower().replace("_", "").replace(" ", "")
+    for prefix in ("slew", "mount", "telescope"):
+        if n.startswith(prefix) and len(n) > len(prefix):
+            return n[len(prefix):]
+    return n
 
 
 class Mount(BaseDevice):
@@ -63,7 +81,8 @@ class Mount(BaseDevice):
     # property names and item names to use for commands.
     PROP_ALIASES = {
         "MOUNT_EQUATORIAL_COORDINATES": ["EQUATORIAL_EOD_COORD"],
-        "MOUNT_ON_COORDINATES_SET": [],  # not needed for INDI (slew is implicit)
+        # INDI requires selecting TRACK/SLEW/SYNC before writing coords.
+        "MOUNT_ON_COORDINATES_SET": ["ON_COORD_SET"],
         "MOUNT_ABORT_MOTION": ["TELESCOPE_ABORT_MOTION"],
         "MOUNT_PARK": ["TELESCOPE_PARK"],
         "MOUNT_TRACKING": ["TELESCOPE_TRACK_STATE"],
@@ -72,6 +91,8 @@ class Mount(BaseDevice):
         "MOUNT_SLEW_RATE": ["TELESCOPE_SLEW_RATE"],
         "MOUNT_HOME": ["TELESCOPE_HOME"],
         "MOUNT_HORIZONTAL_COORDINATES": ["HORIZONTAL_COORD"],
+        "MOUNT_GEOGRAPHIC_COORDINATES": ["GEOGRAPHIC_COORD"],
+        "MOUNT_PARK_SET": ["TELESCOPE_PARK_OPTION", "TELESCOPE_PARK_POSITION"],
     }
 
     def __init__(self, name: str, client):
@@ -897,10 +918,11 @@ class Mount(BaseDevice):
 
     async def set_park_position(self) -> None:
         """Mémorise la position actuelle comme position de PARK."""
-        for prop_name in ("MOUNT_PARK_SET", "TELESCOPE_PARK_SET", "MOUNT_PARK_POSITION_SET"):
+        for prop_name in ("MOUNT_PARK_SET", "TELESCOPE_PARK_SET",
+                          "MOUNT_PARK_POSITION_SET", "TELESCOPE_PARK_OPTION"):
             pv = self._properties.get(prop_name)
             if pv is not None:
-                for cand in ("SET", "PARK_SET", "SET_PARK", "PARK"):
+                for cand in ("SET", "PARK_SET", "SET_PARK", "PARK", "PARK_CURRENT"):
                     if pv.get_item(cand):
                         log.info("[%s] set park position via %s.%s", self.name, prop_name, cand)
                         await self.send_switch(prop_name, [{"name": cand, "value": True}])
@@ -1144,6 +1166,36 @@ class Mount(BaseDevice):
         except asyncio.CancelledError:
             pass
 
+    async def pulse(self, direction: str, ms: int) -> None:
+        """Apply a guide pulse (ms) on one axis.
+
+        Prefers the INDI standard ``TELESCOPE_TIMED_GUIDE_NS/WE`` number
+        vectors. Falls back to a joystick move (Guide rate) + sleep + halt
+        for drivers that only expose motion switches.
+        """
+        d = (direction or "").upper()
+        axis_ns = d in ("NORTH", "SOUTH", "N", "S")
+        prop = "TELESCOPE_TIMED_GUIDE_NS" if axis_ns else "TELESCOPE_TIMED_GUIDE_WE"
+        pv = self._properties.get(prop)
+        if pv is not None and ms > 0:
+            if axis_ns:
+                candidates = ("TIMED_GUIDE_N", "TIMED_GUIDE_S")
+                want = "TIMED_GUIDE_N" if d in ("NORTH", "N") else "TIMED_GUIDE_S"
+            else:
+                candidates = ("TIMED_GUIDE_W", "TIMED_GUIDE_E")
+                want = "TIMED_GUIDE_W" if d in ("WEST", "W") else "TIMED_GUIDE_E"
+            item = self.get_item_name(prop, want, *candidates)
+            await self.send_number(prop, [{"name": item, "value": float(ms)}])
+            log.debug("[%s] pulse %s %dms (%s.%s)", self.name, d, ms, prop, item)
+            return
+
+        # Fallback: Guide-rate joystick motion for the pulse duration.
+        await self.move(direction, "Guide")
+        try:
+            await asyncio.sleep(max(0, int(ms)) / 1000.0)
+        finally:
+            await self.halt_move()
+
     async def halt_move(self) -> None:
         self._stop_move_poll()
         # Stop manual motion : mettre les deux axes à Off
@@ -1177,15 +1229,19 @@ class Mount(BaseDevice):
             log.debug("[%s] set_slew_rate: no %s in %s", self.name, slew_prop, list(self._properties))
             return
         pv = self._properties[slew_prop]
-        want = (rate_name or "").strip().lower()
-        matched = any(it.name.lower() == want for it in pv.items)
-        if not matched:
+        want = _normalize_rate(rate_name)
+        matched_item = None
+        for it in pv.items:
+            if _normalize_rate(it.name) == want:
+                matched_item = it
+                break
+        if matched_item is None:
             log.warning("[%s] set_slew_rate: no item matching %r in %s — keeping current rate",
                         self.name, rate_name, [it.name for it in pv.items])
             return
-        items = [{"name": it.name, "value": it.name.lower() == want} for it in pv.items]
+        items = [{"name": it.name, "value": it is matched_item} for it in pv.items]
         log.info("[%s] set_slew_rate: %s → %s", self.name, slew_prop,
-                 next((it["name"] for it in items if it["value"]), "?"))
+                 matched_item.name)
         await self.send_switch(slew_prop, items)
 
     # ── State ────────────────────────────────────────────────────

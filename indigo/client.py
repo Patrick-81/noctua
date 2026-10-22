@@ -1,11 +1,13 @@
 """
-client.py — INDIGO TCP client.
+client.py — INDI (indiserver) TCP client.
 
-Connects to an INDIGO server via raw TCP socket (typically port 7624),
-sends getProperties on connect, and dispatches XML messages to
-registered callbacks.
+Connects to an INDI server via raw TCP socket (default port 7624), sends
+getProperties on connect, and dispatches XML messages to registered
+callbacks.
 
-The INDIGO server on this port speaks XML over raw TCP (not WebSocket).
+INDI and INDIGO share the same XML-over-TCP wire protocol; the parser
+accepts both dialects (INDI double-quoted attributes / element text and
+INDIGO v2 single-quoted attributes / value attributes).
 """
 
 from __future__ import annotations
@@ -46,7 +48,7 @@ BlobHandler = Callable[[str, str, str, str, bytes], Any]
 
 
 class IndigoClient:
-    """Async INDIGO TCP client."""
+    """Async INDI/INDIGO TCP client."""
 
     def __init__(self, host_port: str, protocol: str = "connect"):
         self._host, self._port = host_port.split(":")
@@ -345,6 +347,16 @@ class IndigoClient:
                 self._blob_hint = 0
                 if not self._recv_buffer:
                     break
+
+            # XML declaration (INDI may prefix each batch with
+            # <?xml version="1.0" encoding="UTF-8"?>) — not a message.
+            if self._recv_buffer.startswith(b"<?xml"):
+                decl_end = self._recv_buffer.find(b"?>")
+                if decl_end < 0:
+                    break  # incomplete
+                del self._recv_buffer[:decl_end + 2]
+                self._blob_hint = 0
+                continue
 
             # Self-closing tag
             m = _re_selfclose.match(self._recv_buffer)

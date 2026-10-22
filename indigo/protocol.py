@@ -1,8 +1,9 @@
 """
-protocol.py — INDIGO protocol parser and message builder.
+protocol.py — INDI / INDIGO protocol parser and message builder.
 
-Handles XML-mode INDIGO messages over raw TCP.
-The INDIGO server speaks XML (not JSON).
+Handles XML-mode INDI messages over raw TCP (indiserver, port 7624).
+INDIGO uses the same wire protocol, so this layer also accepts its
+v2 extensions (URL BLOBs, camelCase switch values).
 
 Supported tags:
   def*Vector   — property definitions (number, switch, text, blob)
@@ -313,9 +314,14 @@ def _xml_attr_str(s: str) -> str:
 
 
 def build_get_properties(device: str | None = None,
-                         prop_name: str | None = None) -> str:
-    """Build a getProperties XML message."""
-    parts = ['<getProperties version="2.0"']
+                         prop_name: str | None = None,
+                         version: str = "1.7") -> str:
+    """Build a getProperties XML message.
+
+    INDI servers expect version ``1.7`` (the current INDI XML protocol);
+    INDIGO v2 servers accept it too.
+    """
+    parts = [f'<getProperties version="{version}"']
     if device:
         parts.append(f' device="{_xml_attr_str(device)}"')
     if prop_name:

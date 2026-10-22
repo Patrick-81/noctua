@@ -1,5 +1,12 @@
 """
-camera.py — INDIGO Camera (CCD) device.
+camera.py — INDI / INDIGO Camera (CCD) device.
+
+Supports both naming conventions:
+  - INDI: CCD_INFO (CCD_MAX_X/Y, CCD_PIXEL_SIZE...), CCD_EXPOSURE
+    (CCD_EXPOSURE_VALUE), CCD_TEMPERATURE (CCD_TEMPERATURE_VALUE),
+    CCD_BINNING (HOR_BIN/VER_BIN), CCD1 BLOB.
+  - INDIGO v2: CCD_INFO (WIDTH/HEIGHT/PIXEL_SIZE), CCD_EXPOSURE
+    (EXPOSURE), CCD_TEMPERATURE (CCD_TEMPERATURE/CCD_SETPOINT_TEMPERATURE).
 
 Handles:
   - CCD_INFO (sensor dimensions, pixel size)
@@ -25,10 +32,11 @@ log = logging.getLogger("indigo.camera")
 
 CAMERA_PROPERTIES = {
     "CCD_INFO", "CCD_LENS", "CCD_LENS_FOV",
-    "CCD_EXPOSURE", "CCD_TEMPERATURE", "CCD_BINNING",
-    "CCD_GAIN", "CCD_OFFSET", "CCD_FRAME_TYPE",
+    "CCD_EXPOSURE", "CCD_ABORT_EXPOSURE", "CCD_TEMPERATURE", "CCD_BINNING",
+    "CCD_GAIN", "CCD_OFFSET", "CCD_FRAME_TYPE", "CCD_FRAME",
     "CCD_PREVIEW", "CCD_UPLOAD", "CCD_IMAGE",
     "UPLOAD_MODE", "UPLOAD_SETTINGS", "X_PIXEL_FORMAT",
+    "CCD_CAPTURE_FORMAT", "CCD_TRANSFER_FORMAT",
 }
 
 # Upgrade de profondeur 8 → 16 bits (noms normalisés sans espaces/casse).
@@ -171,9 +179,14 @@ class Camera(BaseDevice):
                 self.offset = int(item.value)
 
     def _parse_info(self, pv: PropertyVector) -> None:
-        w = pv.get_item("WIDTH")
-        h = pv.get_item("HEIGHT")
-        ps = pv.get_item("PIXEL_SIZE")
+        # INDI: CCD_MAX_X / CCD_MAX_Y / CCD_PIXEL_SIZE (or _X/_Y).
+        # INDIGO v2: WIDTH / HEIGHT / PIXEL_SIZE.
+        w = (pv.get_item("WIDTH") or pv.get_item("CCD_MAX_X")
+             or pv.get_item("MAX_X"))
+        h = (pv.get_item("HEIGHT") or pv.get_item("CCD_MAX_Y")
+             or pv.get_item("MAX_Y"))
+        ps = (pv.get_item("PIXEL_SIZE") or pv.get_item("CCD_PIXEL_SIZE")
+              or pv.get_item("CCD_PIXEL_SIZE_X"))
         if w and w.value is not None:
             self.width_px = int(w.value)
         if h and h.value is not None:
@@ -241,6 +254,18 @@ class Camera(BaseDevice):
         ])
 
     async def abort(self) -> None:
+        """Abort the current exposure.
+
+        INDI exposes a dedicated ``CCD_ABORT_EXPOSURE`` switch (item
+        ``ABORT``); INDIGO drivers accept setting the duration to 0.
+        """
+        abort_pv = self.get_prop("CCD_ABORT_EXPOSURE")
+        if abort_pv is not None:
+            item = self.get_item_name("CCD_ABORT_EXPOSURE", "ABORT", "ABORT_EXPOSURE")
+            await self.send_switch("CCD_ABORT_EXPOSURE", [
+                {"name": item, "value": True},
+            ])
+            return
         item = self.get_item_name("CCD_EXPOSURE", "EXPOSURE", "CCD_EXPOSURE_VALUE", "DURATION")
         await self.send_number("CCD_EXPOSURE", [
             {"name": item, "value": 0},
@@ -248,8 +273,14 @@ class Camera(BaseDevice):
 
     async def set_temperature(self, target: float) -> None:
         self.target_temp = target
+        # INDI: the writable item is CCD_TEMPERATURE_VALUE.
+        # INDIGO v2: CCD_SETPOINT_TEMPERATURE / TEMPERATURE / CCD_TEMPERATURE.
+        item = self.get_item_name(
+            "CCD_TEMPERATURE", "CCD_SETPOINT_TEMPERATURE",
+            "CCD_TEMPERATURE_TARGET", "CCD_TEMPERATURE_VALUE",
+            "TEMPERATURE", "CCD_TEMPERATURE")
         await self.send_number("CCD_TEMPERATURE", [
-            {"name": "CCD_SETPOINT_TEMPERATURE", "value": target},
+            {"name": item, "value": target},
         ])
 
     async def set_binning(self, x: int, y: int) -> None:

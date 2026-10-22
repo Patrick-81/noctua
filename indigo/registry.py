@@ -1,11 +1,13 @@
 """
-registry.py — INDIGO device registry.
+registry.py — INDI/INDIGO device registry.
 
-Listens for def*Vector messages from the INDIGO client, auto-detects
+Listens for def*Vector messages from the INDI client, auto-detects
 device types, creates device instances, and dispatches all messages
 to the appropriate device.
 
 This is the central hub that connects the protocol layer to device objects.
+Driver loading is delegated to the INDI Web Manager (indiweb) when
+configured — INDI has no in-protocol driver attach/detach.
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from .devices.filterwheel import FilterWheel
 
 if TYPE_CHECKING:
     from .client import IndigoClient
+    from .indiweb import IndiWebManager
 
 log = logging.getLogger("indigo.registry")
 
@@ -115,10 +118,12 @@ def connection_vector(known_items: list, connect: bool) -> list:
 class DeviceRegistry:
     """Discovers and manages INDIGO devices."""
 
-    def __init__(self, client: IndigoClient):
+    def __init__(self, client: IndigoClient,
+                 indiweb: "IndiWebManager | None" = None):
         self.client = client
+        self.indiweb = indiweb
         self._devices: dict[str, GenericDevice] = {}  # name → device
-        self._drivers: list[dict] = []  # DRIVERS switch items
+        self._drivers: list[dict] = []  # DRIVERS switch items / indiweb catalogue
         self._auto_connecting: set[str] = set()  # devices we sent CONNECT to
         self._connect_item_names: dict[str, str] = {}  # device → item name for CONNECT
         self._disconnecting: set[str] = set()  # manual disconnects awaiting driver confirm
@@ -182,6 +187,20 @@ class DeviceRegistry:
 
     def drivers_list(self) -> list[dict]:
         return list(self._drivers)
+
+    async def refresh_drivers(self, force: bool = False) -> list[dict]:
+        """Refresh the driver catalogue from indiweb (INDI mode).
+
+        When no indiweb manager is configured, returns whatever the
+        in-protocol ``Server/DRIVERS`` vectors provided (INDIGO fallback).
+        """
+        if self.indiweb is None:
+            return self.drivers_list()
+        try:
+            self._drivers = await self.indiweb.list_drivers(force=force)
+        except Exception as e:  # noqa: BLE001
+            log.warning("indiweb driver refresh failed: %s", e)
+        return self.drivers_list()
 
     def drivers_grouped(self) -> dict[str, list[dict]]:
         """Drivers grouped by UI category (mount, camera, …)."""
@@ -423,10 +442,10 @@ class DeviceRegistry:
         # (ex. « SVBONY SV305PRO (guider) » contient « svbony »).
         if name_lower.endswith("(guider)") or " (guider)" in name_lower:
             return dev
-        camera_keywords = ['svbony', 'asi', 'qhy', 'zwo', 'sbig', 'atik',
-                           'toup', 'playerone', ' Mallin', 'fli', 'omegon',
-                           'ogma', 'bresser', 'bresser', 'rising', 'ptp',
-                           'uvc', 'sony', 'canon', 'nikon', 'olympus']
+        camera_keywords = ['ccd', 'camera', 'svbony', 'asi', 'qhy', 'zwo',
+                           'sbig', 'atik', 'toup', 'playerone', 'mallin',
+                           'fli', 'omegon', 'ogma', 'bresser', 'rising',
+                           'ptp', 'uvc', 'sony', 'canon', 'nikon', 'olympus']
         for kw in camera_keywords:
             if kw in name_lower:
                 real = Camera(name, self.client)

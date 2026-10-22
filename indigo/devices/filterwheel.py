@@ -1,14 +1,13 @@
-"""filterwheel.py — INDIGO Filter Wheel device.
+"""filterwheel.py — INDI / INDIGO Filter Wheel device.
 
 Models a motorized (or manual) filter wheel and exposes:
-  - the list of slots (FILTER_SLOT switch OneOfMany — legacy mock
-    convention, or WHEEL_SLOT number + WHEEL_SLOT_NAME text — native
-    INDIGO 2.x convention)
+  - the list of slots. Three conventions are unified:
+    * INDI: FILTER_SLOT (number, item FILTER_SLOT_VALUE) + FILTER_NAME
+      (text, items FILTER_SLOT_NAME_1..N),
+    * INDIGO 2.x: WHEEL_SLOT (number) + WHEEL_SLOT_NAME (text),
+    * legacy/mock: FILTER_SLOT (OneOfMany switch).
   - the currently selected slot
   - ``set_slot()`` to select a slot by name
-
-The two conventions are unified into the same ``slots`` list of
-``{name, label}`` dicts and a ``current_slot`` name.
 """
 
 from __future__ import annotations
@@ -121,6 +120,13 @@ class FilterWheel(BaseDevice):
                 self._wheel_index = int(round(item.value))
         self._rebuild_wheel_slots()
 
+    def _parse_filter_number(self, pv) -> None:
+        """Read INDI FILTER_SLOT (number) — current slot index (1-based)."""
+        item = pv.get_item("FILTER_SLOT_VALUE") or (pv.items[0] if pv.items else None)
+        if item is not None and isinstance(item.value, (int, float)):
+            self._wheel_index = int(round(item.value))
+        self._rebuild_wheel_slots()
+
     def _rebuild_wheel_slots(self) -> None:
         """Rebuild ``self.slots`` + ``current_slot`` from the native state."""
         if not self._wheel_names:
@@ -146,11 +152,16 @@ class FilterWheel(BaseDevice):
     def _apply_set(self, pv) -> None:
         up = pv.name.upper()
         if up == "FILTER_SLOT":
-            self._parse_slots(pv)
+            # INDI: FILTER_SLOT is a Number vector; legacy/mock used a
+            # OneOfMany Switch vector.
+            if getattr(pv.vector_type, "value", "") == "number":
+                self._parse_filter_number(pv)
+            else:
+                self._parse_slots(pv)
+        elif up in ("FILTER_NAME", "WHEEL_SLOT_NAME"):
+            self._parse_wheel_names(pv)
         elif up == "WHEEL_SLOT":
             self._parse_wheel(pv)
-        elif up == "WHEEL_SLOT_NAME":
-            self._parse_wheel_names(pv)
         elif up == "WHEEL_SLOT_OFFSET":
             self._parse_wheel_offsets(pv)
 
@@ -172,21 +183,38 @@ class FilterWheel(BaseDevice):
         return []
 
     async def set_slot(self, name: str) -> None:
-        """Select a filter slot by name (legacy switch or native number)."""
-        # Legacy convention: FILTER_SLOT OneOfMany switch
-        switch_pv = self.get_prop("FILTER_SLOT")
-        if switch_pv is not None:
-            known = [i.name.lower() for i in switch_pv.items]
+        """Select a filter slot by name (switch, INDI or INDIGO number)."""
+        slot_pv = self.get_prop("FILTER_SLOT")
+
+        # Legacy convention: FILTER_SLOT OneOfMany switch.
+        if slot_pv is not None and getattr(slot_pv.vector_type, "value", "") != "number":
+            known = [i.name.lower() for i in slot_pv.items]
             if name.lower() not in known:
                 raise ValueError(
-                    f"Unknown filter slot '{name}' (known: {[i.name for i in switch_pv.items]})"
+                    f"Unknown filter slot '{name}' (known: {[i.name for i in slot_pv.items]})"
                 )
             log.debug("[%s] set slot → %s", self.name, name)
             await self.send_switch("FILTER_SLOT", [{"name": name, "value": True}])
             self.current_slot = name
             return
 
-        # Native convention: WHEEL_SLOT number + WHEEL_SLOT_NAME
+        # INDI: FILTER_SLOT number + FILTER_NAME.
+        if slot_pv is not None:
+            idx = self._index_for_name(name)
+            if idx is None:
+                raise ValueError(
+                    f"Unknown filter slot '{name}' "
+                    f"(known: {[s['name'] for s in self.slots]})"
+                )
+            item_name = self.get_item_name("FILTER_SLOT", "FILTER_SLOT_VALUE")
+            log.debug("[%s] set filter slot → %s (index %d)", self.name, name, idx)
+            await self.send_number("FILTER_SLOT", [
+                {"name": item_name, "value": float(idx)},
+            ])
+            self.current_slot = name
+            return
+
+        # INDIGO v2: WHEEL_SLOT number + WHEEL_SLOT_NAME.
         num_pv = self.get_prop("WHEEL_SLOT")
         if num_pv is None:
             raise RuntimeError(
