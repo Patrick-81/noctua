@@ -4,11 +4,16 @@ server_manager.py — Manages the lifecycle of the protocol server (indiserver o
 
 import asyncio
 import logging
+import os
+import socket
 import subprocess
 import signal
+from pathlib import Path
 from typing import Optional
 
 log = logging.getLogger("indigo.server_manager")
+
+SERVER_EXECUTABLES = ("indiserver", "indigo_server")
 
 class ServerManager:
     """Manages the lifecycle of the protocol server (indiserver or indigo_server)."""
@@ -20,6 +25,7 @@ class ServerManager:
         self._command = command
         self._process: Optional[subprocess.Popen] = None
         self._task: Optional[asyncio.Task] = None
+        self._external_server = False
 
         if self._server_type not in ("indigo", "indi"):
             raise ValueError(f"Unsupported server_type: {self._server_type}. Must be 'indigo' or 'indi'.")
@@ -28,10 +34,94 @@ class ServerManager:
     def is_running(self) -> bool:
         return self._process is not None and self._process.poll() is None
 
+    @property
+    def external_server(self) -> bool:
+        return self._external_server
+
+    def _is_local_host(self) -> bool:
+        """True when the configured server host belongs to this machine."""
+        host = (self._host or "").strip()
+        if host in ("", "0.0.0.0", "::", "localhost"):
+            return True
+        try:
+            addr = socket.gethostbyname(host)
+        except OSError:
+            return False
+        if addr.startswith("127."):
+            return True
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                sock.bind((addr, 0))
+            return True
+        except OSError:
+            return False
+
+    def _find_local_servers(self) -> list[dict]:
+        """Return INDI/INDIGO server processes already running locally."""
+        found: list[dict] = []
+        proc = Path("/proc")
+        if not proc.is_dir():
+            return found
+        own_pid = os.getpid()
+        for entry in proc.iterdir():
+            if not entry.name.isdigit():
+                continue
+            pid = int(entry.name)
+            if pid == own_pid:
+                continue
+            try:
+                raw = (entry / "cmdline").read_bytes()
+            except OSError:
+                continue
+            args = [a.decode(errors="replace") for a in raw.split(b"\0") if a]
+            if not args:
+                continue
+            name = os.path.basename(args[0])
+            if name in SERVER_EXECUTABLES:
+                found.append({"pid": pid, "name": name, "cmdline": " ".join(args)})
+        return found
+
+    def _port_in_use(self) -> bool:
+        """True when something already listens on the configured host/port."""
+        host = self._host
+        if host in ("", "0.0.0.0", "::"):
+            host = "127.0.0.1"
+        try:
+            with socket.create_connection((host, self._port), timeout=0.5):
+                return True
+        except OSError:
+            return False
+
     async def start(self) -> None:
         """Starts the server process if it's not already running."""
         if self.is_running:
             log.info("Server (%s) is already running.", self._server_type)
+            return
+
+        if not self._is_local_host():
+            log.warning(
+                "auto_start ignoré : le serveur INDI %s:%d est distant, "
+                "aucun processus local ne sera démarré.",
+                self._host, self._port,
+            )
+            return
+
+        existing = self._find_local_servers()
+        if existing:
+            details = ", ".join(f"{s['name']} (PID {s['pid']})" for s in existing)
+            log.warning(
+                "Serveur INDI/INDIGO déjà actif localement : %s — "
+                "aucun nouveau processus démarré.", details,
+            )
+            self._external_server = True
+            return
+
+        if self._port_in_use():
+            log.warning(
+                "Port %d déjà utilisé localement — aucun nouveau serveur "
+                "INDI/INDIGO démarré.", self._port,
+            )
+            self._external_server = True
             return
 
         cmd = self._get_command()
@@ -70,6 +160,12 @@ class ServerManager:
 
     async def stop(self) -> None:
         """Stops the server process."""
+        if self._external_server:
+            log.info(
+                "Serveur INDI/INDIGO externe détecté au démarrage — "
+                "il n'est pas arrêté par Noctua."
+            )
+            return
         if not self.is_running:
             log.info("Server (%s) is not running.", self._server_type)
             return
@@ -124,6 +220,6 @@ class ServerManager:
         if self._command:
             return self._command
         if self._server_type == "indigo":
-            return ["indigo_server"]
+            return ["indigo_server", "-p", str(self._port)]
         else:  # indi
-            return ["indiserver"]
+            return ["indiserver", "-p", str(self._port)]

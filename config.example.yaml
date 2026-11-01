@@ -13,7 +13,8 @@ indi:
   # --- Gestion du serveur (Nouveau) ---
   # Si true, Noctua tentera de démarrer le processus du serveur (indiserver ou indigo_server).
   # server_type: indigo # 'indigo' ou 'indi'
-  # auto_start: false   # true pour démarrer automatiquement le serveur
+  # auto_start: false   # true pour démarrer le serveur si host est local et
+  #                     # qu'aucun indiserver/indigo_server ne tourne déjà
   # blob_mode: Also (défaut, inline base64, compatible INDI+INDIGO) ou URL
   # prefer_raw16: true (défaut) bascule les caméras Bayer de RAW 8 vers
   # RAW 16 bits quand proposé (X_PIXEL_FORMAT) — indispensable à la mise
