@@ -6,6 +6,7 @@ indigo:
   # server_type: indigo # 'indigo' ou 'indi'
   # auto_start: false   # true pour démarrer automatiquement le serveur
   blob_mode: Also
+web:
   host: 0.0.0.0
   port: 8080
 site:

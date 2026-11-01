@@ -121,9 +121,14 @@ def main():
         else:
             indi_host_port = args.indi_server
     else:
-        host = indi_cfg.get("host", "127.0.0.1")
-        port = indi_cfg.get("port", 7624)
-        indi_host_port = f"{host}:{port}"
+        indi_host_port = f"{indi_cfg.get('host', '127.0.0.1')}:{indi_cfg.get('port', 7624)}"
+
+    # Split back into host/port (used by ServerManager and sanity checks).
+    host, _, port_raw = indi_host_port.rpartition(":")
+    try:
+        port = int(port_raw)
+    except ValueError:
+        port = 7624
 
     # Determine web server settings
     web_host = args.host or web_cfg.get("host", "0.0.0.0")
@@ -131,6 +136,11 @@ def main():
 
     log.info("INDI server:   %s (%s)", indi_host_port, protocol)
     log.info("Web server:    http://%s:%d", web_host, web_port)
+
+    if web_port == port and web_host in ("0.0.0.0", "127.0.0.1", host):
+        log.warning(
+            "INDI server and web server share port %d — check config.yaml "
+            "(indi.port vs web.port)", port)
 
     # INDI Web Manager (driver start/stop) — optional but required for the
     # driver panel when running against indilib.
