@@ -21,6 +21,7 @@ backups/
 # État runtime auto-sauvegardé par l'application (positions de panneaux, profil actif)
 ui.yaml
 profiles.yaml
+server_list.yaml
 # Fichiers de config personnels
 config.yaml
 .opencode/
