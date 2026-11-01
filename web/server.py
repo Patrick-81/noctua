@@ -68,6 +68,9 @@ class WebServer:
         self.telescope.setdefault("min_altitude", 0.0)
         self.telescope.setdefault("flip_slew_rate", "Centering")
         self.telescope.setdefault("recenter_after_flip", True)
+        # Au démarrage, si la monture n'est ni parkée ni en suivi, on l'envoie
+        # en position HOME (OnStep ignore les commandes pendant le homing).
+        self.telescope.setdefault("home_on_start", True)
         # State: whether the automatic flip has already fired for the current
         # west-of-meridian pass (avoids re-flipping on every frame post-meridian).
         # Re-armed once the mount goes back east of the meridian.
@@ -431,6 +434,66 @@ class WebServer:
             dev.on_image = self._make_image_callback(dev.name)
             log.debug("Wired image callback for camera: %s", dev.name)
 
+    async def _home_mount_on_start(self) -> None:
+        """Met la monture en position HOME au démarrage si elle n'est pas parkée.
+
+        Attend que le driver ait publié ses propriétés (sinon OnStep ignore
+        le :hC# envoyé trop tôt), puis envoie HOME une seule fois. L'état
+        ``homing``/``homed`` est diffusé normalement vers l'UI.
+        """
+        if not self.telescope.get("home_on_start", True):
+            return
+
+        mount = None
+        for _ in range(120):  # 60 s max pour découvrir la monture
+            await asyncio.sleep(0.5)
+            mount = self.registry.get_mount()
+            if mount and mount.connected and (
+                    mount.get_prop("TELESCOPE_HOME") or mount.get_prop("MOUNT_HOME")):
+                break
+        if mount is None or not mount.connected:
+            log.info("startup home: monture absente ou non connectée — ignoré")
+            return
+
+        if mount.parked:
+            log.info("startup home: monture déjà parkée — rien à faire")
+            return
+        if mount.tracking:
+            log.warning("startup home: monture non parkée mais en suivi — HOME automatique annulé")
+            return
+        if mount.homed:
+            log.info("startup home: monture déjà en position HOME")
+            return
+
+        # Laisse le driver terminer son initialisation (OnStep peut mettre
+        # plusieurs dizaines de secondes avant d'accepter :hC#).
+        await asyncio.sleep(30.0)
+        if mount.parked or mount.tracking:
+            log.info("startup home: état changé entre-temps — HOME annulé")
+            return
+        if mount.homed:
+            log.info("startup home: monture déjà en position HOME")
+            return
+
+        log.info("startup home: monture non parkée → envoi HOME")
+        await mount.home()
+
+        waited = 0.0
+        while waited < 120.0:
+            await asyncio.sleep(0.5)
+            waited += 0.5
+            if mount.homed:
+                log.info("startup home: terminé RA=%.4fh DEC=%.2f°",
+                         mount.ra_hours, mount.dec_deg)
+                return
+            if mount.parked:
+                log.info("startup home: monture parkée entre-temps — arrêt")
+                return
+            if not mount.homing and waited > 5.0:
+                log.warning("startup home: commande sans effet après %.0fs", waited)
+                return
+        log.warning("startup home: timeout après %.0fs", waited)
+
     @staticmethod
     async def _no_cache_middleware(request: Request, call_next):
         response = await call_next(request)
@@ -454,6 +517,7 @@ class WebServer:
         async def startup():
             weblog_handler.set_loop(asyncio.get_event_loop())
             asyncio.create_task(self._enable_blob_upload())
+            asyncio.create_task(self._home_mount_on_start())
             # Load plate solver catalogs
             cat_result = self.solver.load_catalogs()
             if cat_result.get("ok"):

@@ -110,11 +110,22 @@ def register(app, server: "WebServer") -> None:
         await m.set_home_position()
         return {"ok": True}
 
+    async def _abort_if_moving(m) -> None:
+        """Interrompt homing/slew avant une commande manuelle.
+
+        OnStep ignore joystick et slew-rate pendant un HOME (:hC#) ou un
+        slew : sans abort, l'UI semble ne plus répondre pendant ~100 s.
+        """
+        if m.homing or m.slewing or m.park_state == "Busy":
+            await m.abort()
+            await asyncio.sleep(0.3)
+
     @app.post("/api/mount/tracking")
     async def mount_tracking(body: dict):
         m = server.registry.get_mount()
         if not m:
             return {"error": "no mount"}
+        await _abort_if_moving(m)
         await m.set_tracking(body.get("on", True))
         return {"ok": True}
 
@@ -127,6 +138,7 @@ def register(app, server: "WebServer") -> None:
         rate = body.get("rate")
         # Un seul set_slew_rate : move() applique le rate fourni (pas de
         # défaut CENTERING qui écrasait le choix UI et tout désactivait).
+        await _abort_if_moving(m)
         await m.move(direction, rate)
         return {"ok": True}
 

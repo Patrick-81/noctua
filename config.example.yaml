@@ -32,6 +32,7 @@ site:
   timezone: Europe/Paris
 telescope:
   name: Newton 250/1000 # nom du télescope → entête FITS (TELESCOP)
+  home_on_start: true   # si non parkée au démarrage → envoie HOME
   flip_enabled: true
   hour_angle_margin: 0.2
   min_altitude: 5.0

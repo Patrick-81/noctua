@@ -1140,14 +1140,18 @@ class Mount(BaseDevice):
                             self.homing = False
                             self.homed = True
                             log.info("[%s] homing complete: RA=%.4fh DEC=%.4f°", self.name, self.ra_hours, self.dec_deg)
-                        else:
-                            # Coords stables, jamais Busy, aucun mouvement :
-                            # le driver a ignoré la commande — ne pas allumer la LED.
+                            self._stop_move_poll()
+                            return
+                        # OnStep peut mettre ~50 s avant de publier Busy/GO
+                        # après un :hC# envoyé tôt : ne pas conclure à l'échec
+                        # avant 60 s (sinon l'UI croit le home ignoré et
+                        # l'utilisateur relance/joystick pendant le homing).
+                        if poll_count > 600:
                             self.homing = False
                             self.homed = False
-                            log.warning("[%s] home: stable sans Busy ni mouvement — commande probablement ignorée par le driver", self.name)
-                        self._stop_move_poll()
-                        return
+                            log.warning("[%s] home: stable sans Busy ni mouvement après 60s — commande probablement ignorée par le driver", self.name)
+                            self._stop_move_poll()
+                            return
                     # Timeout 100s : OnStep met ~75s pour homes (Busy 12:01:08 → Ok 12:02:23).
                     # Évite de bloquer l'UI à vie si HOME échoue (Alert ou driver coincé).
                     if poll_count > 1000:

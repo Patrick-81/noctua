@@ -47,11 +47,10 @@ function renderMountPanel() {
         homingEl.className = 'mount-led ' + (d.homing ? 'busy' : (d.homed ? 'on' : 'off'));
     }
 
-    // GOTO/tracking désactivés seulement pendant un mouvement (slew/homing) :
-    // le backend gère les conflits via abort/unpark auto. PARK/UNPARK/HOME
-    // restent TOUJOURS actifs — sinon un park_state coincé sur Busy rend
-    // l'UI non réactive et l'utilisateur ne peut plus débloquer la monture.
-    const moveBusy = d.slewing || d.homing;
+    // GOTO reste actif pendant un HOME : le backend abort le homing avant
+    // le slew (sinon OnStep ignore la commande et l'UI semble figée ~100 s).
+    // Seul un slew en cours désactive GOTO/TRACK pour éviter les doublons.
+    const moveBusy = d.slewing;
     ['btn-goto', 'btn-tracking'].forEach(id => {
         const btn = document.getElementById(id);
         if (btn) btn.disabled = moveBusy;
